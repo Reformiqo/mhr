@@ -1,0 +1,226 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:{container_no-#}",
+ "creation": "2024-05-30 10:43:51.344406",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_lvus",
+  "container_no",
+  "glue",
+  "merge_no",
+  "column_break_jnpb",
+  "lusture",
+  "pulp",
+  "lot_no",
+  "column_break_hzgt",
+  "grade",
+  "fsc",
+  "purchase_receipt_info_section",
+  "supplier",
+  "posting_date",
+  "warehouse",
+  "column_break_tfsi",
+  "item",
+  "posting_time",
+  "section_break_ssfz",
+  "items",
+  "batches_section",
+  "batches",
+  "amended_from",
+  "section_break_rolf",
+  "total_batches",
+  "column_break_ntki",
+  "total_cone",
+  "column_break_nqua",
+  "total_net_weight"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_lvus",
+   "fieldtype": "Section Break",
+   "label": "Container Info"
+  },
+  {
+   "fieldname": "container_no",
+   "fieldtype": "Data",
+   "label": "Container No"
+  },
+  {
+   "fieldname": "glue",
+   "fieldtype": "Select",
+   "label": "Glue",
+   "options": "Centrifugal\nHigh\nLow"
+  },
+  {
+   "fieldname": "merge_no",
+   "fieldtype": "Data",
+   "label": "Merge No"
+  },
+  {
+   "fieldname": "column_break_jnpb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lusture",
+   "fieldtype": "Select",
+   "label": "Lusture",
+   "options": "Bright\nDull\nSilky"
+  },
+  {
+   "fieldname": "pulp",
+   "fieldtype": "Select",
+   "label": "Pulp",
+   "options": "Cotton\nWood\nBamboo"
+  },
+  {
+   "fieldname": "lot_no",
+   "fieldtype": "Data",
+   "label": "Lot No"
+  },
+  {
+   "fieldname": "column_break_hzgt",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "grade",
+   "fieldtype": "Select",
+   "label": "Grade",
+   "options": "A\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD"
+  },
+  {
+   "fieldname": "fsc",
+   "fieldtype": "Select",
+   "label": "FSC",
+   "options": "100%\nMix\nNon FSC"
+  },
+  {
+   "fieldname": "purchase_receipt_info_section",
+   "fieldtype": "Section Break",
+   "label": "Purchase Receipt Info"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "column_break_tfsi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "posting_time",
+   "fieldtype": "Time",
+   "label": "Posting Time"
+  },
+  {
+   "fieldname": "batches_section",
+   "fieldtype": "Section Break",
+   "label": "Batches"
+  },
+  {
+   "allow_bulk_edit": 1,
+   "fieldname": "batches",
+   "fieldtype": "Table",
+   "label": "Batches",
+   "options": "Batch Items"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Container",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "section_break_ssfz",
+   "fieldtype": "Section Break",
+   "hidden": 1
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Items",
+   "options": "Purchase Receipt Item"
+  },
+  {
+   "fieldname": "section_break_rolf",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "total_batches",
+   "fieldtype": "Data",
+   "label": "Total Batches"
+  },
+  {
+   "fieldname": "column_break_ntki",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_cone",
+   "fieldtype": "Data",
+   "label": "Total Cone"
+  },
+  {
+   "fieldname": "column_break_nqua",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_net_weight",
+   "fieldtype": "Data",
+   "label": "Total Net Weight"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2024-06-16 22:00:05.516376",
+ "modified_by": "Administrator",
+ "module": "Mhr",
+ "name": "Container",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

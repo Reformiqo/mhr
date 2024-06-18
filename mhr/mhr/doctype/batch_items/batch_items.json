@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-05-30 10:54:19.168879",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "batch_id",
+  "item",
+  "qty",
+  "uom",
+  "cone",
+  "supplier_batch_no"
+ ],
+ "fields": [
+  {
+   "fieldname": "cone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Cone"
+  },
+  {
+   "fieldname": "supplier_batch_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Supplier Batch No"
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Batch Quantity"
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Batch Uom",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Data",
+   "in_filter": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Item"
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Batch ID"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-06-11 12:17:18.214727",
+ "modified_by": "Administrator",
+ "module": "Mhr",
+ "name": "Batch Items",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
