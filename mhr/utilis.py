@@ -2,6 +2,33 @@ import frappe
 from frappe.utils import cint
 
 @frappe.whitelist()
+def get_multiple_variable_of_cone(container):
+	con = frappe.get_doc("Container", container)
+	cone = []
+	#if cone is 6 for in a batch of container, record six and skip next if the same cone
+	for batch in con.batches:
+		if batch.cone not in cone:
+			cone.append(batch.cone)
+	return cone
+def get_cone_total(container, cone):
+	con = frappe.get_doc("Container", container)
+	total = 0
+	for batch in con.batches:
+		if batch.cone == cone:
+			total += cint(batch.cone)
+	return total
+@frappe.whitelist()
+def calculate_cone_total(container):
+	cone = get_multiple_variable_of_cone(container)
+	cone_total = []
+	for c in cone:
+		cone_total.append({
+			"cone": c,
+			"stock": get_cone_total(container, c)
+		})
+	return cone_total
+
+@frappe.whitelist()
 def validate_batch(doc, method=None):
     for item in doc.items:
         if item.batch_no:
