@@ -1,7 +1,8 @@
 {
  "actions": [],
+ "allow_import": 1,
  "allow_rename": 1,
- "autoname": "format:{container_no-#}",
+ "autoname": "format:{container_no}-{#}",
  "creation": "2024-05-30 10:43:51.344406",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -20,12 +21,9 @@
   "purchase_receipt_info_section",
   "supplier",
   "posting_date",
-  "warehouse",
   "column_break_tfsi",
   "item",
   "posting_time",
-  "section_break_ssfz",
-  "items",
   "batches_section",
   "batches",
   "amended_from",
@@ -66,7 +64,7 @@
    "fieldname": "lusture",
    "fieldtype": "Select",
    "label": "Lusture",
-   "options": "Bright\nDull\nSilky"
+   "options": "Bright\nDull\nSilky\nBlack"
   },
   {
    "fieldname": "pulp",
@@ -114,12 +112,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "warehouse",
-   "fieldtype": "Link",
-   "label": "Warehouse",
-   "options": "Warehouse"
-  },
-  {
    "fieldname": "column_break_tfsi",
    "fieldtype": "Column Break"
   },
@@ -157,25 +149,14 @@
    "options": "Item"
   },
   {
-   "fieldname": "section_break_ssfz",
-   "fieldtype": "Section Break",
-   "hidden": 1
-  },
-  {
-   "fieldname": "items",
-   "fieldtype": "Table",
-   "hidden": 1,
-   "label": "Items",
-   "options": "Purchase Receipt Item"
-  },
-  {
    "fieldname": "section_break_rolf",
    "fieldtype": "Section Break"
   },
   {
    "fieldname": "total_batches",
    "fieldtype": "Data",
-   "label": "Total Batches"
+   "label": "Total Batches",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_ntki",
@@ -184,7 +165,8 @@
   {
    "fieldname": "total_cone",
    "fieldtype": "Data",
-   "label": "Total Cone"
+   "label": "Total Cone",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_nqua",
@@ -192,14 +174,16 @@
   },
   {
    "fieldname": "total_net_weight",
-   "fieldtype": "Data",
-   "label": "Total Net Weight"
+   "fieldtype": "Float",
+   "label": "Total Net Weight",
+   "precision": "2",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2024-06-16 22:00:05.516376",
+ "modified": "2024-08-09 16:07:00.239080",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
@@ -207,6 +191,7 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -215,6 +200,36 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Purchase Manager",
    "share": 1,
    "submit": 1,
    "write": 1

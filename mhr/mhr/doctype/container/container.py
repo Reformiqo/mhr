@@ -11,6 +11,15 @@ class Container(Document):
 		# frappe.msgprint("on_submit")
 		self.create_batches()
 		self.create_purchase_receipt()
+	def validate(self):
+		qty = 0
+		cone = 0
+		for batch in self.batches:
+			qty += float(batch.qty)
+			cone += cint(batch.cone)
+		self.total_batches = len(self.batches)
+		self.total_net_weight = qty
+		self.total_cone = cone
 	def create_batches(self):
 		# frappe.msgprint("create_batches"
 			for batch in self.batches:
@@ -70,6 +79,7 @@ class Container(Document):
 					"uom": batch.uom,
 					"cone": batch.cone,
 					"supplier_batch_no": batch.supplier_batch_no,
+					"warehouse": batch.warehouse
 
 					})
 		return batches
@@ -92,7 +102,7 @@ class Container(Document):
 					"uom": batch['uom'],
 					"cone": batch['cone'],
 					"supplier_batch_no": batch['supplier_batch_no'],
-					"warehouse": "Finished Goods - MC",
+					"warehouse": batch['warehouse'],
 
 				})
 				
@@ -138,6 +148,7 @@ class Container(Document):
 			purchase_receipt.save()
 			purchase_receipt.submit()
 			frappe.db.commit()
+			return purchase_receipt.name
 			
 		except Exception as e:
 			frappe.db.rollback()

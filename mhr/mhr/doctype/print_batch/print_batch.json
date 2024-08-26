@@ -1,0 +1,100 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-08-06 19:49:09.602727",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_qimj",
+  "lot_no",
+  "column_break_ewtm",
+  "container_no",
+  "column_break_kusq",
+  "supplier_batch_no",
+  "section_break_klqp",
+  "list_batches",
+  "file_url"
+ ],
+ "fields": [
+  {
+   "fieldname": "list_batches",
+   "fieldtype": "Table",
+   "label": "List Batches",
+   "options": "List Batches"
+  },
+  {
+   "fieldname": "file_url",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "File Url"
+  },
+  {
+   "depends_on": "eval:doc.lot_no && doc.container_no",
+   "fieldname": "supplier_batch_no",
+   "fieldtype": "Data",
+   "label": "Supplier Batch No"
+  },
+  {
+   "fieldname": "lot_no",
+   "fieldtype": "Data",
+   "label": "Lot No"
+  },
+  {
+   "fieldname": "section_break_klqp",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "section_break_qimj",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_ewtm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_kusq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "container_no",
+   "fieldtype": "Data",
+   "label": "Container No"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-08-10 13:51:22.204006",
+ "modified_by": "Administrator",
+ "module": "Mhr",
+ "name": "Print Batch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Purchase Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

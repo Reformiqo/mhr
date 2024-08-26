@@ -1,56 +1,106 @@
 import frappe
 from frappe.utils import cint
+from frappe.utils.print_format import download_pdf, download_multi_pdf
+import json
+
+
+
 
 @frappe.whitelist()
-def get_multiple_variable_of_cone(container):
-	con = frappe.get_doc("Container", container)
-	cone = []
-	#if cone is 6 for in a batch of container, record six and skip next if the same cone
-	for batch in con.batches:
-		if batch.cone not in cone:
-			cone.append(batch.cone)
-	return cone
-def get_cone_total(container, cone):
-	con = frappe.get_doc("Container", container)
-	total = 0
-	for batch in con.batches:
-		if batch.cone == cone:
-			total += cint(batch.cone)
-	return total
+def update_cone_value():
+    # update total cone value of the delivery note based on the items and an dcone vlue
+    frappe.db.sql("""
+        UPDATE `tabDelivery Note`
+        SET custom_total_cone = (
+            SELECT SUM(custom_cone)
+            FROM `tabDelivery Note Item`
+            WHERE parent = `tabDelivery Note`.name
+        )
+    """)
+    frappe.db.commit()
+   
+    frappe.db.commit()
 @frappe.whitelist()
-def calculate_cone_total(container):
-	cone = get_multiple_variable_of_cone(container)
-	cone_total = []
-	for c in cone:
-		cone_total.append({
-			"cone": c,
-			"stock": get_cone_total(container, c)
-		})
-	return cone_total
+def set_total_cone(doc, method=None):
+    total_cone = 0
+    for item in doc.items:
+        total_cone += cint(item.custom_cone)
+    doc.custom_total_cone = total_cone
+    
+
+@frappe.whitelist()
+def same_container():
+    containers =  frappe.get_all("Container", fields=["*"])
+    data = []
+    same_container = []
+    for container in containers:
+		# //check if container_no is the same
+        if container.container_no in same_container:
+            continue
+        same_container.append(container.container_no)
+    return same_container
+@frappe.whitelist()
+def get_total_closing(container):
+	con = frappe.get_doc("Container", container)
+	total_closing = 0
+	for batch in con.batches:
+		total_closing += cint(batch.qty)
+	return total_closing
 
 @frappe.whitelist()
 def validate_batch(doc, method=None):
     for item in doc.items:
         if item.batch_no:
             batch = frappe.get_doc('Batch', item.batch_no)
-            if doc.custom_lusture != batch.custom_lusture:
-                frappe.throw(f'Lusture is not The same with the lusture in Batch {batch.name}')
-            if doc.custom_grade != batch.custom_grade:
-                frappe.throw(f'Grade is not The same with the grade in Batch {batch.name}')
-            if doc.custom_glue != batch.custom_glue:
-                frappe.throw(f'Glue is not The same with the glue in Batch {batch.name}')
-            if doc.custom_pulp != batch.custom_pulp:
-                frappe.throw(f'Pulp is not The same with the pulp in Batch {batch.name}')
-            if doc.custom_fsc != batch.custom_fsc:
-                frappe.throw(f'FSC is not The same with the FSC in Batch {batch.name}')
-            if item.supplier_batch_no != batch.custom_supplier_batch_no:
-                frappe.throw(f'Supplier Batch No is not The same with the supplier batch no in Batch {batch.name}')
-            if item.custom_lot_no != batch.custom_lot_no:
-                frappe.throw(f'Lot No is not The same with the lot no in Batch {batch.name}')
-            if item.custom_container_no != batch.custom_container_no:
-                frappe.throw(f'Container no is not The same with the container no in Batch {batch.name}')
-            if item.cone != batch.custom_cone:
-                frappe.throw(f'Cone is not The same with the cone in Batch {batch.name}')
+        
+        # Convert all fields to lower case for case-insensitive comparison
+        doc_lusture = doc.custom_lusture.lower() if doc.custom_lusture else ""
+        batch_lusture = batch.custom_lusture.lower() if batch.custom_lusture else ""
+        if doc_lusture != batch_lusture:
+            frappe.throw(f'Lusture is not the same as the lusture in Batch {batch.name}')
+        
+        doc_grade = doc.custom_grade.lower()
+        batch_grade = batch.custom_grade.lower() 
+        if doc_grade != batch_grade:
+            frappe.throw(f'Grade is not the same as the grade in Batch {batch.name}')
+        
+        doc_glue = doc.custom_glue.lower() if doc.custom_glue else ""
+        batch_glue = batch.custom_glue.lower() if batch.custom_glue else ""
+        if doc_glue != batch_glue:
+            frappe.throw(f'Glue is not the same as the glue in Batch {batch.name}')
+        
+        doc_pulp = doc.custom_pulp.lower() if doc.custom_pulp else ""
+        batch_pulp = batch.custom_pulp.lower() if batch.custom_pulp else ""
+        if doc_pulp != batch_pulp:
+            frappe.throw(f'Pulp is not the same as the pulp in Batch {batch.name}')
+        
+        doc_fsc = doc.custom_fsc.lower() if doc.custom_fsc else ""
+        batch_fsc = batch.custom_fsc.lower() if batch.custom_fsc else ""
+        if doc_fsc != batch_fsc:
+            frappe.throw(f'FSC is not the same as the FSC in Batch {batch.name}')
+        
+        doc_lot_no = item.custom_lot_no.lower() if item.custom_lot_no else ""
+        batch_lot_no = batch.custom_lot_no.lower() if batch.custom_lot_no else ""
+        if doc_lot_no != batch_lot_no:
+            frappe.throw(f'Lot No is not the same as the lot no in Batch {batch.name}')
+        
+        doc_container_no = item.custom_container_no.lower() if item.custom_container_no else ""
+        batch_container_no = batch.custom_container_no.lower() if batch.custom_container_no else ""
+        if doc_container_no != batch_container_no:
+            frappe.throw(f'Container no is not the same as the container no in Batch {batch.name}')
+        
+        set_total_cone(doc)
+        
+        # Uncomment and add similar case-insensitive checks if needed for these fields
+        # doc_supplier_batch_no = item.custom_supplier_batch_no.lower() if item.custom_supplier_batch_no else ""
+        # batch_supplier_batch_no = batch.custom_supplier_batch_no.lower() if batch.custom_supplier_batch_no else ""
+        # if doc_supplier_batch_no != batch_supplier_batch_no:
+        #     frappe.throw(f'Supplier Batch No is not the same as the supplier batch no in Batch {batch.name}')
+        
+        # doc_cone = item.custom_cone.lower() if item.custom_cone else ""
+        # batch_cone = batch.custom_cone.lower() if batch.custom_cone else ""
+        # if doc_cone != batch_cone:
+        #     frappe.throw(f'Cone is not the same as the cone in Batch {batch.name}')
 
 
 
@@ -71,7 +121,12 @@ def get_item_batch(batch):
         'supplier_batch_no':item.custom_supplier_batch_no,
         "cone": item.custom_cone,
         'container_no':item.custom_container_no,
-        'lot_no': item.custom_lot_no
+        'lot_no': item.custom_lot_no,
+        'lusture': item.custom_lusture,
+        'grade': item.custom_grade,
+        'glue': item.custom_glue,
+        'pulp': item.custom_pulp,
+        'fsc': item.custom_fsc,
     }
 
 @frappe.whitelist()
@@ -292,3 +347,114 @@ def create_batch():
         return f"Batch {batch.name} created successfully"
     except Exception as e:
         frappe.throw(f"Error creating Batch: {e}")
+
+@frappe.whitelist()
+def delete_batches():
+    try:
+        frappe.db.sql("DELETE FROM `tabContainer`")
+        frappe.db.commit()
+        return "Batches deleted successfully"
+    except Exception as e:
+        frappe.throw(f"Error deleting Batches: {e}")
+
+
+@frappe.whitelist()
+def update_batch_stock():
+    # Fetch the last 10  batches with their quantities
+    batches = frappe.get_all("Update Batch", fields=["batch_id", "batch_quantity"])
+    data = []
+    
+    for batch in batches:
+        if frappe.db.exists('Batch', batch.get('batch_id')):
+            frappe.db.set_value("Batch", batch.get('batch_id'), "batch_qty", batch.get('batch_quantity'))
+            frappe.db.commit()
+    return "Batch stock updated successfully"
+@frappe.whitelist()
+def delete_docs():
+    try:
+        frappe.db.sql("DELETE FROM `tabUpdate Batch`")
+        frappe.db.commit()
+        return "Documents deleted successfully"
+    except Exception as e:
+        frappe.throw(f"Error deleting Documents: {e}")
+
+
+@frappe.whitelist()
+def print_selected_docs(doctype, docnames):
+    import json
+    from frappe.utils.print_format import download_multi_pdf
+
+    docnames = json.loads(docnames)
+    doctype_dict = {
+        doctype: docnames
+    }
+
+    pdf_data = download_multi_pdf(doctype_dict, doctype, "Batch", no_letterhead=False, letterhead=None, options=None)
+    return pdf_data
+
+@frappe.whitelist()
+def generate_multi_pdf_url(batches, doc_name):
+        name = "Batch"
+        # batches = []
+        # for b in self.list_batches:
+        #     batches.append(b.batch)
+        
+        doctype = {
+            "Batch": batches
+        }
+        
+        try:
+            format = "Batch"
+            download_multi_pdf(doctype, name, format)
+            pdf_content = frappe.local.response.filecontent
+
+            if not pdf_content:
+                raise ValueError("PDF content is empty or not generated correctly.")
+
+            # Construct the filename
+            name_str = name.replace(" ", "-").replace("/", "-")
+            filename = f"combined_{name_str}.pdf"
+
+            # Save the PDF content as a File document in the database
+            _file = frappe.get_doc({
+                "doctype": "File",
+                "file_name": filename,
+                "is_private": 0,
+                "content": pdf_content
+            })
+            _file.save()
+            frappe.db.commit()
+            file_url = _file.file_url
+            frappe.db.set_value("Print Batch", doc_name, "file_url", file_url)
+            # reload the form
+            frappe.msgprint(f"PDF generated successfully. <a href='{file_url}' target='_blank'>Click here</a> to print the PDF.")
+
+        except Exception as e:
+            frappe.log_error(f"Error generating PDF URL: {str(e)}")
+            frappe.throw(f"Failed to generate PDF: {str(e)}")
+
+@frappe.whitelist()
+def get_print_batch(lot_no, container_no, supplier_batch_no):
+    
+    if frappe.db.exists('Batch', {"custom_supplier_batch_no": supplier_batch_no, "custom_lot_no": lot_no, "custom_container_no": container_no}): 
+        batch = frappe.get_doc("Batch", {"custom_supplier_batch_no": supplier_batch_no, "custom_lot_no": lot_no, "custom_container_no": container_no})
+        data = {
+            "batch": batch.name,
+            "cone": batch.custom_cone,
+            "lot_no": batch.custom_lot_no,
+            "batch_qty": batch.batch_qty,
+        }
+        return data
+
+@frappe.whitelist()
+def update_container():
+    frappe.db.sql("""
+        UPDATE `tabContainer` 
+        SET total_net_weight = (
+            SELECT SUM(qty) 
+            FROM `tabBatch Items` 
+            WHERE parent = tabContainer.name
+        )
+    """)
+    frappe.db.commit()
+    return "Container updated successfully"
