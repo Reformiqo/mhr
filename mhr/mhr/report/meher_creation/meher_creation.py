@@ -29,15 +29,15 @@ def get_datas(filters=None):
         cones = get_multiple_variable_of_cone(container.name)
         for cone in cones:
             data.append({
-                "date": container.posting_date if cone == cones[0] else "",
-                "container": container.container_no if cone == cones[0] else "",
-                "item": container.item if cone == cones[0] else "",
-                "pulp": container.pulp if cone == cones[0] else "",
-                "lusture": container.lusture if cone == cones[0] else "",
-                "glue": container.glue if cone == cones[0] else "",
-                "total_closing": get_total_closing(container.name) if cone == cones[0] else "",
-                "mer_no": container.merge_no if cone == cones[0] else "",
-                "lot_no": container.lot_no if cone == cones[0] else "",
+                "date": container.posting_date,
+                "container": container.container_no,
+                "item": container.item,
+                "pulp": container.pulp,
+                "lusture": container.lusture,
+                "glue": container.glue,
+                "total_closing": get_total_closing(container.name),
+                "mer_no": container.merge_no,
+                "lot_no": container.lot_no,
                 "cone": cone,
                 "stock": get_cone_total(container.name, cone)
             })

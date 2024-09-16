@@ -18,6 +18,7 @@
   "column_break_hzgt",
   "grade",
   "fsc",
+  "warehouse",
   "purchase_receipt_info_section",
   "supplier",
   "posting_date",
@@ -178,12 +179,18 @@
    "label": "Total Net Weight",
    "precision": "2",
    "read_only": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2024-08-09 16:07:00.239080",
+ "modified": "2024-09-12 07:02:25.353094",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",

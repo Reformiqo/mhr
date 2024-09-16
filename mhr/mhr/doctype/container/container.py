@@ -11,6 +11,19 @@ class Container(Document):
 		# frappe.msgprint("on_submit")
 		self.create_batches()
 		self.create_purchase_receipt()
+	def on_cancel(self):
+		# frappe.msgprint("on_cancel")
+		for batch in self.batches:
+			if frappe.db.exists("Batch", batch.batch_id):
+				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+				frappe.db.commit()
+
+
+	def on_trash(self):
+		for batch in self.batches:
+			if frappe.db.exists("Batch", batch.batch_id):
+				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+				frappe.db.commit()
 	def validate(self):
 		qty = 0
 		cone = 0
@@ -24,8 +37,7 @@ class Container(Document):
 		# frappe.msgprint("create_batches"
 			for batch in self.batches:
 				if frappe.db.exists("Batch", batch.batch_id):
-					#update batch qty
-					frappe.db.set_value("Batch", batch.batch_id, "batch_qty", cint(frappe.db.get_value("Batch", batch.batch_id, "batch_qty")) + cint(batch.qty))
+					continue
 				else:
 					batch_doc = frappe.new_doc("Batch")
 					batch_doc.item = batch.item

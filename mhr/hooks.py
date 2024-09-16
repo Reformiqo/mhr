@@ -135,10 +135,10 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"mhr.tasks.all"
-# 	],
+scheduler_events = {
+	"all": [
+		"mhr.utilis.resend_email_queue"
+	],
 # 	"daily": [
 # 		"mhr.tasks.daily"
 # 	],
@@ -151,7 +151,7 @@ doc_events = {
 # 	"monthly": [
 # 		"mhr.tasks.monthly"
 # 	],
-# }
+}
 
 # Testing
 # -------
@@ -229,3 +229,12 @@ doc_events = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+fixtures = [
+    {"doctype": "Client Script", 
+    "filters": [["module" , "in" , ("Mhr" )]]
+    },
+    {"doctype": "Custom Field",
+    "filters": [["module" , "in" , ("Mhr" )]]
+    },
+  
+    ]

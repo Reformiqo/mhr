@@ -5,6 +5,13 @@ import json
 
 
 
+@frappe.whitelist()
+def send_email_after_submit(doc, method=None):
+    frappe.sendmail(
+        recipients=["", ""],
+        subject="Container Submitted",
+        message="Container has been submitted successfully",
+    )
 
 @frappe.whitelist()
 def update_cone_value():
@@ -49,45 +56,46 @@ def get_total_closing(container):
 
 @frappe.whitelist()
 def validate_batch(doc, method=None):
+    doc.custom_item_length = len(doc.items)
     for item in doc.items:
         if item.batch_no:
             batch = frappe.get_doc('Batch', item.batch_no)
         
-        # Convert all fields to lower case for case-insensitive comparison
-        doc_lusture = doc.custom_lusture.lower() if doc.custom_lusture else ""
-        batch_lusture = batch.custom_lusture.lower() if batch.custom_lusture else ""
-        if doc_lusture != batch_lusture:
-            frappe.throw(f'Lusture is not the same as the lusture in Batch {batch.name}')
-        
-        doc_grade = doc.custom_grade.lower()
-        batch_grade = batch.custom_grade.lower() 
-        if doc_grade != batch_grade:
-            frappe.throw(f'Grade is not the same as the grade in Batch {batch.name}')
-        
-        doc_glue = doc.custom_glue.lower() if doc.custom_glue else ""
-        batch_glue = batch.custom_glue.lower() if batch.custom_glue else ""
-        if doc_glue != batch_glue:
-            frappe.throw(f'Glue is not the same as the glue in Batch {batch.name}')
-        
-        doc_pulp = doc.custom_pulp.lower() if doc.custom_pulp else ""
-        batch_pulp = batch.custom_pulp.lower() if batch.custom_pulp else ""
-        if doc_pulp != batch_pulp:
-            frappe.throw(f'Pulp is not the same as the pulp in Batch {batch.name}')
-        
-        doc_fsc = doc.custom_fsc.lower() if doc.custom_fsc else ""
-        batch_fsc = batch.custom_fsc.lower() if batch.custom_fsc else ""
-        if doc_fsc != batch_fsc:
-            frappe.throw(f'FSC is not the same as the FSC in Batch {batch.name}')
-        
-        doc_lot_no = item.custom_lot_no.lower() if item.custom_lot_no else ""
-        batch_lot_no = batch.custom_lot_no.lower() if batch.custom_lot_no else ""
-        if doc_lot_no != batch_lot_no:
-            frappe.throw(f'Lot No is not the same as the lot no in Batch {batch.name}')
-        
-        doc_container_no = item.custom_container_no.lower() if item.custom_container_no else ""
-        batch_container_no = batch.custom_container_no.lower() if batch.custom_container_no else ""
-        if doc_container_no != batch_container_no:
-            frappe.throw(f'Container no is not the same as the container no in Batch {batch.name}')
+            # Convert all fields to lower case for case-insensitive comparison
+            doc_lusture = doc.custom_lusture.lower() if doc.custom_lusture else ""
+            batch_lusture = batch.custom_lusture.lower() if batch.custom_lusture else ""
+            if doc_lusture != batch_lusture:
+                frappe.throw(f'Lusture is not the same as the lusture in Batch {batch.name}')
+            
+            doc_grade = doc.custom_grade.lower()
+            batch_grade = batch.custom_grade.lower() 
+            if doc_grade != batch_grade:
+                frappe.throw(f'Grade is not the same as the grade in Batch {batch.name}')
+            
+            doc_glue = doc.custom_glue.lower() if doc.custom_glue else ""
+            batch_glue = batch.custom_glue.lower() if batch.custom_glue else ""
+            if doc_glue != batch_glue:
+                frappe.throw(f'Glue is not the same as the glue in Batch {batch.name}')
+            
+            doc_pulp = doc.custom_pulp.lower() if doc.custom_pulp else ""
+            batch_pulp = batch.custom_pulp.lower() if batch.custom_pulp else ""
+            if doc_pulp != batch_pulp:
+                frappe.throw(f'Pulp is not the same as the pulp in Batch {batch.name}')
+            
+            doc_fsc = doc.custom_fsc.lower() if doc.custom_fsc else ""
+            batch_fsc = batch.custom_fsc.lower() if batch.custom_fsc else ""
+            if doc_fsc != batch_fsc:
+                frappe.throw(f'FSC is not the same as the FSC in Batch {batch.name}')
+            
+            doc_lot_no = item.custom_lot_no.lower() if item.custom_lot_no else ""
+            batch_lot_no = batch.custom_lot_no.lower() if batch.custom_lot_no else ""
+            if doc_lot_no != batch_lot_no:
+                frappe.throw(f'Lot No is not the same as the lot no in Batch {batch.name}')
+            
+            doc_container_no = item.custom_container_no.lower() if item.custom_container_no else ""
+            batch_container_no = batch.custom_container_no.lower() if batch.custom_container_no else ""
+            if doc_container_no != batch_container_no:
+                frappe.throw(f'Container no is not the same as the container no in Batch {batch.name}')
         
         set_total_cone(doc)
         
@@ -102,7 +110,56 @@ def validate_batch(doc, method=None):
         # if doc_cone != batch_cone:
         #     frappe.throw(f'Cone is not the same as the cone in Batch {batch.name}')
 
+@frappe.whitelist()
+def get_delivery_note_batch(lot_no=None, container_no=None, supplier_batch_no=None, glue=None, pulp=None, fsc=None, lusture=None, grade=None, cone=None, denier=None):
 
+    filters = {}
+
+    # Add filters based on available parameters
+    if lot_no:
+        filters['custom_lot_no'] = lot_no
+    if container_no:
+        filters['custom_container_no'] = container_no
+    if supplier_batch_no:
+        filters['custom_supplier_batch_no'] = supplier_batch_no
+    if glue:
+        filters['custom_glue'] = glue
+    if pulp:
+        filters['custom_pulp'] = pulp
+    if fsc:
+        filters['custom_fsc'] = fsc
+    if lusture:
+        filters['custom_lusture'] = lusture
+    if grade:
+        filters['custom_grade'] = grade
+    if cone:
+        filters['custom_cone'] = cone
+    if denier:
+        filters['item_name'] = denier
+
+
+    # Check if at least one filter is applied
+    if filters:
+        if frappe.db.exists("Batch", filters):
+            item = frappe.get_doc("Batch", filters)
+
+            return {
+                'item_code': item.item,
+                'item_name': item.item_name,
+                'qty': item.batch_qty,
+                'uom': item.stock_uom,
+                'batch_no': item.name,
+                'supplier_batch_no': item.custom_supplier_batch_no,
+                'cone': item.custom_cone,
+                'container_no': item.custom_container_no,
+                'lot_no': item.custom_lot_no,
+                'lusture': item.custom_lusture,
+                'grade': item.custom_grade,
+                'glue': item.custom_glue,
+                'pulp': item.custom_pulp,
+                'fsc': item.custom_fsc,
+            }
+       
 
 
 @frappe.whitelist()
@@ -458,3 +515,33 @@ def update_container():
     """)
     frappe.db.commit()
     return "Container updated successfully"
+
+@frappe.whitelist()
+def update_container_batch_qty():
+    message =[]
+    containers = frappe.get_all("Container", fields=["name"])
+    for container in containers:
+        container_doc = frappe.get_doc("Container", container.name)
+        for batch in container_doc.batches:
+            frappe.db.set_value("Batch", batch.batch_id, "batch_qty", batch.qty)
+            frappe.db.commit()
+        message.append(f"Container {container.name} updated successfully")
+    return message
+
+@frappe.whitelist()
+def resend_email_queue():
+    from frappe.email.doctype.email_queue.email_queue import send_now
+    emails = frappe.get_all("Email Queue", {"status": "Not Sent"})
+    for email in emails:
+        send_now(email.name)
+    return "Email Queue updated successfully"
+
+@frappe.whitelist()
+def update_custom_item_length():
+    # update th custom_item_length in the delivery note 
+    notes = frappe.get_all("Delivery Note", fields=["name"])
+    for note in notes:
+        doc = frappe.get_doc("Delivery Note", note.name)
+        frappe.db.set_value("Delivery Note", note.name, "custom_item_length", len(doc.items))
+        frappe.db.commit()
+    
