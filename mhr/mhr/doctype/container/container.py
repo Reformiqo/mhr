@@ -8,22 +8,46 @@ from frappe.utils import cint
 
 class Container(Document):
 	def on_submit(self):
-		# frappe.msgprint("on_submit")
-		self.create_batches()
-		self.create_purchase_receipt()
+		# frappe.msgprint("on_submit"
+		self.enqueue_create_batches()
+		
+	def enqueue_create_batches(self):
+		# frappe.msgprint("enqueue_create_batches")
+		frappe.enqueue('mhr.utilis.create_batches', container=self.name, queue='long', timeout=1500000000)
+		frappe.db.commit()
+		
 	def on_cancel(self):
-		# frappe.msgprint("on_cancel")
+    # delete all batches
 		for batch in self.batches:
 			if frappe.db.exists("Batch", batch.batch_id):
 				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
-				frappe.db.commit()
+				# delte serial ad abtch budnle
+		pr = frappe.get_all("Purchase Receipt", filters={"custom_container_no": self.name}, fields=["name"])
+		if pr:
+			for p in pr:
+				doc  = frappe.get_doc("Purchase Receipt", p.name)
+				for item in doc.items:
+					if item.serial_and_batch_bundle:
+						frappe.db.sql("DELETE FROM `tabSerial and Batch Bundle` WHERE name = %s", item.serial_and_batch_bundle)
+				frappe.db.sql("DELETE FROM `tabPurchase Receipt` WHERE name = %s", p.name)
+		frappe.db.commit()
 
 
 	def on_trash(self):
 		for batch in self.batches:
 			if frappe.db.exists("Batch", batch.batch_id):
 				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
-				frappe.db.commit()
+				# delte serial ad abtch budnle
+		pr = frappe.get_all("Purchase Receipt", filters={"custom_container_no": self.name}, fields=["name"])
+		if pr:
+			for p in pr:
+				doc  = frappe.get_doc("Purchase Receipt", p.name)
+				for item in doc.items:
+					if item.serial_and_batch_bundle:
+						frappe.db.sql("DELETE FROM `tabSerial and Batch Bundle` WHERE name = %s", item.serial_and_batch_bundle)
+				frappe.db.sql("DELETE FROM `tabPurchase Receipt` WHERE name = %s", p.name)
+		frappe.db.commit()
+
 	def validate(self):
 		qty = 0
 		cone = 0
@@ -57,6 +81,7 @@ class Container(Document):
 					batch_doc.save(ignore_permissions=True)
 					batch_doc.submit()
 					frappe.db.commit()
+			self.create_purchase_receipt()
 		
 	def get_items(self):
 		# Fetch the last created Container document
@@ -133,6 +158,7 @@ class Container(Document):
 		purchase_receipt = frappe.new_doc("Purchase Receipt")
 		purchase_receipt.supplier = self.supplier
 		purchase_receipt.posting_date = self.posting_date
+		purchase_receipt.custom_container_no = self.name
 		purchase_receipt.custom_total_batches = len(self.batches)
 		purchase_receipt.items = []
 

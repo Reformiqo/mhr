@@ -544,4 +544,73 @@ def update_custom_item_length():
         doc = frappe.get_doc("Delivery Note", note.name)
         frappe.db.set_value("Delivery Note", note.name, "custom_item_length", len(doc.items))
         frappe.db.commit()
+@frappe.whitelist()    
+def create_batches(container):
+    frappe.publish_realtime('site_creation', {'message': 'Creating Batches'}, user=frappe.session.user)
+    container_doc = frappe.get_doc("Container", container)
     
+    for batch in container_doc.batches:
+        if frappe.db.exists("Batch", batch.batch_id):
+            continue
+        else:
+            batch_doc = frappe.new_doc("Batch")
+            batch_doc.item = batch.item
+            batch_doc.batch_qty = batch.qty
+            batch_doc.stock_uom = batch.uom
+            batch_doc.batch_id = batch.batch_id
+            batch_doc.custom_supplier_batch_no = batch.supplier_batch_no
+            batch_doc.custom_container_no = container_doc.container_no
+            batch_doc.custom_cone = batch.cone
+            batch_doc.custom_glue = container_doc.glue
+            batch_doc.custom_lusture = container_doc.lusture
+            batch_doc.custom_grade = container_doc.grade
+            batch_doc.custom_pulp = container_doc.pulp
+            batch_doc.custom_fsc = container_doc.fsc
+            batch_doc.custom_lot_no = container_doc.lot_no
+            batch_doc.save(ignore_permissions=True)
+            batch_doc.submit()
+    create_purchase_receipt(container_doc.name)
+    frappe.db.commit()
+
+def create_purchase_receipt(container):
+    # Fetch the Container document using the passed container ID
+    container_doc = frappe.get_doc("Container", container)
+    
+    items = container_doc.get_items()
+    
+    # Create a new Purchase Receipt document
+    purchase_receipt = frappe.new_doc("Purchase Receipt")
+    purchase_receipt.supplier = container_doc.supplier
+    purchase_receipt.posting_date = container_doc.posting_date
+    purchase_receipt.custom_container_no = container_doc.name
+    purchase_receipt.custom_total_batches = len(container_doc.batches)
+    purchase_receipt.items = []
+    
+    # Add items to the Purchase Receipt
+    for item in items:
+        serial_and_batch_bundle = container_doc.create_serial_and_batch_bundle(item["item"])
+        purchase_receipt.append("items", {
+            "item_code": item["item"],
+            "item_name": item["item"],
+            "qty": item["batch_qty"],
+            "stock_uom": item["stock_uom"],
+            "warehouse": "Finished Goods - MC",
+            "allow_zero_valuation_rate": 1,
+            "rate": 100,
+            "price_list_rate": 100,
+            "received_qty": item["batch_qty"],
+            "conversion_factor": 1,
+            "use_serial_batch_fields": 0,
+            "serial_and_batch_bundle": serial_and_batch_bundle
+        })
+    
+    # Save and submit the Purchase Receipt
+    try:
+        purchase_receipt.save()
+        purchase_receipt.submit()
+        frappe.db.commit()
+        return purchase_receipt.name
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback(), "create_purchase_receipt")
+        frappe.msgprint({"message": "Failed to create Purchase Receipt", "error": str(e)})

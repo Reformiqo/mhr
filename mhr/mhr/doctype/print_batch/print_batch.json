@@ -29,12 +29,14 @@
    "label": "File Url"
   },
   {
+   "bold": 1,
    "depends_on": "eval:doc.lot_no && doc.container_no",
    "fieldname": "supplier_batch_no",
    "fieldtype": "Data",
    "label": "Supplier Batch No"
   },
   {
+   "bold": 1,
    "fieldname": "lot_no",
    "fieldtype": "Data",
    "label": "Lot No"
@@ -56,6 +58,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "bold": 1,
    "fieldname": "container_no",
    "fieldtype": "Data",
    "label": "Container No"
@@ -63,7 +66,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-08-10 13:51:22.204006",
+ "modified": "2024-09-18 15:29:22.335930",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Print Batch",

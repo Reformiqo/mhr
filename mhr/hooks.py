@@ -128,7 +128,10 @@ doc_events = {
         "validate": "mhr.utilis.validate_batch",
         # "validate": "mhr.utilis.set_total_cone"
 		
-	}
+	},
+    "Batch": {
+        "validate": "mhr.batch_qr_code.set_si_qrcode",
+    }
     
 }
 

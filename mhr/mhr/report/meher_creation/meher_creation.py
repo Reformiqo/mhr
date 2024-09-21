@@ -18,7 +18,9 @@ def get_columns(filters=None):
         {"label": _("Mer No"), "fieldname": "mer_no", "fieldtype": "Data", "width": 100},
         {"label": _("Lot No"), "fieldname": "lot_no", "fieldtype": "Data", "width": 100},
         {"label": _("Cone"), "fieldname": "cone", "fieldtype": "Data", "width": 100},
+        {"label": _("Boxes"), "fieldname": "boxes", "fieldtype": "Data", "width": 100},
         {"label": _("Stock"), "fieldname": "stock", "fieldtype": "Data", "width": 100},
+        
     ]
 
 def get_datas(filters=None):
@@ -39,6 +41,7 @@ def get_datas(filters=None):
                 "mer_no": container.merge_no,
                 "lot_no": container.lot_no,
                 "cone": cone,
+                "boxes": get_number_of_boes(container.name, cone),
                 "stock": get_cone_total(container.name, cone)
             })
         
@@ -55,3 +58,7 @@ def get_cone_total(container_name, cone):
 def get_total_closing(container_name):
     con = frappe.get_doc("Container", container_name)
     return sum(cint(batch.qty) for batch in con.batches)
+
+def get_number_of_boes(container_name, cone):
+    con = frappe.get_doc("Container", container_name)
+    return len([batch for batch in con.batches if batch.cone == cone])
