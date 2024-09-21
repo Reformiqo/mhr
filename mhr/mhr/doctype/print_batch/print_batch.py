@@ -37,7 +37,7 @@ class PrintBatch(Document):
         }
         
         try:
-            format = "Batch"
+            format = "NB"
             download_multi_pdf(doctype, name, format)
             pdf_content = frappe.local.response.filecontent
 
