@@ -9,7 +9,7 @@ from frappe.utils import cint
 class Container(Document):
 	def on_submit(self):
 		# frappe.msgprint("on_submit"
-		self.enqueue_create_batches()
+		self.create_batches()
 		
 	def enqueue_create_batches(self):
 		# frappe.msgprint("enqueue_create_batches")
