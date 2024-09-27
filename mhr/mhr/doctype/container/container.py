@@ -3,13 +3,15 @@
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 
 class Container(Document):
 	def on_submit(self):
 		# frappe.msgprint("on_submit"
 		self.create_batches()
+		self.create_purchase_receipt()
+		
 		
 	def enqueue_create_batches(self):
 		# frappe.msgprint("enqueue_create_batches")
@@ -17,20 +19,24 @@ class Container(Document):
 		frappe.db.commit()
 		
 	def on_cancel(self):
-    # delete all batches
-		for batch in self.batches:
-			if frappe.db.exists("Batch", batch.batch_id):
-				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
-				# delte serial ad abtch budnle
 		pr = frappe.get_all("Purchase Receipt", filters={"custom_container_no": self.name}, fields=["name"])
 		if pr:
-			for p in pr:
-				doc  = frappe.get_doc("Purchase Receipt", p.name)
-				for item in doc.items:
-					if item.serial_and_batch_bundle:
-						frappe.db.sql("DELETE FROM `tabSerial and Batch Bundle` WHERE name = %s", item.serial_and_batch_bundle)
-				frappe.db.sql("DELETE FROM `tabPurchase Receipt` WHERE name = %s", p.name)
-		frappe.db.commit()
+			# create pr return
+			for pr_doc in pr:
+				self.create_purchase_receipt(is_return=1, pr=pr_doc.name)
+				frappe.db.commit()
+    # delete all batches
+		# for batch in self.batches:
+		# 	if frappe.db.exists("Batch", batch.batch_id):
+		# 		frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+		# 		# delte serial ad abtch budnle
+		# pr = frappe.get_all("Purchase Receipt", filters={"custom_container_no": self.name}, fields=["name"])
+		# if pr:
+		# 	# create pr return
+		# 	for pr_doc in pr:
+				# self.create_purchase_receipt(is_return=1, pr=pr_doc.name)
+				# frappe.db.commit()
+
 
 
 	def on_trash(self):
@@ -81,7 +87,7 @@ class Container(Document):
 					batch_doc.save(ignore_permissions=True)
 					batch_doc.submit()
 					frappe.db.commit()
-			self.create_purchase_receipt()
+			
 		
 	def get_items(self):
 		# Fetch the last created Container document
@@ -120,12 +126,12 @@ class Container(Document):
 
 					})
 		return batches
-	def create_serial_and_batch_bundle(self, item_code):
+	def create_serial_and_batch_bundle(self, item_code, transaction_type):
 		try:
 			batches  = self.get_item_batches(item_code)
 			sb_bundle = frappe.new_doc("Serial and Batch Bundle")
 			sb_bundle.company = "Meher Creations"
-			sb_bundle.type_of_transaction = "Inward"
+			sb_bundle.type_of_transaction = transaction_type
 			sb_bundle.has_batch_no = 1
 			sb_bundle.has_serial_no = 0
 			sb_bundle.item_code = item_code
@@ -151,7 +157,7 @@ class Container(Document):
 			frappe.log_error(frappe.get_traceback(), "create_serial_and_batch_bundle")
 			return {"message": "Failed to create Serial and Batch Bundle", "error": str(e)}
 
-	def create_purchase_receipt(self):
+	def create_purchase_receipt(self, is_return=None, pr=None):
 		items = self.get_items()
 
 		# Create a new Purchase Receipt document
@@ -163,22 +169,42 @@ class Container(Document):
 		purchase_receipt.items = []
 
 		# Add items to the Purchase Receipt
-		for item in items:
-			serial_and_batch_bundle = self.create_serial_and_batch_bundle(item["item"])
-			purchase_receipt.append("items", {
-				"item_code": item["item"],
-				"item_name": item["item"],
-				"qty": item["batch_qty"],
-				"stock_uom": item["stock_uom"],
-				"warehouse": "Finished Goods - MC",
-				"allow_zero_valuation_rate": 1,
-				"rate": 100,
-				"price_list_rate": 100,
-				"received_qty": item["batch_qty"],
-				"conversion_factor": 1,
-				"use_serial_batch_fields": 0,
-				"serial_and_batch_bundle": serial_and_batch_bundle
-			})
+		if is_return:
+			purchase_receipt.is_return = 1
+			purchase_receipt.return_against = pr
+			for item in items:
+				serial_and_batch_bundle = self.create_serial_and_batch_bundle(item["item"], "Outward")
+				purchase_receipt.append("items", {
+					"item_code": item["item"],
+					"item_name": item["item"],
+					"qty": -(flt(item["batch_qty"])),
+					"stock_uom": item["stock_uom"],
+					"warehouse": "Finished Goods - MC",
+					"allow_zero_valuation_rate": 1,
+					"rate": 100,
+					"price_list_rate": 100,
+					"received_qty": -(flt(item["batch_qty"])),
+					"conversion_factor": 1,
+					"use_serial_batch_fields": 0,
+					"serial_and_batch_bundle": serial_and_batch_bundle
+				})
+		else:
+			for item in items:
+				serial_and_batch_bundle = self.create_serial_and_batch_bundle(item["item"], "Inward")
+				purchase_receipt.append("items", {
+					"item_code": item["item"],
+					"item_name": item["item"],
+					"qty": item["batch_qty"],
+					"stock_uom": item["stock_uom"],
+					"warehouse": "Finished Goods - MC",
+					"allow_zero_valuation_rate": 1,
+					"rate": 100,
+					"price_list_rate": 100,
+					"received_qty": item["batch_qty"],
+					"conversion_factor": 1,
+					"use_serial_batch_fields": 0,
+					"serial_and_batch_bundle": serial_and_batch_bundle
+				})
 		
 
 		# Save and submit the Purchase Receipt
