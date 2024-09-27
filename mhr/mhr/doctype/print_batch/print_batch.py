@@ -27,46 +27,46 @@ class PrintBatch(Document):
 
     @staticmethod
     def generate_multi_pdf_url(print_batch_name):
-        if frape.db.exists("Print Batch", print_batch_name):
-            print_batch = frappe.get_doc("Print Batch", print_batch_name)
-            name = print_batch.name  # Use the document's name for the PDF file
+        print_batch = frappe.get_doc("Print Batch", print_batch_name)
+        name = print_batch.name  # Use the document's name for the PDF file
 
-            batches = [b.batch for b in print_batch.list_batches]
-            
-            doctype = {
-                "Batch": batches
-            }
-            
-            try:
-                format = "NB"
-                download_multi_pdf(doctype, name, format)
-                pdf_content = frappe.local.response.filecontent
+        batches = [b.batch for b in print_batch.list_batches]
+        
+        doctype = {
+            "Batch": batches
+        }
+        
+        try:
+            format = "NB"
+            download_multi_pdf(doctype, name, format)
+            pdf_content = frappe.local.response.filecontent
 
-                if not pdf_content:
-                    raise ValueError("PDF content is empty or not generated correctly.")
+            if not pdf_content:
+                raise ValueError("PDF content is empty or not generated correctly.")
 
-                # Construct the filename using the document's name
-                name_str = name.replace(" ", "-").replace("/", "-")
-                filename = f"{name_str}.pdf"
+            # Construct the filename using the document's name
+            name_str = name.replace(" ", "-").replace("/", "-")
+            filename = f"{name_str}.pdf"
 
-                # Save the PDF content as a File document in the database
-                _file = frappe.get_doc({
-                    "doctype": "File",
-                    "file_name": filename,
-                    "is_private": 0,
-                    "content": pdf_content
-                })
-                _file.save()
-                file_url = _file.file_url
-                frappe.db.set_value("Print Batch", print_batch_name, "file_url", file_url)
+            # Save the PDF content as a File document in the database
+            _file = frappe.get_doc({
+                "doctype": "File",
+                "file_name": filename,
+                "is_private": 0,
+                "content": pdf_content
+            })
+            _file.save()
+            frappe.db.commit()
+            file_url = _file.file_url
+            frappe.db.set_value("Print Batch", print_batch_name, "file_url", file_url)
 
-                # Inform the user with a message and trigger the event to open PDF
-                frappe.publish_realtime(
-                    event='pdf_generated',
-                    message={'file_url': file_url},
-                    user=frappe.session.user
-                )
+            # Inform the user with a message and trigger the event to open PDF
+            frappe.publish_realtime(
+                event='pdf_generated',
+                message={'file_url': file_url},
+                user=frappe.session.user
+            )
 
-            except Exception as e:
-                frappe.log_error(f"Error generating PDF URL: {str(e)}")
-                frappe.throw(f"Failed to generate PDF: {str(e)}")
+        except Exception as e:
+            frappe.log_error(f"Error generating PDF URL: {str(e)}")
+            frappe.throw(f"Failed to generate PDF: {str(e)}")
