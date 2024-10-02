@@ -1,0 +1,32 @@
+[
+ {
+  "add_total_row": 1,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2024-06-20 03:56:23.760267",
+  "module": "Mhr",
+  "name": "Meher Creation",
+  "prepared_report": 1,
+  "query": null,
+  "ref_doctype": "Container",
+  "reference_report": null,
+  "report_name": "Meher Creation",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   }
+  ]
+ }
+]

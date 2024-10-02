@@ -239,5 +239,8 @@ fixtures = [
     {"doctype": "Custom Field",
     "filters": [["module" , "in" , ("Mhr" )]]
     },
+    {"doctype": "Report",
+    "filters": [["module" , "in" , ("Mhr" )]]
+    },
   
     ]
