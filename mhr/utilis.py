@@ -4,6 +4,17 @@ from frappe.utils.print_format import download_pdf, download_multi_pdf
 import json
 
 
+@frappe.whitelist()
+def update_stock_entry(doc, method=None):
+    total_cone = 0
+    total_qty = 0
+    for item in doc.items:
+        total_cone += cint(item.custom_cone)
+        total_qty += cint(item.qty)
+    doc.custom_total_cone = total_cone
+    doc.custom_total_qty = total_qty
+
+
 
 @frappe.whitelist()
 def send_email_after_submit(doc, method=None):

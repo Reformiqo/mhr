@@ -131,7 +131,10 @@ doc_events = {
 	},
     "Batch": {
         "validate": "mhr.batch_qr_code.set_si_qrcode",
-    }
+    },
+    "Stock Entry": {
+        "validate": "mhr.utilis.update_stock_entry",
+    },
     
 }
 
