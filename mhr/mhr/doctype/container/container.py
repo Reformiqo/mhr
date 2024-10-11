@@ -157,7 +157,7 @@ class Container(Document):
 			frappe.log_error(frappe.get_traceback(), "create_serial_and_batch_bundle")
 			return {"message": "Failed to create Serial and Batch Bundle", "error": str(e)}
 
-	def create_purchase_receipt(self, is_return=None, pr=None):
+	def create_purchase_receipt(self, is_return=0, pr=None):
 		items = self.get_items()
 
 		# Create a new Purchase Receipt document
@@ -169,7 +169,7 @@ class Container(Document):
 		purchase_receipt.items = []
 
 		# Add items to the Purchase Receipt
-		if is_return:
+		if is_return == 1:
 			purchase_receipt.is_return = 1
 			purchase_receipt.return_against = pr
 			for item in items:
