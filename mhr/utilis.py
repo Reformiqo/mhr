@@ -507,6 +507,7 @@ def get_print_batch(lot_no, container_no, supplier_batch_no):
     if frappe.db.exists('Batch', {"custom_supplier_batch_no": supplier_batch_no, "custom_lot_no": lot_no, "custom_container_no": container_no}): 
         batch = frappe.get_doc("Batch", {"custom_supplier_batch_no": supplier_batch_no, "custom_lot_no": lot_no, "custom_container_no": container_no})
         data = {
+            "item": batch.item,
             "batch": batch.name,
             "cone": batch.custom_cone,
             "lot_no": batch.custom_lot_no,
