@@ -166,6 +166,13 @@ class Container(Document):
 		purchase_receipt.posting_date = self.posting_date
 		purchase_receipt.custom_container_no = self.name
 		purchase_receipt.custom_total_batches = len(self.batches)
+		purchase_receipt.custom_lot_number = self.lot_no
+		purchase_receipt.custom_lusture = self.lusture
+		purchase_receipt.custom_glue = self.glue
+		purchase_receipt.custom_grade = self.grade
+		purchase_receipt.custom_pulp = self.pulp
+		purchase_receipt.custom_fsc = self.fsc
+		purchase_receipt.custom_merge_no = self.merge_no
 		purchase_receipt.items = []
 
 		# Add items to the Purchase Receipt

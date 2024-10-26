@@ -626,3 +626,18 @@ def create_purchase_receipt(container):
         frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "create_purchase_receipt")
         frappe.msgprint({"message": "Failed to create Purchase Receipt", "error": str(e)})
+@frappe.whitelist()
+def update_pr_with_container_details():
+    frappe.db.sql("""
+        UPDATE `tabPurchase Receipt` AS pr
+        JOIN `tabContainer` AS c ON pr.custom_container_no = c.name
+        SET 
+            pr.custom_lot_number = c.lot_no,
+            pr.custom_lusture = c.lusture,
+            pr.custom_glue = c.glue,
+            pr.custom_grade = c.grade,
+            pr.custom_pulp = c.pulp,
+            pr.custom_fsc = c.fsc,
+            pr.custom_merge_no = c.merge_no
+    """)
+    frappe.db.commit()
