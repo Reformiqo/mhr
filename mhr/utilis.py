@@ -641,3 +641,10 @@ def update_pr_with_container_details():
             pr.custom_merge_no = c.merge_no
     """)
     frappe.db.commit()
+update_pr_with_container_details()
+
+@frappe.whitelist()
+def delete_containers():
+    frappe.db.sql("DELETE FROM `tabContainer`")
+    frappe.db.commit()
+    return "Success"
