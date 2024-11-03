@@ -50,7 +50,7 @@
    "fieldname": "glue",
    "fieldtype": "Select",
    "label": "Glue",
-   "options": "Centrifugal\nHigh\nLow"
+   "options": ".\nCentrifugal\nHigh\nLow"
   },
   {
    "fieldname": "merge_no",
@@ -65,13 +65,13 @@
    "fieldname": "lusture",
    "fieldtype": "Select",
    "label": "Lusture",
-   "options": "Bright\nDull\nSilky\nBlack"
+   "options": ".\nBright\nDull\nSilky\nBlack"
   },
   {
    "fieldname": "pulp",
    "fieldtype": "Select",
    "label": "Pulp",
-   "options": "Cotton\nWood\nBamboo"
+   "options": ".\nCotton\nWood\nBamboo"
   },
   {
    "fieldname": "lot_no",
@@ -86,13 +86,13 @@
    "fieldname": "grade",
    "fieldtype": "Select",
    "label": "Grade",
-   "options": "A\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD"
+   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD"
   },
   {
    "fieldname": "fsc",
    "fieldtype": "Select",
    "label": "FSC",
-   "options": "100%\nMix\nNon FSC"
+   "options": ".\n100%\nMix\nNon FSC\nECO JILIN"
   },
   {
    "fieldname": "purchase_receipt_info_section",
@@ -190,7 +190,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2024-09-12 07:02:25.353094",
+ "modified": "2024-11-04 04:28:36.615675",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
