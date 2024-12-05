@@ -65,9 +65,9 @@ class Container(Document):
 	def create_batches(self):
 		# frappe.msgprint("create_batches"
 			for batch in self.batches:
-				if frappe.db.exists("Batch", batch.batch_id):
+				if frappe.db.exists("Batch", {"name": batch.batch_id, "custom_container_no": self.container_no, 'custom_lot_no': self.lot_no}):
 					batch_doc = frappe.get_doc("Batch", batch.batch_id)
-					batch_doc.batch_qty = frappe.db.sql("UPDATE `tabBatch` SET batch_qty = batch_qty", (batch.qty))
+					frappe.db.sql("UPDATE `tabBatch` SET batch_qty = %s WHERE name = %s", (batch.qty, batch.name))
 					frappe.db.set_value("Batch", batch.batch_id, "stock_uom", batch.uom)
 					frappe.db.set_value("Batch", batch.batch_id, "custom_supplier_batch_no", batch.supplier_batch_no)
 					frappe.db.set_value("Batch", batch.batch_id, "custom_container_no", self.container_no)
