@@ -66,40 +66,25 @@ class Container(Document):
 		# frappe.msgprint("create_batches"
 			for batch in self.batches:
 				if frappe.db.exists("Batch", {"name": batch.batch_id, "custom_container_no": self.container_no, 'custom_lot_no': self.lot_no}):
-					batch_doc = frappe.get_doc("Batch", batch.batch_id)
-					frappe.db.sql("UPDATE `tabBatch` SET batch_qty = %s WHERE name = %s", (batch.qty, batch.name))
-					frappe.db.set_value("Batch", batch.batch_id, "stock_uom", batch.uom)
-					frappe.db.set_value("Batch", batch.batch_id, "custom_supplier_batch_no", batch.supplier_batch_no)
-					frappe.db.set_value("Batch", batch.batch_id, "custom_container_no", self.container_no)
-					frape.db.set_value("Batch", batch.batch_id, "custom_cone", batch.cone)
-					frape.db.set_value("Batch", batch.batch_id, "custom_glue", self.glue)
-					frappe.db.set_value("Batch", batch.batch_id, "custom_lusture", self.lusture)
-					frappe.db.set_value("Batch", batch.batch_id, "custom_grade", self.grade)
-					frappe.db.set_value("Batch", batch.batch_id, "custom_pulp", self.pulp)
-					frappe.db.set_value("Batch", batch.batch_id, "custom_fsc", self.fsc)
-					# batch.custom_net_weight = batch.qty
-					frappe.db.set_value("Batch", batch.batch_id, "custom_lot_no", self.lot_no)
-					batch_doc.save(ignore_permissions=True)
-					frappe.db.commit()
-				else:
-					batch_doc = frappe.new_doc("Batch")
-					batch_doc.item = batch.item
-					batch_doc.batch_qty = batch.qty
-					batch_doc.stock_uom = batch.uom
-					batch_doc.batch_id = batch.batch_id
-					batch_doc.custom_supplier_batch_no= batch.supplier_batch_no
-					batch_doc.custom_container_no = self.container_no
-					batch_doc.custom_cone = batch.cone
-					batch_doc.custom_glue = self.glue
-					batch_doc.custom_lusture = self.lusture
-					batch_doc.custom_grade = self.grade
-					batch_doc.custom_pulp = self.pulp
-					batch_doc.custom_fsc = self.fsc
-					# batch.custom_net_weight = batch.qty
-					batch_doc.custom_lot_no = self.lot_no
-					batch_doc.save(ignore_permissions=True)
-					batch_doc.submit()
-					frappe.db.commit()
+					frappe.thow("Batch already exists")
+				batch_doc = frappe.new_doc("Batch")
+				batch_doc.item = batch.item
+				batch_doc.batch_qty = batch.qty
+				batch_doc.stock_uom = batch.uom
+				batch_doc.batch_id = batch.batch_id
+				batch_doc.custom_supplier_batch_no= batch.supplier_batch_no
+				batch_doc.custom_container_no = self.container_no
+				batch_doc.custom_cone = batch.cone
+				batch_doc.custom_glue = self.glue
+				batch_doc.custom_lusture = self.lusture
+				batch_doc.custom_grade = self.grade
+				batch_doc.custom_pulp = self.pulp
+				batch_doc.custom_fsc = self.fsc
+				# batch.custom_net_weight = batch.qty
+				batch_doc.custom_lot_no = self.lot_no
+				batch_doc.save(ignore_permissions=True)
+				batch_doc.submit()
+				frappe.db.commit()
 			
 		
 	def get_items(self):
