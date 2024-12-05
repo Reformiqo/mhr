@@ -67,19 +67,18 @@ class Container(Document):
 			for batch in self.batches:
 				if frappe.db.exists("Batch", batch.batch_id):
 					batch_doc = frappe.get_doc("Batch", batch.batch_id)
-					batch_doc.batch_qty = flt(batch_doc.batch_qty)  + flt(batch.qty)
-					batch_doc.stock_uom = batch.uom
-					batch_doc.batch_id = batch.batch_id
-					batch_doc.custom_supplier_batch_no= batch.supplier_batch_no
-					batch_doc.custom_container_no = self.container_no
-					batch_doc.custom_cone = batch.cone
-					batch_doc.custom_glue = self.glue
-					batch_doc.custom_lusture = self.lusture
-					batch_doc.custom_grade = self.grade
-					batch_doc.custom_pulp = self.pulp
-					batch_doc.custom_fsc = self.fsc
+					batch_doc.batch_qty = frappe.db.sql("UPDATE `tabBatch` SET batch_qty = batch_qty", (batch.qty))
+					frappe.db.set_value("Batch", batch.batch_id, "stock_uom", batch.uom)
+					frappe.db.set_value("Batch", batch.batch_id, "custom_supplier_batch_no", batch.supplier_batch_no)
+					frappe.db.set_value("Batch", batch.batch_id, "custom_container_no", self.container_no)
+					frape.db.set_value("Batch", batch.batch_id, "custom_cone", batch.cone)
+					frape.db.set_value("Batch", batch.batch_id, "custom_glue", self.glue)
+					frappe.db.set_value("Batch", batch.batch_id, "custom_lusture", self.lusture)
+					frappe.db.set_value("Batch", batch.batch_id, "custom_grade", self.grade)
+					frappe.db.set_value("Batch", batch.batch_id, "custom_pulp", self.pulp)
+					frappe.db.set_value("Batch", batch.batch_id, "custom_fsc", self.fsc)
 					# batch.custom_net_weight = batch.qty
-					batch_doc.custom_lot_no = self.lot_no
+					frappe.db.set_value("Batch", batch.batch_id, "custom_lot_no", self.lot_no)
 					batch_doc.save(ignore_permissions=True)
 					frappe.db.commit()
 				else:
