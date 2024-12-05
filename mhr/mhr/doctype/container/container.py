@@ -67,7 +67,7 @@ class Container(Document):
 			for batch in self.batches:
 				if frappe.db.exists("Batch", batch.batch_id):
 					batch_doc = frappe.get_doc("Batch", batch.batch_id)
-					flt(batch_doc.batch_qty) += flt(batch.qty)
+					batch_doc.batch_qty = flt(batch_doc.batch_qty)  + flt(batch.qty)
 					batch_doc.stock_uom = batch.uom
 					batch_doc.batch_id = batch.batch_id
 					batch_doc.custom_supplier_batch_no= batch.supplier_batch_no
