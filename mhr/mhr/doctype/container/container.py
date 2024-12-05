@@ -3,7 +3,7 @@
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import cint, flt
+from frappe.utils import cint, flt,  now
 
 
 class Container(Document):
@@ -42,9 +42,7 @@ class Container(Document):
 	def on_trash(self):
 		for batch in self.batches:
 			if frappe.db.exists("Batch", {"name": batch.batch_id, "custom_container_no": self.container_no, 'custom_lot_no': self.lot_no}):
-				# delete batch if naame, container and lot number is same
 				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s", (batch.batch_id, self.container_no, self.lot_no))
-				# delte serial ad abtch budnle
 		pr = frappe.get_all("Purchase Receipt", filters={"custom_container_no": self.name}, fields=["name"])
 		if pr:
 			for p in pr:
