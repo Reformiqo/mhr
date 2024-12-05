@@ -41,8 +41,9 @@ class Container(Document):
 
 	def on_trash(self):
 		for batch in self.batches:
-			if frappe.db.exists("Batch", batch.batch_id):
-				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+			if frappe.db.exists("Batch", {"name": batch.batch_id, "custom_container_no": self.container_no, 'custom_lot_no': self.lot_no}):
+				# delete batch if naame, container and lot number is same
+				frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s", (batch.batch_id, self.container_no, self.lot_no))
 				# delte serial ad abtch budnle
 		pr = frappe.get_all("Purchase Receipt", filters={"custom_container_no": self.name}, fields=["name"])
 		if pr:
@@ -67,7 +68,22 @@ class Container(Document):
 		# frappe.msgprint("create_batches"
 			for batch in self.batches:
 				if frappe.db.exists("Batch", batch.batch_id):
-					continue
+					batch_doc = frappe.get_doc("Batch", batch.batch_id)
+					batch_doc.batch_qty += batch.qty
+					batch_doc.stock_uom = batch.uom
+					batch_doc.batch_id = batch.batch_id
+					batch_doc.custom_supplier_batch_no= batch.supplier_batch_no
+					batch_doc.custom_container_no = self.container_no
+					batch_doc.custom_cone = batch.cone
+					batch_doc.custom_glue = self.glue
+					batch_doc.custom_lusture = self.lusture
+					batch_doc.custom_grade = self.grade
+					batch_doc.custom_pulp = self.pulp
+					batch_doc.custom_fsc = self.fsc
+					# batch.custom_net_weight = batch.qty
+					batch_doc.custom_lot_no = self.lot_no
+					batch_doc.save(ignore_permissions=True)
+					frappe.db.commit()
 				else:
 					batch_doc = frappe.new_doc("Batch")
 					batch_doc.item = batch.item
