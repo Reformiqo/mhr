@@ -648,3 +648,18 @@ def delete_containers(doctype):
     frappe.db.sql(f"DELETE FROM `tab{doctype}`")
     frappe.db.commit()
     return "Success"
+
+def update_batch_qty():
+    container = frappe.get_all("Container", {"docstatus": 1}, ["name"])
+    for container in container:
+        container_doc = frappe.get_doc("Container", container.name)
+        for batch in container_doc.batches:
+            # update batch if batch id exists and container no is the same adn lot no is the same
+            frappe.db.sql(f"UPDATE `tabBatch` SET batch_qty = {batch.qty} WHERE name = '{batch.batch_id}' AND custom_container_no = '{container_doc.container_no}' AND custom_lot_no = '{container_doc.lot_no}'")
+            frappe.db.commit()
+    return "Success"
+
+@frappe.whitelist()
+def enqueue_update_batch_qty():
+    frappe.enqueue("mhr.utilis.update_batch_qty", queue="long")
+    return "Success"

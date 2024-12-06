@@ -67,6 +67,7 @@ class Container(Document):
 			for batch in self.batches:
 				if frappe.db.exists("Batch", {"name": batch.batch_id, "custom_container_no": self.container_no, 'custom_lot_no': self.lot_no}):
 					frappe.throw(f"Batch {batch.batch_id} of row {batch.idx} already exists in the system")
+				
 				batch_doc = frappe.new_doc("Batch")
 				batch_doc.item = batch.item
 				batch_doc.batch_qty = batch.qty
