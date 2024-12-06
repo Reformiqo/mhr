@@ -137,6 +137,7 @@ class Container(Document):
 			sb_bundle.item_name = item_code
 			sb_bundle.voucher_type = "Purchase Receipt"
 			sb_bundle.warehouse = "Finished Goods - MC"
+			
 			for batch in batches:
 				sb_bundle.append("entries", {
 					"batch_no": batch['batch_id'],

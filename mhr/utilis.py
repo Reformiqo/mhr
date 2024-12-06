@@ -663,3 +663,11 @@ def update_batch_qty():
 def enqueue_update_batch_qty():
     frappe.enqueue("mhr.utilis.update_batch_qty", queue="long")
     return "Success"
+
+@frappe.whitelist()
+def update_container_batch_qty(container: str):
+    container_doc = frappe.get_doc("Container", container)
+    for batch in container_doc.batches:
+        frappe.db.sql(f"UPDATE `tabBatch` SET batch_qty = {batch.qty} WHERE name = '{batch.batch_id}'")
+        frappe.db.commit()
+    return "Success"
