@@ -21,6 +21,7 @@ def get_columns(filters=None):
         {"label": _("Cone"), "fieldname": "cone", "fieldtype": "Data", "width": 100},
         {"label": _("Boxes"), "fieldname": "boxes", "fieldtype": "Data", "width": 100},
         {"label": _("Stock"), "fieldname": "stock", "fieldtype": "Data", "width": 100},
+        {"label": _("Warehouse"), "fieldname": "warehouse", "fieldtype": "Data", "width": 100},
         
     ]
 
@@ -44,7 +45,8 @@ def get_datas(filters=None):
                 "grade": container.grade,
                 "cone": cone,
                 "boxes": get_number_of_boes(container.name, cone),
-                "stock": get_cone_total(container.name, cone)
+                "stock": get_cone_total(container.name, cone),
+                "warehouse": container.warehouse
             })
         
     return data
