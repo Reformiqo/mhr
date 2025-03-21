@@ -12,7 +12,8 @@
   "uom",
   "cone",
   "supplier_batch_no",
-  "warehouse"
+  "warehouse",
+  "cross_section"
  ],
  "fields": [
   {
@@ -62,12 +63,19 @@
    "fieldtype": "Link",
    "label": "Warehouse",
    "options": "Warehouse"
+  },
+  {
+   "fieldname": "cross_section",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Cross Section",
+   "options": "\nTriangle\nRound"
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2024-06-20 19:59:37.666862",
+ "modified": "2025-03-21 12:18:11.821654",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Batch Items",
