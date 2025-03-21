@@ -27,6 +27,7 @@
     "parenttype": "Report",
     "role": "System Manager"
    }
-  ]
+  ],
+  "timeout": 0
  }
 ]
