@@ -19,6 +19,7 @@
   "grade",
   "fsc",
   "warehouse",
+  "cross_section",
   "purchase_receipt_info_section",
   "supplier",
   "posting_date",
@@ -185,12 +186,18 @@
    "fieldtype": "Link",
    "label": "Warehouse",
    "options": "Warehouse"
+  },
+  {
+   "fieldname": "cross_section",
+   "fieldtype": "Select",
+   "label": "Cross Section",
+   "options": "\nTriangle\nRound"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2024-11-04 04:28:36.615675",
+ "modified": "2025-03-22 12:53:35.436256",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",

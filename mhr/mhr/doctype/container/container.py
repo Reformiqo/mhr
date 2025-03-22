@@ -81,7 +81,7 @@ class Container(Document):
 				batch_doc.custom_grade = self.grade
 				batch_doc.custom_pulp = self.pulp
 				batch_doc.custom_fsc = self.fsc
-				batch_doc.cross_section = batch.cross_section
+				batch_doc.cross_section = self.cross_section
 				# batch.custom_net_weight = batch.qty
 				batch_doc.custom_lot_no = self.lot_no
 				batch_doc.save(ignore_permissions=True)
