@@ -108,7 +108,7 @@ def validate_batch(doc, method=None):
             if doc_container_no != batch_container_no:
                 frappe.throw(f'Container no is not the same as the container no in Batch {batch.name}')
         
-        set_total_cone(doc)
+        # set_total_cone(doc)
         
         # Uncomment and add similar case-insensitive checks if needed for these fields
         # doc_supplier_batch_no = item.custom_supplier_batch_no.lower() if item.custom_supplier_batch_no else ""

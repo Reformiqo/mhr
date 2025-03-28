@@ -18,8 +18,8 @@
   "column_break_hzgt",
   "grade",
   "fsc",
-  "warehouse",
   "cross_section",
+  "warehouse",
   "purchase_receipt_info_section",
   "supplier",
   "posting_date",
@@ -183,9 +183,8 @@
   },
   {
    "fieldname": "warehouse",
-   "fieldtype": "Link",
-   "label": "Warehouse",
-   "options": "Warehouse"
+   "fieldtype": "Small Text",
+   "label": "Warehouse"
   },
   {
    "fieldname": "cross_section",
@@ -197,7 +196,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-03-22 12:53:35.436256",
+ "modified": "2025-03-28 10:19:34.392363",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
