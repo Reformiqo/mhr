@@ -671,3 +671,9 @@ def update_container_batch_qty(container: str):
         frappe.db.sql(f"UPDATE `tabBatch` SET batch_qty = {batch.qty} WHERE name = '{batch.batch_id}'")
         frappe.db.commit()
     return "Success"
+
+
+@frappe.whitelist()
+def set_delivery_note_user(doc, method=None):
+    doc.prepared_by = frappe.session.user
+    
