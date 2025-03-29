@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 def execute(filters=None):
     columns, data = get_columns(filters=filters), get_datas(filters=filters)
@@ -14,7 +14,7 @@ def get_columns(filters=None):
         {"label": _("Pulp"), "fieldname": "pulp", "fieldtype": "Data", "width": 100},
         {"label": _("Lusture"), "fieldname": "lusture", "fieldtype": "Data", "width": 100},
         {"label": _("Glue"), "fieldname": "glue", "fieldtype": "Data", "width": 100},
-        {"label": _("Total Closing"), "fieldname": "total_closing", "fieldtype": "Data", "width": 100},
+        {"label": _("Total Closing"), "fieldname": "total_closing", "fieldtype": "Float", "width": 100},
         {"label": _("Grade"), "fieldname": "grade", "fieldtype": "Data", "width": 100},
         {"label": _("Mer No"), "fieldname": "mer_no", "fieldtype": "Data", "width": 100},
         {"label": _("Lot No"), "fieldname": "lot_no", "fieldtype": "Data", "width": 100},
@@ -63,7 +63,7 @@ def get_cone_total(container_name, cone):
 
 def get_total_closing(container_name):
     con = frappe.get_doc("Container", container_name)
-    return sum(cint(batch.qty) for batch in con.batches)
+    return sum(flt(batch.qty) for batch in con.batches)
 
 def get_number_of_boes(container_name, cone):
     con = frappe.get_doc("Container", container_name)
