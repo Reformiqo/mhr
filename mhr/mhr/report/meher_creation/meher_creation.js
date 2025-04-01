@@ -2,15 +2,18 @@
 // For license information, please see license.txt
 
 frappe.query_reports["Meher Creation"] = {
-	"filters": [
-		// {
-		// 	"label": "Container",
-        // 		"fieldname": "container_no",
-        //   		"fieldtype": "Link",
-		// 	"options":'Container',
-        //    		"width": 200,
-		// 	"reqd": 1
-        // 	}
-
-	]
+	// "filters": [
+	// 	{
+	// 		"fieldname": "from_date",
+	// 		"label": __("From Date"),
+	// 		"fieldtype": "Date",
+	// 		"default": frappe.datetime.add_days(frappe.datetime.get_today(), -30),
+	// 	},
+	// 	{
+	// 		"fieldname": "to_date",
+	// 		"label": __("To Date"),
+	// 		"fieldtype": "Date",
+	// 		"default": frappe.datetime.get_today(),
+	// 	}
+	// ]
 };
