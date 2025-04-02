@@ -123,42 +123,41 @@ app_license = "mit"
 # Hook on document methods and events
 
 doc_events = {
-	"Delivery Note": {
-		"on_submit": "mhr.utilis.update_item_batch",
-        "validate": ["mhr.utilis.validate_batch",
-                     "mhr.utilis.set_delivery_note_user"
-                     ]
+    "Delivery Note": {
+        "on_submit": "mhr.utilis.update_item_batch",
+        "validate": [
+            "mhr.utilis.validate_batch",
+            "mhr.utilis.set_delivery_note_user",
+            "mhr.utilis.validate_delivery_note_batches",
+        ],
+        "autoname": "mhr.utilis.autoname",
         # "validate": "mhr.utilis.set_total_cone"
-		
-	},
+    },
     "Batch": {
         "validate": "mhr.batch_qr_code.set_si_qrcode",
     },
     "Stock Entry": {
         "validate": "mhr.utilis.update_stock_entry",
     },
-    
 }
 
 # Scheduled Tasks
 # ---------------
 
 scheduler_events = {
-	"all": [
-		"mhr.utilis.resend_email_queue"
-	],
-# 	"daily": [
-# 		"mhr.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"mhr.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"mhr.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"mhr.tasks.monthly"
-# 	],
+    "all": ["mhr.utilis.resend_email_queue"],
+    # 	"daily": [
+    # 		"mhr.tasks.daily"
+    # 	],
+    # 	"hourly": [
+    # 		"mhr.tasks.hourly"
+    # 	],
+    # 	"weekly": [
+    # 		"mhr.tasks.weekly"
+    # 	],
+    # 	"monthly": [
+    # 		"mhr.tasks.monthly"
+    # 	],
 }
 
 # Testing
@@ -238,14 +237,7 @@ scheduler_events = {
 # }
 
 fixtures = [
-    {"doctype": "Client Script", 
-    "filters": [["module" , "in" , ("Mhr" )]]
-    },
-    {"doctype": "Custom Field",
-    "filters": [["module" , "in" , ("Mhr" )]]
-    },
-    {"doctype": "Report",
-    "filters": [["module" , "in" , ("Mhr" )]]
-    },
-  
-    ]
+    {"doctype": "Client Script", "filters": [["module", "in", ("Mhr")]]},
+    {"doctype": "Custom Field", "filters": [["module", "in", ("Mhr")]]},
+    {"doctype": "Report", "filters": [["module", "in", ("Mhr")]]},
+]
