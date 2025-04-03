@@ -908,7 +908,8 @@ def validate_delivery_note_batches(doc, method=None):
 
 
     for item in doc.items:
-        if item.batch_no and frappe.db.exists("Delivery Note Item", {"batch_no": item.batch_no}):
+        # check if the item parent isnot the same as the doc name
+        if item.batch_no and frappe.db.exists("Delivery Note Item", {"batch_no": item.batch_no, "parent": {"!=": doc.name}}):
             frappe.throw(  
                 _(
                     "Batch {0} is already used Please select a different batch."
