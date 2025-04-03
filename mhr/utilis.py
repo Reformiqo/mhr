@@ -823,8 +823,8 @@ def rename_delivery_note():
                 new_name = str(max_challan)
 
                 # Keep incrementing until we find an unused number
-                while frappe.db.exists("Delivery Note", new_name) or frappe.db.exists(
-                    "Delivery Note", {"challan_number": new_name}
+                while frappe.db.exists("Delivery Trip", new_name) or frappe.db.exists(
+                    "Delivery Trip", {"challan_number": new_name}
                 ):
                     max_challan += 1
                     new_name = str(max_challan)
@@ -833,12 +833,12 @@ def rename_delivery_note():
                 new_name = challan_no
                 counter = int(challan_no)
 
-                while frappe.db.exists("Delivery Note", new_name):
+                while frappe.db.exists("Delivery Trip", new_name):
                     counter += 1
                     new_name = str(counter)
 
                     while frappe.db.exists(
-                        "Delivery Note", {"challan_number": new_name}
+                        "Delivery Trip", {"challan_number": new_name}
                     ):
                         counter += 1
                         new_name = str(counter)
@@ -846,7 +846,7 @@ def rename_delivery_note():
             # Update both the document name and challan_number
             frappe.db.sql(
                 """
-                UPDATE `tabDelivery Note` 
+                UPDATE `tabDelivery Trip` 
                 SET name = %s, challan_number = %s 
                 WHERE name = %s
             """,
