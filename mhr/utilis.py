@@ -801,7 +801,7 @@ def set_delivery_note_user(doc, method=None):
 
 @frappe.whitelist()
 def rename_delivery_note():
-    delivery_notes = frappe.get_all("Delivery Note", ["name", "challan_number"])
+    delivery_notes = frappe.get_all("Delivery Trip", ["name", "challan_number"])
 
     # Find the highest existing challan number
     max_challan = 0
