@@ -117,7 +117,7 @@ def get_datas(filters=None):
                 {
                     "total_closing": get_total_closing(container.container_name),
                     "cone": cone,
-                    "boxes": get_number_of_boes(container.container_name, cone),
+                    "boxes": get_number_of_boxes(container.container_name, cone),
                     "stock": get_cone_total(container.container_name, cone),
                 }
             )
@@ -158,11 +158,12 @@ def get_total_closing(container_name):
     return flt(result[0].total) if result and result[0].total else 0
 
 
-def get_number_of_boes(container_name, cone):
+def get_number_of_boxes(container_name, cone):
     query = """
         SELECT COUNT(*) as count
-        FROM `tabBatch Items`
-        WHERE parent = %s AND cone = %s
+        FROM `tabBatch Items` cb
+        LEFT JOIN `tabBatch` b ON b.name = cb.batch_id
+        WHERE cb.parent = %s AND cb.cone = %s AND b.batch_qty > 0
     """
     result = frappe.db.sql(query, (container_name, cone), as_dict=1)
     return result[0].count if result else 0

@@ -925,3 +925,22 @@ def validate_delivery_note_batches(doc, method=None):
                         "Batch {0} is already used. Please select a different batch."
                     ).format(item.batch_no)
                 )
+
+
+@frappe.whitelist()
+def get_number_of_boxes(container_name):
+    # for the number of boxes select only the batches that have the same cone and contianer nad have batch_qty more than 0 from batch doctype
+    # return frappe.db.count(
+    #     "Batch",
+    #     {
+    #         "custom_container_no": container_name,
+    #         "batch_qty": (">", 0),
+    #     },
+    # )
+    query = """
+        SELECT COUNT(*) as count
+        FROM `tabBatch` b
+        WHERE b.custom_container_no = %s AND b.batch_qty > 0
+    """
+    result = frappe.db.sql(query, (container_name,), as_dict=1)
+    return result[0].count if result else 0
