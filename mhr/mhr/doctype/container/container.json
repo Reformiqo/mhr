@@ -51,7 +51,7 @@
    "fieldname": "glue",
    "fieldtype": "Select",
    "label": "Glue",
-   "options": ".\nCentrifugal\nHigh\nLow"
+   "options": ".\nCentrifugal\nHigh\nLow\nPALLET\nNULL\nPALLET(JUMBO BAG)\nHIGH\nBAG\nPOLYSTER\nCENT.\nPALEET\nJUMBO BAG\nLOW\nSHG\nJAMBO\nCRT\nPALLATE"
   },
   {
    "fieldname": "merge_no",
@@ -66,13 +66,13 @@
    "fieldname": "lusture",
    "fieldtype": "Select",
    "label": "Lusture",
-   "options": ".\nBright\nDull\nSilky\nBlack"
+   "options": ".\nBright\nDull\nSilky\nBlack\nBRIEGHT\nN66\nRW\nNYLON 6 FDY\nN6 FDY\nBRIGHT\nDULL\nNULL\nNYLON\nRW(BRIGHT)\nPA6\nASKIN(FD)\nN6\nCONADU(SD)\nFLORA(FD)\nNAYLON6\nBLACK\nRW BRIGHT\nNYLON6 FDY\nPBT RESIN"
   },
   {
    "fieldname": "pulp",
    "fieldtype": "Select",
    "label": "Pulp",
-   "options": ".\nCotton\nWood\nBamboo"
+   "options": ".\nCotton\nWood\nBamboo\nNULL"
   },
   {
    "fieldname": "lot_no",
@@ -87,13 +87,13 @@
    "fieldname": "grade",
    "fieldtype": "Select",
    "label": "Grade",
-   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD"
+   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD\nA UNEVEN ( CMC )\nA1(CMC)\nNULL\nA EVEN\nF\nB\nB GRADE\nPA6\nA UNEVEN"
   },
   {
    "fieldname": "fsc",
    "fieldtype": "Select",
    "label": "FSC",
-   "options": ".\n100%\nMix\nNon FSC\nECO JILIN"
+   "options": ".\n100%\nMix\nNon FSC\nECO JILIN\nNULL"
   },
   {
    "fieldname": "purchase_receipt_info_section",
@@ -196,7 +196,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-03-28 10:19:34.392363",
+ "modified": "2025-05-20 02:40:03.288844",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
