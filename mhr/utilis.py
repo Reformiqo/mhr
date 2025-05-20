@@ -963,5 +963,5 @@ def submit_docs(doctype):
     for doc in docs:
         d = frappe.get_doc(doctype, doc.name)
         d.submit()
-    frappe.db.commit()
+        frappe.db.commit()
     return "docs submitted successfully"
