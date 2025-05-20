@@ -87,7 +87,7 @@
    "fieldname": "grade",
    "fieldtype": "Select",
    "label": "Grade",
-   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD\nA UNEVEN ( CMC )\nA1(CMC)\nNULL\nA EVEN\nF\nB\nB GRADE\nPA6\nA UNEVEN"
+   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD\nA UNEVEN ( CMC )\nA1(CMC)\nNULL\nA EVEN\nF\nB\nB GRADE\nPA6\nA UNEVEN\nC"
   },
   {
    "fieldname": "fsc",
@@ -196,7 +196,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-05-20 02:40:03.288844",
+ "modified": "2025-05-20 08:03:35.796592",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
@@ -248,6 +248,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

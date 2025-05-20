@@ -353,7 +353,7 @@ def create_serial_and_batch_bundle(item_code):
                 },
             )
 
-        sb_bundle.save()
+        sb_bundle.save(ignore_permissions=True)
         frappe.db.commit()
         return sb_bundle.name
     except Exception as e:
@@ -397,7 +397,7 @@ def create_purchase_receipt():
 
     # Save and submit the Purchase Receipt
     try:
-        purchase_receipt.save()
+        purchase_receipt.save(ignore_permissions=True)
         purchase_receipt.submit()
         frappe.db.commit()
 

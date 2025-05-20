@@ -122,7 +122,7 @@ class Container(Document):
 					"uom": batch.uom,
 					"cone": batch.cone,
 					"supplier_batch_no": batch.supplier_batch_no,
-					"warehouse": batch.warehouse
+					"warehouse": "Finished Goods - MC"
 
 					})
 		return batches
@@ -146,7 +146,7 @@ class Container(Document):
 					"uom": batch['uom'],
 					"cone": batch['cone'],
 					"supplier_batch_no": batch['supplier_batch_no'],
-					"warehouse": batch['warehouse'],
+					"warehouse": "Finished Goods - MC",
 
 				})
 				
