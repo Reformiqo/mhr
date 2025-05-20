@@ -944,3 +944,24 @@ def get_number_of_boxes(container_name):
     """
     result = frappe.db.sql(query, (container_name,), as_dict=1)
     return result[0].count if result else 0
+
+
+@frappe.whitelist()
+def update_container_item():
+    frappe.db.sql("""
+    UPDATE `tabBatch Items` cb
+    JOIN `tabContainer` c ON cb.parent = c.name
+    SET cb.item = c.item
+    WHERE cb.parenttype = 'Container' AND cb.parentfield = 'batches'
+    """)
+    frappe.db.commit()
+    return "successfully update batches"
+
+@frappe.whitelist()
+def submit_docs(doctype):
+    docs = frappe.get_all(doctype, {"docstatus": 0})
+    for doc in docs:
+        d = frappe.get_doc(doctype, doc.name)
+        d.submit()
+    frappe.db.commit()
+    return "docs submitted successfully"

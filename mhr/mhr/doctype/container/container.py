@@ -7,6 +7,25 @@ from frappe.utils import cint, flt,  now
 
 
 class Container(Document):
+	# def after_insert(self):
+	# 	if frappe.db.exists("Container", {"container_no": self.container_no, "name" : ["!=", self.name]}):
+	# 		doc = frappe.get_doc("Container", {"container_no": self.container_no, "name": ["!=", self.name]})
+	# 		for batch in doc.batches:
+	# 			self.append("batches", {
+	# 				"batch_id": batch.batch_id,
+	# 				"item": batch.item,
+	# 				"qty": batch.qty,
+	# 				"uom": batch.uom,
+	# 				"cone": batch.cone,
+	# 				"warehouse": batch.warehouse,
+	# 				"supplier_batch_no": batch.supplier_batch_no
+	# 			})
+	# 			self.save()
+	# 			frappe.db.commit()
+	# 		frappe.delete_doc("Container", doc.name)
+	# 		frappe.db.commit()
+			
+		
 	def on_submit(self):
 		# frappe.msgprint("on_submit"
 		self.create_batches()
@@ -54,6 +73,7 @@ class Container(Document):
 		frappe.db.commit()
 
 	def validate(self):
+		
 		qty = 0
 		cone = 0
 		for batch in self.batches:
