@@ -965,3 +965,9 @@ def submit_docs(doctype):
         d.submit()
         frappe.db.commit()
     return "docs submitted successfully"
+
+
+@frappe.whitelist()
+def enqueue_submit_docs(doctype):
+    frappe.enqueue("mhr.utilis.submit_docs", doctype=doctype, queue="long")
+    return "docs submitted successfully"
