@@ -971,3 +971,10 @@ def submit_docs(doctype):
 def enqueue_submit_docs(doctype):
     frappe.enqueue("mhr.utilis.submit_docs", doctype=doctype, queue="long")
     return "docs submitted successfully"
+
+@frappe.whitelist()
+def delete_receipts():
+    # delete receipts create on or before 21-05-2025 18:58:43 
+    frappe.db.sql("DELETE FROM `tabPurchase Receipt` WHERE creation < '2025-05-21 18:58:43'")
+    frappe.db.commit()
+    return "Receipts deleted successfully"
