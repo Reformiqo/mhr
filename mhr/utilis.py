@@ -981,3 +981,8 @@ def cancel_receipts():
         d.cancel()
         frappe.db.commit()
     return "receipts cancelled successfully"
+
+@frappe.whitelist()
+def enqueue_cancel_receipts():
+    frappe.enqueue("mhr.utilis.cancel_receipts", queue="long")
+    return "receipts cancelled successfully"
