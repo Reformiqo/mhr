@@ -973,8 +973,11 @@ def enqueue_submit_docs(doctype):
     return "docs submitted successfully"
 
 @frappe.whitelist()
-def delete_receipts():
-    # delete receipts create on or before 21-05-2025 18:58:43 
-    frappe.db.sql("DELETE FROM `tabPurchase Receipt` WHERE creation < '2025-05-21 18:58:43'")
-    frappe.db.commit()
-    return "Receipts deleted successfully"
+def cancel_receipts():
+    # cancel receipts create on or before 21-05-2025 18:58:43 
+    docs = frappe.get_all("Purchase Receipt", {"docstatus": 1, "creation": ("<", "2025-05-21 18:58:43")})
+    for doc in docs:
+        d = frappe.get_doc("Purchase Receipt", doc.name)
+        d.cancel()
+        frappe.db.commit()
+    return "receipts cancelled successfully"
