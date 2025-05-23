@@ -158,6 +158,11 @@ scheduler_events = {
     # 	"monthly": [
     # 		"mhr.tasks.monthly"
     # 	],
+    "cron" :{
+        "*/5 * * * *": [
+            "mhr.utilis.enqueue_cancel_receipts"
+        ]
+    }
 }
 
 # Testing
