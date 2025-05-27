@@ -59,6 +59,20 @@ def get_columns():
             "fieldtype": "Data",
             "width": 100,
         },
+        # supplier batc no 
+        {
+            "label": _("Supplier Batch No"),
+            "fieldname": "supplier_batch_no",
+            "fieldtype": "Data",
+            "width": 100,
+        },
+        {
+            "label": _("Batch"),
+            "fieldname": "batch",
+            "fieldtype": "Data",
+            "width": 100,
+        },
+
         {
             "label": _("Cross Section"),
             "fieldname": "cross_section",
@@ -80,7 +94,6 @@ def get_datas(filters=None):
     else:
         # Default to last 30 days if no filters
         conditions += " AND c.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)"
-
     query = """
         SELECT DISTINCT
             c.posting_date as date,
@@ -92,6 +105,7 @@ def get_datas(filters=None):
             c.grade,
             c.merge_no as mer_no,
             c.lot_no,
+
             c.warehouse,
             c.cross_section,
             c.name as container_name
@@ -110,15 +124,18 @@ def get_datas(filters=None):
     data = []
 
     for container in containers:
+        supplier_batch_no = frappe.db.get_value("Batch", {"custom_container_no": container.container_no}, "custom_supplier_batch_no")
         cones = get_multiple_variable_of_cone(container.container_name)
         for cone in cones:
             row = container.copy()
+            
             row.update(
                 {
                     "total_closing": get_total_closing(container.container_name),
                     "cone": cone,
                     "boxes": get_number_of_boxes(container.container_name, cone),
                     "stock": get_cone_total(container.container_name, cone),
+                    "supplier_batch_no": supplier_batch_no
                 }
             )
             data.append(row)
