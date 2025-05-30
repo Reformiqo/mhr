@@ -110,12 +110,8 @@ def get_columns():
 
 
 def get_datas(filters=None):
+    """Optimized data retrieval with proper batch processing and efficient queries"""
     try:
-        # Apply pagination - get data in chunks to prevent timeouts
-        page_size = 100
-        page = 1
-        all_data = []
-        
         # Build conditions for filtering
         conditions = ""
         if filters:
@@ -129,54 +125,15 @@ def get_datas(filters=None):
             # Default to last 30 days if no filters
             conditions += " AND c.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)"
         
-        # First, get all container names and container numbers in one query
-        container_query = """
-            SELECT 
-                c.name as container_name,
-                c.container_no
-            FROM 
-                `tabContainer` c
-            WHERE 
-                c.docstatus = 1
-                {conditions}
-            ORDER BY 
-                c.posting_date DESC, c.container_no
-        """.format(conditions=conditions)
+        # Process data in batches to avoid memory issues and timeouts
+        page_size = 50  # Reduced page size for better performance
+        offset = 0
+        all_data = []
         
-        all_containers = frappe.db.sql(container_query, filters, as_dict=1)
-        
-        # Get all supplier batch numbers in one query
-        container_nos = [c.container_no for c in all_containers]
-        supplier_batch_dict = {}
-        
-        if container_nos:
-            supplier_batch_query = """
+        while True:
+            # Get batch of containers with LIMIT and OFFSET
+            container_query = """
                 SELECT 
-                    custom_container_no, 
-                    custom_supplier_batch_no 
-                FROM 
-                    `tabBatch` 
-                WHERE 
-                    custom_container_no IN %s
-            """
-            supplier_batches = frappe.db.sql(
-                supplier_batch_query, [container_nos], as_dict=1
-            )
-            
-            for batch in supplier_batches:
-                supplier_batch_dict[batch.custom_container_no] = batch.custom_supplier_batch_no
-        
-        # Process containers in batches
-        for i in range(0, len(all_containers), page_size):
-            batch_containers = all_containers[i:i+page_size]
-            container_names = [c.container_name for c in batch_containers]
-            
-            if not container_names:
-                continue
-                
-            # Get container details in one query
-            container_details_query = """
-                SELECT
                     c.name as container_name,
                     c.posting_date as date,
                     c.container_no as container,
@@ -192,115 +149,142 @@ def get_datas(filters=None):
                 FROM 
                     `tabContainer` c
                 WHERE 
-                    c.name IN %s
+                    c.docstatus = 1
+                    {conditions}
                 ORDER BY 
                     c.posting_date DESC, c.container_no
-            """
+                LIMIT {page_size} OFFSET {offset}
+            """.format(conditions=conditions, page_size=page_size, offset=offset)
             
-            containers = frappe.db.sql(
-                container_details_query, [container_names], as_dict=1
-            )
+            containers = frappe.db.sql(container_query, filters, as_dict=1)
             
-            # Get all cones data in one query
-            cones_query = """
-                SELECT 
-                    parent, 
-                    cone
-                FROM 
-                    `tabBatch Items`
-                WHERE 
-                    parent IN %s
-                GROUP BY 
-                    parent, cone
-            """
+            if not containers:
+                break  # No more data
             
-            cones_data = frappe.db.sql(cones_query, [container_names], as_dict=1)
+            # Get all container names and numbers for this batch
+            container_names = [c.container_name for c in containers]
+            container_nos = [c.container for c in containers if c.container]
             
-            # Create a dictionary of cones by container
-            cones_by_container = {}
-            for cone_item in cones_data:
-                if cone_item.parent not in cones_by_container:
-                    cones_by_container[cone_item.parent] = []
-                cones_by_container[cone_item.parent].append(cone_item.cone)
-            
-            # Get all batch quantities in one query
-            batch_data_query = """
-                SELECT 
-                    cb.parent,
-                    cb.cone,
-                    SUM(b.batch_qty) as total_qty,
-                    COUNT(CASE WHEN b.batch_qty > 0 THEN 1 END) as box_count
-                FROM 
-                    `tabBatch Items` cb
-                LEFT JOIN 
-                    `tabBatch` b ON b.name = cb.batch_id
-                WHERE 
-                    cb.parent IN %s
-                GROUP BY 
-                    cb.parent, cb.cone
-            """
-            
-            batch_data = frappe.db.sql(batch_data_query, [container_names], as_dict=1)
-            
-            # Create dictionaries for easy lookup
-            qty_by_container_cone = {}
-            boxes_by_container_cone = {}
-            
-            for item in batch_data:
-                key = f"{item.parent}_{item.cone}"
-                qty_by_container_cone[key] = flt(item.total_qty)
-                boxes_by_container_cone[key] = item.box_count
-            
-            # Get total closing quantities in one query
-            total_closing_query = """
-                SELECT 
-                    cb.parent,
-                    SUM(b.batch_qty) as total
-                FROM 
-                    `tabBatch Items` cb
-                LEFT JOIN 
-                    `tabBatch` b ON b.name = cb.batch_id
-                WHERE 
-                    cb.parent IN %s
-                GROUP BY 
-                    cb.parent
-            """
-            
-            total_closing_data = frappe.db.sql(
-                total_closing_query, [container_names], as_dict=1
-            )
-            
-            # Create dictionary for total closing
-            total_closing_by_container = {}
-            for item in total_closing_data:
-                total_closing_by_container[item.parent] = flt(item.total)
-            
-            # Build the final data structure
-            for container in containers:
-                container_name = container.container_name
-                supplier_batch_no = supplier_batch_dict.get(container.container, "")
+            # Get all supplier batch numbers in one query
+            supplier_batch_dict = {}
+            if container_nos:
+                supplier_batch_query = """
+                    SELECT 
+                        custom_container_no, 
+                        custom_supplier_batch_no 
+                    FROM 
+                        `tabBatch` 
+                    WHERE 
+                        custom_container_no IN ({})
+                """.format(','.join(['%s'] * len(container_nos)))
                 
-                # Get all cones for this container
-                cones = cones_by_container.get(container_name, [])
+                supplier_batches = frappe.db.sql(
+                    supplier_batch_query, container_nos, as_dict=1
+                )
                 
-                # Total closing for this container
-                total_closing = total_closing_by_container.get(container_name, 0)
+                for batch in supplier_batches:
+                    if batch.custom_container_no:
+                        supplier_batch_dict[batch.custom_container_no] = batch.custom_supplier_batch_no
+            
+            # Get all cone and batch data in optimized queries
+            if container_names:
+                # Get cone data
+                cones_query = """
+                    SELECT 
+                        parent, 
+                        cone,
+                        batch_id
+                    FROM 
+                        `tabBatch Items`
+                    WHERE 
+                        parent IN ({})
+                """.format(','.join(['%s'] * len(container_names)))
                 
-                for cone in cones:
-                    row = container.copy()
-                    key = f"{container_name}_{cone}"
+                cones_data = frappe.db.sql(cones_query, container_names, as_dict=1)
+                
+                # Get batch quantities for all batch IDs at once
+                batch_ids = [cone.batch_id for cone in cones_data if cone.batch_id]
+                batch_qty_dict = {}
+                
+                if batch_ids:
+                    batch_qty_query = """
+                        SELECT 
+                            name,
+                            batch_qty
+                        FROM 
+                            `tabBatch`
+                        WHERE 
+                            name IN ({})
+                    """.format(','.join(['%s'] * len(batch_ids)))
                     
-                    row.update({
-                        "total_closing": total_closing,
-                        "cone": cone,
-                        "boxes": boxes_by_container_cone.get(key, 0),
-                        "stock": qty_by_container_cone.get(key, 0),
-                        "supplier_batch_no": supplier_batch_no
-                    })
+                    batch_quantities = frappe.db.sql(batch_qty_query, batch_ids, as_dict=1)
                     
-                    all_data.append(row)
+                    for batch in batch_quantities:
+                        batch_qty_dict[batch.name] = flt(batch.batch_qty)
+                
+                # Process containers and build result
+                container_data_dict = {}
+                for container in containers:
+                    container_data_dict[container.container_name] = container
+                
+                # Group cones by container and calculate totals
+                container_cones = {}
+                container_totals = {}
+                
+                for cone_item in cones_data:
+                    parent = cone_item.parent
+                    cone = cone_item.cone
+                    batch_qty = batch_qty_dict.get(cone_item.batch_id, 0)
+                    
+                    if parent not in container_cones:
+                        container_cones[parent] = {}
+                        container_totals[parent] = 0
+                    
+                    if cone not in container_cones[parent]:
+                        container_cones[parent][cone] = {'qty': 0, 'boxes': 0}
+                    
+                    container_cones[parent][cone]['qty'] += batch_qty
+                    if batch_qty > 0:
+                        container_cones[parent][cone]['boxes'] += 1
+                    
+                    container_totals[parent] += batch_qty
+                
+                # Build final result for this batch
+                for container_name, cones_dict in container_cones.items():
+                    container_info = container_data_dict.get(container_name)
+                    if not container_info:
+                        continue
+                    
+                    supplier_batch_no = supplier_batch_dict.get(container_info.container, "")
+                    total_closing = container_totals.get(container_name, 0)
+                    
+                    for cone, cone_data in cones_dict.items():
+                        row = {
+                            'date': container_info.date,
+                            'container': container_info.container,
+                            'item': container_info.item,
+                            'pulp': container_info.pulp,
+                            'lusture': container_info.lusture,
+                            'glue': container_info.glue,
+                            'grade': container_info.grade,
+                            'mer_no': container_info.mer_no,
+                            'lot_no': container_info.lot_no,
+                            'warehouse': container_info.warehouse,
+                            'cross_section': container_info.cross_section,
+                            'total_closing': total_closing,
+                            'cone': cone,
+                            'boxes': cone_data['boxes'],
+                            'stock': cone_data['qty'],
+                            'supplier_batch_no': supplier_batch_no,
+                            'batch': ''  # Add if needed
+                        }
+                        all_data.append(row)
             
-            page += 1
+            offset += page_size
+            
+            # Add a small delay to prevent overwhelming the database
+            if offset % 200 == 0:  # Every 4 batches
+                time.sleep(0.1)
         
         return all_data
         
