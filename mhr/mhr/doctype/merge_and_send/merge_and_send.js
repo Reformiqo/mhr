@@ -59,6 +59,7 @@ frappe.ui.form.on("Merge and Send", {
 							label: __('Phone Number'),
 							fieldtype: 'Data',
 							reqd: 1,
+                            default: 917801988820,
 							description: __('Enter phone number with country code (e.g., +1234567890)')
 						},
 						{
@@ -109,7 +110,7 @@ frappe.ui.form.on("Merge and Send", {
                     attach_document_print: !useMergedUrl, // Attach document print only if not using merged URL
                     attachments: attachmentsToSend, // Attach the merged file if available
                     recipients: '',
-                    cc: '',
+                    cc: ['viscose@meherinternational.in, haresh@meherinternational.in, warehouse2@meherinternational.in'],
                     bcc: ''
                 });
 			});
