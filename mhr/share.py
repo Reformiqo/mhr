@@ -4,6 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils.pdf import get_pdf
 from frappe.utils import get_url_to_form
+from frappe.utils.print_format import print_language
 import base64
 import os
 
@@ -148,6 +149,118 @@ def get_delivery_note_customer_emails(delivery_notes):
         
     except Exception as e:
         frappe.log_error(f"Error getting customer emails: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+    
+@frappe.whitelist(allow_guest=True)
+def download_receipt(ref):
+    try:
+        doc = frappe.get_doc("Delivery Note", ref)
+        doc.flags.ignore_permissions = 1
+        
+        with print_language(None):
+            pdf_file = frappe.get_print(
+                "Delivery Note", 
+                doc.name,  
+                doc=doc, 
+                as_pdf=True, 
+                letterhead=None, 
+                no_letterhead=1
+            )
+
+        # Save the PDF to a file
+        file_name = f"{doc.name.replace(' ', '-').replace('/', '-')}.pdf"
+        file_path = frappe.get_site_path('private', 'files', file_name)
+        
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        # Write the PDF content to file
+        with open(file_path, 'wb') as f:
+            f.write(pdf_file)
+            
+        # Create a File document
+        file_doc = frappe.get_doc({
+            "doctype": "File",
+            "file_name": file_name,
+            "file_url": f"/files/{file_name}",
+            "is_private": 0,
+            "content": pdf_file
+        })
+        file_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        
+        # Generate the full URL
+        site_url = frappe.utils.get_url()
+        file_url = f"{site_url}{file_doc.file_url}"
+        
+        return {
+            "success": True,
+            "message": _("Receipt URL generated successfully"),
+            "url": file_url
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error generating receipt URL: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@frappe.whitelist(allow_guest=True)
+def get_file_urls(delivery_notes):
+    """
+    Get URLs for multiple delivery notes
+    Args:
+        delivery_notes: List of delivery note names or comma-separated string
+    Returns:
+        Dictionary containing success status and list of URLs
+    """
+    try:
+        # Convert string input to list if needed
+        if isinstance(delivery_notes, str):
+            delivery_notes = [dn.strip() for dn in delivery_notes.split(',') if dn.strip()]
+        
+        if not delivery_notes:
+            return {
+                "success": False,
+                "error": _("No delivery notes provided")
+            }
+        
+        urls = []
+        failed_docs = []
+        
+        for ref in delivery_notes:
+            try:
+                # Reuse the existing download_receipt function
+                result = download_receipt(ref)
+                if result.get("success"):
+                    urls.append({
+                        "delivery_note": ref,
+                        "url": result.get("url")
+                    })
+                else:
+                    failed_docs.append({
+                        "delivery_note": ref,
+                        "error": result.get("error")
+                    })
+            except Exception as e:
+                failed_docs.append({
+                    "delivery_note": ref,
+                    "error": str(e)
+                })
+        
+        return {
+            "success": True,
+            "message": _("Generated URLs for {0} delivery notes").format(len(urls)),
+            "urls": urls,
+            "failed_docs": failed_docs
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error generating multiple receipt URLs: {str(e)}")
         return {
             "success": False,
             "error": str(e)
