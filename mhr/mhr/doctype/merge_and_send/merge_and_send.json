@@ -42,14 +42,14 @@
   {
    "fieldname": "merge_url",
    "fieldtype": "Data",
-   "label": "Merged Document URL",
+   "label": "Merge Url",
    "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-31 08:36:18.273763",
+ "modified": "2025-05-31 09:05:20.696866",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Merge and Send",
