@@ -18,6 +18,7 @@ frappe.listview_settings['Delivery Note'] = {
                 frappe.msgprint(__('Please select at least one Delivery Note'));
                 return;
             }
+            console.log( selected_docs.map(doc => doc.name)
 
             // Get URLs for all selected delivery notes
             frappe.call({
