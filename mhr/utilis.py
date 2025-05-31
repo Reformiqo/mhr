@@ -986,3 +986,5 @@ def cancel_receipts():
 def enqueue_cancel_receipts():
     frappe.enqueue("mhr.utilis.cancel_receipts", queue="long")
     return "receipts cancelled successfully"
+
+

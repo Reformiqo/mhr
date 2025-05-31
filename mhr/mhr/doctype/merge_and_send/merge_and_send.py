@@ -68,6 +68,11 @@ class MergeandSend(Document):
 					# Update the child table document with file URL (optional)
 					site_url = frappe.utils.get_url()
 					document_info.file_url = f"{site_url}{file_doc.file_url}"
+					customer = ""
+					if doc.customer:
+						customer = frappe.db.get_value("Customer", doc.customer, "customer_name")
+						document_info.customer = customer
+					
 
 					
 					frappe.db.commit()

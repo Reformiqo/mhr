@@ -6,18 +6,16 @@ frappe.ui.form.on("Merge and Send", {
 		// Only show buttons if document is saved
 		if (!frm.is_new()) {
 			let messageContent = '';
+			let subject = 'Delivery Note -';
 			let useMergedUrl = frm.doc.enable_merge && frm.doc.merge_url;
 			let attachmentsToSend = []; // Array to hold file attachments
 
 			if (useMergedUrl) {
 				messageContent = `Hello,<br><br>Here is your merged document:<br><br>${frm.doc.merge_url}`;
-				// To attach the merged file, we need its details. Assuming the merge process creates a File document.
-				// We would ideally fetch the File document related to frm.doc.merge_url here.
-				// For now, we'll prepare a basic attachment structure if the URL is present.
-				// A more robust solution might involve storing the File doc name of the merged file.
+				
 				if (frm.doc.merge_url) {
-					// This is a simplified representation. A real implementation might need the File doctype name and name.
-					attachmentsToSend.push({file_url: frm.doc.merge_url, is_private: 0}); // Assuming public file for simplicity
+					
+					attachmentsToSend.push({file_url: frm.doc.merge_url, is_private: 0}); 
 				}
 			} else {
 				// Create default message with all file URLs
@@ -30,14 +28,20 @@ frappe.ui.form.on("Merge and Send", {
 				} else {
 					messageContent = 'Hello,<br><br>Here are your documents:<br><br>';
 					documentsWithUrls.forEach((doc, index) => {
-						messageContent += `${index + 1}. ${doc.file_url}<br>`;
+						messageContent += `${index + 1}.  Delivery Note - ${doc.document}, Customer Name -  ${doc.customer}  <br> Fiele URL - ${doc.file_url}<br><br>`;
+						
 					});
-					// If not merging, we could potentially add individual file attachments here
-					// This would require fetching the File document names for each child entry
-					// For now, we rely on attach_document_print for the main doc's print.
+
+					documentsWithUrls.forEach((doc, index) => {
+						subject += `${doc.document}/`;
+						
+					});
+
+					subject = subject.slice(0, -1);		
+					
 				}
 			}
-
+			
 			// WhatsApp Button
 			frm.add_custom_button(__('Send WhatsApp'), function() {
 				let documents = frm.doc.documents || [];
@@ -67,7 +71,7 @@ frappe.ui.form.on("Merge and Send", {
 							label: __('Message'),							
 							fieldtype: 'Text Editor',
 							reqd: 1,
-							default: messageContent.replace(/<br>/g, '\n') // Replace <br> with newline for WhatsApp
+							default: messageContent
 						}
 					],
 					size: 'large',
@@ -104,12 +108,12 @@ frappe.ui.form.on("Merge and Send", {
 				new frappe.views.CommunicationComposer({
                     doctype: frm.doctype,
                     name: frm.doc.name,
-                    subject: useMergedUrl ? __('Your Merged Document') : __('Your Documents'), // Change subject if merged
-                    message: messageContent, // Use generated message content
+                    subject: subject,
+                    message: messageContent, 
                     frm: frm,
                     attach_document_print: !useMergedUrl, // Attach document print only if not using merged URL
                     attachments: attachmentsToSend, // Attach the merged file if available
-                    recipients: '',
+                    recipients: 'billing@meherinternational.in',
                     cc: ['viscose@meherinternational.in, haresh@meherinternational.in, warehouse2@meherinternational.in'],
                     bcc: ''
                 });
