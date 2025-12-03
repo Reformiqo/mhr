@@ -1,5 +1,7 @@
 import frappe
 from frappe.utils import flt
+from frappe.model.utils.user_settings import save, get
+import json
 		
 def get_items(container):
     
@@ -152,3 +154,313 @@ def create_purchase_receipt(container, is_return=0, pr=None):
         frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "create_purchase_receipt")
         frappe.msgprint({"message": "Failed to create Purchase Receipt", "error": str(e)})
+
+
+
+@frappe.whitelist()
+def update_gridview_settings():
+    try:
+        doctype_name = "Delivery Note"
+        
+        # Define only the GridView settings to update
+        gridview_settings = {
+            "GridView": {
+                "Delivery Note Item": [
+                    {"fieldname": "item_code", "columns": 2},
+                    {"fieldname": "qty", "columns": 2},
+                    {"fieldname": "warehouse", "columns": 2}
+                ]
+            }
+        }
+        
+        # Get all active users
+        users = frappe.get_all("User", 
+                              filters={"enabled": 1, "user_type": "System User"}, 
+                              fields=["name"])
+        
+        # Store original user session
+        original_user = frappe.session.user
+        success_count = 0
+        error_count = 0
+        
+        # Update GridView settings for each user
+        for user in users:
+            try:
+                # Set session user to the current user
+                frappe.session.user = user.name
+                
+                # Get existing user settings
+                existing_settings_json = frappe.db.sql(
+                    """SELECT data FROM `__UserSettings` 
+                       WHERE `user`=%s AND `doctype`=%s""",
+                    (user.name, doctype_name)
+                )
+                
+                if existing_settings_json and existing_settings_json[0][0]:
+                    # Parse existing settings
+                    existing_settings = json.loads(existing_settings_json[0][0])
+                    if isinstance(existing_settings, str):
+                        existing_settings = {}
+                else:
+                    # No existing settings, create new
+                    existing_settings = {}
+                
+                # Update only the GridView part
+                existing_settings.update(gridview_settings)
+                
+                # Convert to JSON string
+                updated_settings_json = json.dumps(existing_settings)
+                
+                # Save updated settings
+                save(doctype_name, updated_settings_json)
+                
+                success_count += 1
+                
+            except Exception as user_error:
+                error_count += 1
+                frappe.log_error(
+                    f"Error updating GridView settings for user {user.name}: {str(user_error)}", 
+                    "GridView Settings Update Error"
+                )
+        
+        # Restore original user session
+        frappe.session.user = original_user
+        
+        # Commit all changes
+        frappe.db.commit()
+        
+        return {
+            "message": f"GridView settings updated successfully for {success_count} users. Errors: {error_count}",
+            "success_count": success_count,
+            "error_count": error_count
+        }
+        
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback(), "Update GridView Settings")
+        return {"message": f"Failed to update GridView settings: {str(e)}"}
+
+
+# Alternative method using direct database operations (more efficient)
+@frappe.whitelist()
+def update_gridview_settings_bulk():
+    try:
+        doctype_name = "Delivery Note"
+        
+        # Define only the GridView settings to update
+        gridview_settings = {
+            "GridView": {
+                "Delivery Note Item": [
+                    {"fieldname": "item_code", "columns": 2},
+                    {"fieldname": "qty", "columns": 2},
+                    {"fieldname": "warehouse", "columns": 2}
+                ]
+            }
+        }
+        
+        # Get all active users
+        users = frappe.get_all("User", 
+                              filters={"enabled": 1, "user_type": "System User"}, 
+                              fields=["name"])
+        
+        success_count = 0
+        error_count = 0
+        
+        for user in users:
+            try:
+                # Get existing user settings
+                existing_settings = frappe.db.sql(
+                    """SELECT data FROM `__UserSettings` 
+                       WHERE `user`=%s AND `doctype`=%s""",
+                    (user.name, doctype_name)
+                )
+                
+                if existing_settings and existing_settings[0][0]:
+                    # Parse existing settings and merge with GridView update
+                    current_data = json.loads(existing_settings[0][0] or "{}")
+                    if isinstance(current_data, str):
+                        current_data = {}
+                    
+                    # Update only GridView settings
+                    current_data.update(gridview_settings)
+                    final_data = json.dumps(current_data)
+                    
+                    # Update existing record
+                    frappe.db.sql(
+                        """UPDATE `__UserSettings` SET `data`=%s 
+                           WHERE `user`=%s AND `doctype`=%s""",
+                        (final_data, user.name, doctype_name)
+                    )
+                else:
+                    # Insert new record with only GridView settings
+                    final_data = json.dumps(gridview_settings)
+                    frappe.db.sql(
+                        """INSERT INTO `__UserSettings` (`user`, `doctype`, `data`) 
+                           VALUES (%s, %s, %s)""",
+                        (user.name, doctype_name, final_data)
+                    )
+                
+                # Update cache
+                cache_key = f"{doctype_name}::{user.name}"
+                frappe.cache.hset("_user_settings", cache_key, final_data)
+                
+                success_count += 1
+                
+            except Exception as user_error:
+                error_count += 1
+                frappe.log_error(
+                    f"Error updating GridView settings for user {user.name}: {str(user_error)}", 
+                    "Bulk GridView Settings Update Error"
+                )
+        
+        # Commit all changes
+        frappe.db.commit()
+        
+        return {
+            "message": f"GridView settings updated successfully for {success_count} users. Errors: {error_count}",
+            "success_count": success_count,
+            "error_count": error_count
+        }
+        
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback(), "Bulk Update GridView Settings")
+        return {"message": f"Failed to update GridView settings: {str(e)}"}
+
+
+# Method to update GridView for specific users only
+@frappe.whitelist()
+def update_gridview_for_specific_users(user_list=None):
+    """
+    Update GridView settings for specific users
+    
+    Args:
+        user_list (list): List of user emails. If None, updates for all users
+    """
+    try:
+        doctype_name = "Delivery Note"
+        
+        # Define only the GridView settings to update
+        gridview_settings = {
+            "GridView": {
+                "Delivery Note Item": [
+                    {"fieldname": "item_code", "columns": 2},
+                    {"fieldname": "warehouse", "columns": 2}
+                ]
+            }
+        }
+        
+        # Get users based on provided list or all users
+        if user_list:
+            # Convert string to list if needed
+            if isinstance(user_list, str):
+                user_list = json.loads(user_list)
+            
+            users = []
+            for user_email in user_list:
+                if frappe.db.exists("User", {"name": user_email, "enabled": 1}):
+                    users.append({"name": user_email})
+        else:
+            users = frappe.get_all("User", 
+                                  filters={"enabled": 1, "user_type": "System User"}, 
+                                  fields=["name"])
+        
+        success_count = 0
+        error_count = 0
+        
+        for user in users:
+            try:
+                # Get existing user settings
+                existing_settings = frappe.db.sql(
+                    """SELECT data FROM `__UserSettings` 
+                       WHERE `user`=%s AND `doctype`=%s""",
+                    (user["name"], doctype_name)
+                )
+                
+                if existing_settings and existing_settings[0][0]:
+                    # Parse and update existing settings
+                    current_data = json.loads(existing_settings[0][0] or "{}")
+                    if isinstance(current_data, str):
+                        current_data = {}
+                    current_data.update(gridview_settings)
+                    final_data = json.dumps(current_data)
+                else:
+                    # Create new settings with GridView only
+                    final_data = json.dumps(gridview_settings)
+                
+                # Update or insert using upsert
+                frappe.db.multisql(
+                    {
+                        "mariadb": """INSERT INTO `__UserSettings`(`user`, `doctype`, `data`)
+                                     VALUES (%s, %s, %s)
+                                     ON DUPLICATE KEY UPDATE `data`=%s""",
+                        "postgres": """INSERT INTO `__UserSettings` (`user`, `doctype`, `data`)
+                                      VALUES (%s, %s, %s)
+                                      ON CONFLICT ("user", "doctype") DO UPDATE SET `data`=%s""",
+                    },
+                    (user["name"], doctype_name, final_data, final_data)
+                )
+                
+                # Update cache
+                cache_key = f"{doctype_name}::{user['name']}"
+                frappe.cache.hset("_user_settings", cache_key, final_data)
+                
+                success_count += 1
+                
+            except Exception as user_error:
+                error_count += 1
+                frappe.log_error(
+                    f"Error updating GridView settings for user {user['name']}: {str(user_error)}", 
+                    "Specific GridView Settings Update Error"
+                )
+        
+        # Commit all changes
+        frappe.db.commit()
+        
+        return {
+            "message": f"GridView settings updated successfully for {success_count} users. Errors: {error_count}",
+            "success_count": success_count,
+            "error_count": error_count,
+            "users_processed": len(users)
+        }
+        
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback(), "Update GridView Settings for Specific Users")
+        return {"message": f"Failed to update GridView settings: {str(e)}"}
+    
+@frappe.whitelist()    
+def get_child_tables(doctype_name):
+    child_tables = frappe.get_all(
+        "DocField",
+        filters={
+            "parent": doctype_name,
+            "parenttype": "DocType",
+            "fieldtype": "Table"
+        },
+        fields=["fieldname", "label", "options"]
+    )
+    return child_tables
+
+@frappe.whitelist()
+def get_meta(doctype):
+    return frappe.get_meta(doctype)
+@frappe.whitelist()
+def get_user_settings(doctype, user):
+    user_settings = frappe.cache.hget("_user_settings", f"{doctype}::{user}")
+
+    if user_settings is None:
+        result = frappe.db.sql(
+            """SELECT data FROM `__UserSettings`
+            WHERE `user` = %s AND `doctype` = %s""",
+            (user, doctype),
+        )
+        user_settings = result[0][0] if result else "{}"
+
+    # Ensure it's a dict
+    try:
+        data = frappe.parse_json(user_settings)
+    except Exception:
+        data = {}
+
+    return frappe._dict(data)
