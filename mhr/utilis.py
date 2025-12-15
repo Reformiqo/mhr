@@ -948,23 +948,56 @@ def get_number_of_boxes(container_name):
 
 @frappe.whitelist()
 def update_container_item():
-    frappe.db.sql("""
+    frappe.db.sql(
+        """
     UPDATE `tabBatch Items` cb
     JOIN `tabContainer` c ON cb.parent = c.name
     SET cb.item = c.item
     WHERE cb.parenttype = 'Container' AND cb.parentfield = 'batches'
-    """)
+    """
+    )
     frappe.db.commit()
     return "successfully update batches"
+
 
 @frappe.whitelist()
 def submit_docs(doctype):
     docs = frappe.get_all(doctype, {"docstatus": 0})
+    successful = []
+    failed = []
+
     for doc in docs:
-        d = frappe.get_doc(doctype, doc.name)
-        d.submit()
-        frappe.db.commit()
-    return "docs submitted successfully"
+        try:
+            d = frappe.get_doc(doctype, doc.name)
+            d.submit()
+            frappe.db.commit()
+            successful.append(doc.name)
+        except Exception as e:
+            # Log the error with full details
+            error_message = f"Error submitting {doctype} {doc.name}: {str(e)}"
+            frappe.log_error(
+                message=error_message,
+                title=f"Error submitting {doctype}",
+                reference_doctype=doctype,
+                reference_name=doc.name,
+            )
+            failed.append({"name": doc.name, "error": str(e)})
+            # Rollback any partial changes for this document
+            frappe.db.rollback()
+            # Continue processing other documents
+            continue
+
+    # Prepare summary message
+    total = len(docs)
+    success_count = len(successful)
+    failed_count = len(failed)
+
+    summary = f"Processed {total} {doctype}(s): {success_count} submitted successfully, {failed_count} failed"
+
+    if failed:
+        summary += f". Failed documents: {', '.join([f['name'] for f in failed])}"
+
+    return summary
 
 
 @frappe.whitelist()
@@ -972,19 +1005,21 @@ def enqueue_submit_docs(doctype):
     frappe.enqueue("mhr.utilis.submit_docs", doctype=doctype, queue="long")
     return "docs submitted successfully"
 
+
 @frappe.whitelist()
 def cancel_receipts():
-    # cancel receipts create on or before 21-05-2025 18:58:43 
-    docs = frappe.get_all("Purchase Receipt", {"docstatus": 1, "creation": ("<", "2025-05-21 18:58:43")})
+    # cancel receipts create on or before 21-05-2025 18:58:43
+    docs = frappe.get_all(
+        "Purchase Receipt", {"docstatus": 1, "creation": ("<", "2025-05-21 18:58:43")}
+    )
     for doc in docs:
         d = frappe.get_doc("Purchase Receipt", doc.name)
         d.cancel()
         frappe.db.commit()
     return "receipts cancelled successfully"
 
+
 @frappe.whitelist()
 def enqueue_cancel_receipts():
     frappe.enqueue("mhr.utilis.cancel_receipts", queue="long")
     return "receipts cancelled successfully"
-
-

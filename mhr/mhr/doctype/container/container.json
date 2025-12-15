@@ -51,7 +51,7 @@
    "fieldname": "glue",
    "fieldtype": "Select",
    "label": "Glue",
-   "options": ".\nCentrifugal\nHigh\nLow\nPALLET\nNULL\nPALLET(JUMBO BAG)\nHIGH\nBAG\nPOLYSTER\nCENT.\nPALEET\nJUMBO BAG\nLOW\nSHG\nJAMBO\nCRT\nPALLATE"
+   "options": ".\nCentrifugal\nHigh\nLow\nPALLET\nNULL\nPALLET(JUMBO BAG)\nHIGH\nBAG\nPOLYSTER\nCENT.\nPALEET\nJUMBO BAG\nLOW\nSHG\nJAMBO\nCRT\nPALLATE\nLG CMC\nPALLET(BAG)\nCARTTON\nBLACK\nJUMNO BAG\nRW\nJUBMO BAG"
   },
   {
    "fieldname": "merge_no",
@@ -66,13 +66,13 @@
    "fieldname": "lusture",
    "fieldtype": "Select",
    "label": "Lusture",
-   "options": ".\nBright\nDull\nSilky\nBlack\nBRIEGHT\nN66\nRW\nNYLON 6 FDY\nN6 FDY\nBRIGHT\nDULL\nNULL\nNYLON\nRW(BRIGHT)\nPA6\nASKIN(FD)\nN6\nCONADU(SD)\nFLORA(FD)\nNAYLON6\nBLACK\nRW BRIGHT\nNYLON6 FDY\nPBT RESIN"
+   "options": ".\nBright\nDull\nSilky\nBlack\nBRIEGHT\nN66\nRW\nNYLON 6 FDY\nN6 FDY\nBRIGHT\nDULL\nNULL\nNYLON\nRW(BRIGHT)\nPA6\nASKIN(FD)\nN6\nCONADU(SD)\nFLORA(FD)\nNAYLON6\nBLACK\nRW BRIGHT\nNYLON6 FDY\nPBT RESIN\nBRIGHT BLACK\nBRIGHT ROUND\nPA\nFDY\nSD\nBRIGHT OCTA\nMELANGE\nBRT\nSDCD\nFLORA\nCONADU\nBRIGHT SLUB\nPA66\nBRIGHT BLEACHED\nFD"
   },
   {
    "fieldname": "pulp",
    "fieldtype": "Select",
    "label": "Pulp",
-   "options": ".\nCotton\nWood\nBamboo\nNULL"
+   "options": ".\nCotton\nWood\nBamboo\nAcrylic\nNULL"
   },
   {
    "fieldname": "lot_no",
@@ -87,13 +87,13 @@
    "fieldname": "grade",
    "fieldtype": "Select",
    "label": "Grade",
-   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSANDARD\nA UNEVEN ( CMC )\nA1(CMC)\nNULL\nA EVEN\nF\nB\nB GRADE\nPA6\nA UNEVEN\nC"
+   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAB\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSTANDARD\nA UNEVEN ( CMC )\nA1(CMC)\nNULL\nA EVEN\nF\nB\nB GRADE\nPA6\nA UNEVEN\nC"
   },
   {
    "fieldname": "fsc",
    "fieldtype": "Select",
    "label": "FSC",
-   "options": ".\n100%\nMix\nNon FSC\nECO JILIN\nNULL"
+   "options": ".\n100%\nMix\nNon FSC\nECO JILIN\nECO JILIN TRACER\nNULL"
   },
   {
    "fieldname": "purchase_receipt_info_section",
@@ -196,7 +196,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-05-29 02:29:30.568467",
+ "modified": "2025-12-15 01:30:22.430344",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
