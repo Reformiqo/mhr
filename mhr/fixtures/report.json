@@ -1,5 +1,180 @@
 [
  {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "No",
+  "javascript": null,
+  "json": "{\"columns\":[{\"fieldname\":\"date\",\"fieldtype\":\"Date\",\"label\":\"Date\",\"width\":150,\"id\":\"date\",\"name\":\"Date\",\"editable\":false,\"_index\":0},{\"fieldname\":\"container\",\"fieldtype\":\"Data\",\"label\":\"Container\",\"width\":150,\"id\":\"container\",\"name\":\"Container\",\"editable\":false,\"compareValue\":null,\"_index\":0},{\"fieldname\":\"item\",\"fieldtype\":\"Data\",\"label\":\"Product Name\",\"width\":100,\"id\":\"item\",\"name\":\"Product Name\",\"editable\":false,\"compareValue\":null,\"_index\":1},{\"fieldname\":\"pulp\",\"fieldtype\":\"Data\",\"label\":\"Pulp\",\"width\":100,\"id\":\"pulp\",\"name\":\"Pulp\",\"editable\":false,\"compareValue\":null,\"_index\":2},{\"fieldname\":\"lusture\",\"fieldtype\":\"Data\",\"label\":\"Lusture\",\"width\":100,\"id\":\"lusture\",\"name\":\"Lusture\",\"editable\":false,\"compareValue\":null,\"_index\":3},{\"fieldname\":\"glue\",\"fieldtype\":\"Data\",\"label\":\"Glue\",\"width\":100,\"id\":\"glue\",\"name\":\"Glue\",\"editable\":false,\"compareValue\":null,\"_index\":4},{\"fieldname\":\"total_closing\",\"fieldtype\":\"Data\",\"label\":\"Total Closing\",\"width\":100,\"id\":\"total_closing\",\"name\":\"Total Closing\",\"editable\":false,\"compareValue\":null,\"_index\":5},{\"fieldname\":\"grade\",\"fieldtype\":\"Data\",\"label\":\"Grade\",\"width\":100,\"id\":\"grade\",\"name\":\"Grade\",\"editable\":false,\"compareValue\":null,\"_index\":6},{\"fieldname\":\"mer_no\",\"fieldtype\":\"Data\",\"label\":\"Mer No\",\"width\":100,\"id\":\"mer_no\",\"name\":\"Mer No\",\"editable\":false,\"compareValue\":null,\"_index\":7},{\"fieldname\":\"lot_no\",\"fieldtype\":\"Data\",\"label\":\"Lot No\",\"width\":100,\"id\":\"lot_no\",\"name\":\"Lot No\",\"editable\":false,\"compareValue\":null,\"_index\":8},{\"fieldname\":\"cone\",\"fieldtype\":\"Data\",\"label\":\"Cone\",\"width\":100,\"id\":\"cone\",\"name\":\"Cone\",\"editable\":false,\"compareValue\":null,\"_index\":9},{\"fieldname\":\"boxes\",\"fieldtype\":\"Data\",\"label\":\"Boxes\",\"width\":100,\"id\":\"boxes\",\"name\":\"Boxes\",\"editable\":false,\"compareValue\":null,\"_index\":10},{\"fieldname\":\"stock\",\"fieldtype\":\"Data\",\"label\":\"Stock\",\"width\":100,\"id\":\"stock\",\"name\":\"Stock\",\"editable\":false,\"compareValue\":null,\"_index\":11},{\"fieldname\":\"warehouse\",\"fieldtype\":\"Data\",\"label\":\"Warehouse\",\"width\":100,\"id\":\"warehouse\",\"name\":\"Warehouse\",\"editable\":false,\"compareValue\":null,\"_index\":13},{\"fieldname\":\"cross_section\",\"fieldtype\":\"Data\",\"label\":\"Cross Section\",\"width\":100,\"id\":\"cross_section\",\"name\":\"Cross Section\",\"editable\":false,\"compareValue\":null,\"_index\":14}],\"filters\":{\"from_date\":\"2025-04-22\",\"to_date\":\"2025-05-22\"}}",
+  "letter_head": "Stock Ledger",
+  "modified": "2025-05-22 11:44:50.291180",
+  "module": "Mhr",
+  "name": "22",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Container",
+  "reference_report": "Meher Creation",
+  "report_name": "22",
+  "report_script": null,
+  "report_type": "Custom Report",
+  "roles": [
+   {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "All"
+   },
+   {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Purchase Manager"
+   },
+   {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   },
+   {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 1,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [
+   {
+    "default": null,
+    "fieldname": "from_date",
+    "fieldtype": "Date",
+    "label": "From Date",
+    "mandatory": 1,
+    "options": null,
+    "parent": "Meher Creation Updated",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "to_date",
+    "fieldtype": "Date",
+    "label": "To Date",
+    "mandatory": 1,
+    "options": null,
+    "parent": "Meher Creation Updated",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   }
+  ],
+  "is_standard": "No",
+  "javascript": null,
+  "json": null,
+  "letter_head": "Stock Ledger",
+  "modified": "2025-05-30 12:11:21.676815",
+  "module": "Mhr",
+  "name": "Meher Creation Updated",
+  "prepared_report": 0,
+  "query": "SELECT\n    c.posting_date AS Date,\n    c.container_no AS Container,\n    c.item AS Product,\n    c.pulp AS Pulp,\n    c.lusture AS Lusture,\n    c.glue AS Glue,\n    c.total_cone AS 'Total Cones',\n    c.grade AS Grade,\n    c.merge_no AS 'Mer No',\n    c.lot_no 'Lot No',\n    bi.cone AS Cone,\n    COUNT(CASE WHEN b.batch_qty > 0 THEN 1 END) AS boxes,\n    c.total_cone AS Stock,\n    c.warehouse AS Warehouse,\n    c.cross_section AS 'Cross Section'\nFROM\n    `tabContainer` c\nLEFT JOIN\n    `tabBatch Items` bi ON bi.parent = c.name\nLEFT JOIN\n    `tabBatch` b ON b.name = bi.batch_id\nLEFT JOIN\n    (\n        SELECT\n            custom_container_no\n        FROM\n            `tabBatch`\n        GROUP BY\n            custom_container_no\n    ) sb ON sb.custom_container_no = c.container_no\nWHERE\n    c.docstatus = 1\n    AND c.posting_date BETWEEN %(from_date)s AND %(to_date)s\nGROUP BY\n    c.name, bi.cone\nORDER BY\n    c.posting_date DESC, c.container_no;\n",
+  "ref_doctype": "Container",
+  "reference_report": null,
+  "report_name": "Meher Creation Updated",
+  "report_script": null,
+  "report_type": "Query Report",
+  "roles": [
+   {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "All"
+   },
+   {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Purchase Manager"
+   },
+   {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": "Stock Ledger",
+  "modified": "2025-05-30 12:24:20.313243",
+  "module": "Mhr",
+  "name": "Updated Meher Creation",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Container",
+  "reference_report": null,
+  "report_name": "Updated Meher Creation",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "All"
+   },
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Purchase Manager"
+   },
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   }
+  ],
+  "timeout": 0
+ },
+ {
   "add_total_row": 1,
   "add_translate_data": 0,
   "columns": [],

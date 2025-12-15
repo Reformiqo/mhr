@@ -969,6 +969,7 @@ def submit_docs(doctype):
     for doc in docs:
         try:
             d = frappe.get_doc(doctype, doc.name)
+            
             d.submit()
             frappe.db.commit()
             successful.append(doc.name)
