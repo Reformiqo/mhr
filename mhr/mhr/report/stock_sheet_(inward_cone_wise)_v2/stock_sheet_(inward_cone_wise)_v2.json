@@ -1,0 +1,55 @@
+{
+ "add_total_row": 0,
+ "add_translate_data": 0,
+ "columns": [],
+ "creation": "2025-12-16 05:04:59.037530",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [
+  {
+   "default": "Today",
+   "fieldname": "fdt",
+   "fieldtype": "Date",
+   "label": "From Date",
+   "mandatory": 1,
+   "wildcard_filter": 0
+  },
+  {
+   "default": "Today",
+   "fieldname": "tdt",
+   "fieldtype": "Date",
+   "label": "To Date",
+   "mandatory": 1,
+   "wildcard_filter": 0
+  }
+ ],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": null,
+ "modified": "2025-12-16 05:04:59.037530",
+ "modified_by": "Administrator",
+ "module": "Mhr",
+ "name": "STOCK SHEET (INWARD CONE WISE) v2",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "WITH main_data AS (\r\n    SELECT \r\n        DATE_FORMAT(b.manufacturing_date, '%%d/%%m/%%Y') AS report_date,\r\n        b.custom_container_no AS container_no,\r\n        b.item AS item,\r\n        b.custom_pulp AS pulp,\r\n        b.custom_lusture AS lusture,\r\n        b.custom_glue AS glue,\r\n        b.custom_grade AS grade,\r\n\r\n        ROUND(\r\n            SUM(b.batch_qty) -\r\n            SUM(\r\n                CASE \r\n                    WHEN dn.docstatus = 1 THEN COALESCE(dni.qty, 0)\r\n                    ELSE 0\r\n                END\r\n            ),\r\n        2) AS in_qty,\r\n\r\n        ROUND(\r\n            SUM(\r\n                CASE \r\n                    WHEN dn.docstatus = 1 THEN COALESCE(dni.qty, 0)\r\n                    ELSE 0\r\n                END\r\n            ),\r\n        2) * -1 AS out_qty,\r\n\r\n        ROUND(SUM(b.batch_qty),2) AS stock,\r\n        b.custom_lot_no AS lot_no,\r\n        COUNT(b.name) AS total_box,\r\n        b.custom_cone AS cone,\r\n        0 AS sort_order\r\n    FROM `tabBatch` b\r\n    LEFT JOIN `tabDelivery Note Item` dni ON b.name = dni.batch_no\r\n    LEFT JOIN `tabDelivery Note` dn ON dn.name = dni.parent\r\n    WHERE\r\n        b.manufacturing_date BETWEEN %(fdt)s AND %(tdt)s\r\n    GROUP BY\r\n        b.manufacturing_date,\r\n        b.custom_container_no,\r\n        b.custom_lot_no,\r\n        b.custom_cone,\r\n        item,\r\n        pulp,\r\n        lusture,\r\n        glue,\r\n        grade\r\n),\r\n\r\ncontainer_total AS (\r\n    SELECT\r\n        report_date,\r\n        container_no,\r\n        CONCAT('<b>', COUNT(item), '</b>') AS item,\r\n        '' AS pulp,\r\n        '' AS lusture,\r\n        '<b>Total:</b>' AS glue,\r\n        '' AS grade,\r\n        SUM(in_qty) AS in_qty,\r\n        SUM(out_qty) AS out_qty,\r\n        ROUND(SUM(stock),2) AS stock,\r\n        '' AS lot_no,\r\n        SUM(total_box) AS total_box,\r\n        '' AS cone,\r\n        1 AS sort_order\r\n    FROM main_data\r\n    GROUP BY\r\n        report_date,\r\n        container_no\r\n)\r\n\r\nSELECT\r\n    CASE WHEN sort_order = 1 THEN '' ELSE report_date END AS `Date`,\r\n    CASE WHEN sort_order = 1 THEN '' ELSE container_no END AS `Container Number`,\r\n    item AS `Item`,\r\n    pulp AS `Pulp`,\r\n    lusture AS `Lusture`,\r\n    glue AS `Glue`,\r\n    grade AS `Grade`,\r\n\r\n    CASE\r\n        WHEN sort_order = 0\r\n        THEN CONCAT('<span style=\"color:green;\">', in_qty, '</span>')\r\n        ELSE CONCAT('<b>', in_qty, '</b>')\r\n    END AS `IN Qty`,\r\n\r\n    CASE\r\n        WHEN sort_order = 0\r\n        THEN CONCAT('<span style=\"color:red;\">', out_qty, '</span>')\r\n        ELSE CONCAT('<b>', out_qty, '</b>')\r\n    END AS `OUT Qty`,\r\n\r\n    CASE\r\n        WHEN sort_order = 0\r\n        THEN stock\r\n        ELSE CONCAT('<b>', stock, '</b>')\r\n    END AS `Stock`,\r\n\r\n    lot_no AS `Lot Number`,\r\n\r\n    CASE\r\n        WHEN sort_order = 0\r\n        THEN total_box\r\n        ELSE CONCAT('<b>', total_box, '</b>')\r\n    END AS `Total Box`,\r\n\r\n    cone AS `Cone`\r\n\r\nFROM (\r\n    SELECT * FROM main_data\r\n    UNION ALL\r\n    SELECT * FROM container_total\r\n) final\r\n\r\nORDER BY\r\n    STR_TO_DATE(report_date, '%%d/%%m/%%Y') DESC,\r\n    container_no,\r\n    sort_order,\r\n    lot_no,\r\n    cone;\r\n",
+ "ref_doctype": "Batch",
+ "report_name": "STOCK SHEET (INWARD CONE WISE) v2",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Item Manager"
+  },
+  {
+   "role": "Guest"
+  },
+  {
+   "role": "All"
+  },
+  {
+   "role": "Stock User"
+  }
+ ],
+ "timeout": 0
+}
