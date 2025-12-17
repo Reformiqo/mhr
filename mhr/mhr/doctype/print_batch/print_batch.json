@@ -24,7 +24,7 @@
   },
   {
    "fieldname": "file_url",
-   "fieldtype": "Data",
+   "fieldtype": "Attach",
    "hidden": 1,
    "label": "File Url"
   },

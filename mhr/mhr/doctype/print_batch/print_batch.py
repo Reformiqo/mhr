@@ -59,6 +59,7 @@ class PrintBatch(Document):
             frappe.db.commit()
             file_url = _file.file_url
             frappe.db.set_value("Print Batch", print_batch_name, "file_url", file_url)
+            frappe.reload_doc("mhr", "doctype", "print_batch")
 
             # Inform the user with a message and trigger the event to open PDF
             frappe.publish_realtime(
