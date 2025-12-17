@@ -89,7 +89,7 @@ def get_data(filters=None):
 
     query = f"""
 		WITH main_data AS (
-			SELECT 
+			SELECT
 				DATE_FORMAT(b.manufacturing_date, '%%d/%%m/%%Y') AS report_date,
 				b.custom_container_no AS container_no,
 				b.item AS item,
@@ -100,7 +100,7 @@ def get_data(filters=None):
 				ROUND(
 					SUM(b.batch_qty) -
 					SUM(
-						CASE 
+						CASE
 							WHEN dn.docstatus = 1 THEN COALESCE(dni.qty, 0)
 							ELSE 0
 						END
@@ -108,7 +108,7 @@ def get_data(filters=None):
 				2) AS in_qty,
 				ROUND(
 					SUM(
-						CASE 
+						CASE
 							WHEN dn.docstatus = 1 THEN COALESCE(dni.qty, 0)
 							ELSE 0
 						END
@@ -147,14 +147,15 @@ def get_data(filters=None):
 				SUM(in_qty) AS in_qty,
 				SUM(out_qty) AS out_qty,
 				ROUND(SUM(stock),2) AS stock,
-				'' AS lot_no,
+				lot_no,
 				SUM(total_box) AS total_box,
 				'' AS cone,
 				1 AS sort_order
 			FROM main_data
 			GROUP BY
 				report_date,
-				container_no
+				container_no,
+				lot_no
 		)
 		SELECT
 			CASE WHEN sort_order = 1 THEN '' ELSE report_date END AS `Date`,
@@ -194,8 +195,8 @@ def get_data(filters=None):
 		ORDER BY
 			STR_TO_DATE(report_date, '%%d/%%m/%%Y') DESC,
 			container_no,
-			sort_order,
 			lot_no,
+			sort_order,
 			cone
 	"""
 
