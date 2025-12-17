@@ -66,11 +66,28 @@ def get_data(filters=None):
     # Get date filters (fdt and tdt from JSON)
     fdt = filters.get("fdt")
     tdt = filters.get("tdt")
+    container = filters.get("container")
+    lot_no = filters.get("lot_no")
+    cone = filters.get("cone")
 
     if not fdt or not tdt:
         frappe.throw(_("Please select From Date and To Date"))
 
-    query = """
+    # Build WHERE conditions dynamically
+    where_conditions = ["b.manufacturing_date BETWEEN %(fdt)s AND %(tdt)s"]
+
+    if container:
+        where_conditions.append("b.custom_container_no = %(container)s")
+
+    if lot_no:
+        where_conditions.append("b.custom_lot_no = %(lot_no)s")
+
+    if cone:
+        where_conditions.append("b.custom_cone = %(cone)s")
+
+    where_clause = " AND ".join(where_conditions)
+
+    query = f"""
 		WITH main_data AS (
 			SELECT 
 				DATE_FORMAT(b.manufacturing_date, '%%d/%%m/%%Y') AS report_date,
@@ -106,7 +123,7 @@ def get_data(filters=None):
 			LEFT JOIN `tabDelivery Note Item` dni ON b.name = dni.batch_no
 			LEFT JOIN `tabDelivery Note` dn ON dn.name = dni.parent
 			WHERE
-				b.manufacturing_date BETWEEN %(fdt)s AND %(tdt)s
+				{where_clause}
 			GROUP BY
 				b.manufacturing_date,
 				b.custom_container_no,
@@ -183,6 +200,15 @@ def get_data(filters=None):
 	"""
 
     params = {"fdt": fdt, "tdt": tdt}
+
+    if container:
+        params["container"] = container
+
+    if lot_no:
+        params["lot_no"] = lot_no
+
+    if cone:
+        params["cone"] = cone
 
     data = frappe.db.sql(query, params, as_dict=1)
     return data

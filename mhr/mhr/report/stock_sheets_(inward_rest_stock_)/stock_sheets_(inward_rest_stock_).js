@@ -16,6 +16,24 @@ frappe.query_reports["STOCK SHEETS (INWARD REST STOCK )"] = {
 			"label": "To Date",
 			"mandatory": 1,
 			"wildcard_filter": 0
+		},
+		{
+			"fieldname": "container",
+			"fieldtype": "Data",
+			"label": "Container",
+			"mandatory": 0,
+		},
+		{
+			"fieldname": "lot_no",
+			"fieldtype": "Data",
+			"label": "Lot No",
+			"mandatory": 0,
+		},
+		{
+			"fieldname": "cone",
+			"fieldtype": "Data",
+			"label": "Cone",
+			"mandatory": 0,
 		}
 	]
 };

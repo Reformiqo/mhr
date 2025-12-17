@@ -17,6 +17,24 @@ frappe.query_reports["STOCK SHEET (INWARD CONE WISE)"] = {
 			"mandatory": 1,
 			"default": frappe.datetime.get_today(),
 
+		},
+		{
+			"fieldname": "container",
+			"fieldtype": "Data",
+			"label": "Container",
+			"mandatory": 0,
+		},
+		{
+			"fieldname": "lot_no",
+			"fieldtype": "Data",
+			"label": "Lot No",
+			"mandatory": 0,
+		},
+		{
+			"fieldname": "cone",
+			"fieldtype": "Data",
+			"label": "Cone",
+			"mandatory": 0,
 		}
 
 	]
