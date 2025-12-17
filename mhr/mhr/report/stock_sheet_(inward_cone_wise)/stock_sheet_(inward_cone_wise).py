@@ -135,7 +135,7 @@ def get_data(filters=None):
 				glue,
 				grade
 		),
-		container_total AS (
+		lot_total AS (
 			SELECT
 				report_date,
 				container_no,
@@ -156,10 +156,31 @@ def get_data(filters=None):
 				report_date,
 				container_no,
 				lot_no
+		),
+		container_total AS (
+			SELECT
+				report_date,
+				container_no,
+				CONCAT('<b>', COUNT(item), '</b>') AS item,
+				'' AS pulp,
+				'' AS lusture,
+				'<b>Total:</b>' AS glue,
+				'' AS grade,
+				SUM(in_qty) AS in_qty,
+				SUM(out_qty) AS out_qty,
+				ROUND(SUM(stock),2) AS stock,
+				'' AS lot_no,
+				SUM(total_box) AS total_box,
+				'' AS cone,
+				2 AS sort_order
+			FROM main_data
+			GROUP BY
+				report_date,
+				container_no
 		)
 		SELECT
-			CASE WHEN sort_order = 1 THEN '' ELSE report_date END AS `Date`,
-			CASE WHEN sort_order = 1 THEN '' ELSE container_no END AS `Container Number`,
+			CASE WHEN sort_order >= 1 THEN '' ELSE report_date END AS `Date`,
+			CASE WHEN sort_order >= 1 THEN '' ELSE container_no END AS `Container Number`,
 			item AS `Item`,
 			pulp AS `Pulp`,
 			lusture AS `Lusture`,
@@ -190,12 +211,14 @@ def get_data(filters=None):
 		FROM (
 			SELECT * FROM main_data
 			UNION ALL
+			SELECT * FROM lot_total
+			UNION ALL
 			SELECT * FROM container_total
 		) final
 		ORDER BY
 			STR_TO_DATE(report_date, '%%d/%%m/%%Y') DESC,
 			container_no,
-			lot_no,
+			CASE WHEN lot_no = '' THEN 'ZZZZZ' ELSE lot_no END,
 			sort_order,
 			cone
 	"""
