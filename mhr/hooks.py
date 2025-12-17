@@ -241,8 +241,8 @@ scheduler_events = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
-# fixtures = [
-#     {"doctype": "Client Script", "filters": [["module", "in", ("Mhr")]]},
-#     {"doctype": "Custom Field", "filters": [["module", "in", ("Mhr")]]},
-#     {"doctype": "Report", "filters": [["module", "in", ("Mhr")]]},
-# ]
+fixtures = [
+     {"doctype": "Client Script", "filters": [["module", "in", ("Mhr")]]},
+     {"doctype": "Custom Field", "filters": [["module", "in", ("Mhr")]]},
+     {"doctype": "Report", "filters": [["module", "in", ("Mhr")]]},
+    ]
