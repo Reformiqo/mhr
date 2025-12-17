@@ -157,26 +157,40 @@ def get_data(filters=None):
 				container_no,
 				lot_no
 		),
-		container_total AS (
+		container_lot_count AS (
 			SELECT
 				report_date,
 				container_no,
-				CONCAT('<b>', COUNT(item), '</b>') AS item,
-				'' AS pulp,
-				'' AS lusture,
-				'<b>Total:</b>' AS glue,
-				'' AS grade,
-				SUM(in_qty) AS in_qty,
-				SUM(out_qty) AS out_qty,
-				ROUND(SUM(stock),2) AS stock,
-				'' AS lot_no,
-				SUM(total_box) AS total_box,
-				'' AS cone,
-				2 AS sort_order
+				COUNT(DISTINCT lot_no) AS lot_count
 			FROM main_data
 			GROUP BY
 				report_date,
 				container_no
+		),
+		container_total AS (
+			SELECT
+				m.report_date,
+				m.container_no,
+				CONCAT('<b>', COUNT(m.item), '</b>') AS item,
+				'' AS pulp,
+				'' AS lusture,
+				'<b>Grand Total:</b>' AS glue,
+				'' AS grade,
+				SUM(m.in_qty) AS in_qty,
+				SUM(m.out_qty) AS out_qty,
+				ROUND(SUM(m.stock),2) AS stock,
+				'' AS lot_no,
+				SUM(m.total_box) AS total_box,
+				'' AS cone,
+				2 AS sort_order
+			FROM main_data m
+			INNER JOIN container_lot_count c
+				ON m.report_date = c.report_date
+				AND m.container_no = c.container_no
+			WHERE c.lot_count > 1
+			GROUP BY
+				m.report_date,
+				m.container_no
 		)
 		SELECT
 			CASE WHEN sort_order >= 1 THEN '' ELSE report_date END AS `Date`,
