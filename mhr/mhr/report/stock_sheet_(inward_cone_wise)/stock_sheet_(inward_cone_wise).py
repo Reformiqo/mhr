@@ -74,71 +74,103 @@ def get_data(filters=None):
         frappe.throw(_("Please select From Date and To Date"))
 
     # Build WHERE conditions dynamically
-    where_conditions = ["b.manufacturing_date BETWEEN %(fdt)s AND %(tdt)s"]
+    where_conditions = ["c.posting_date BETWEEN %(fdt)s AND %(tdt)s", "c.docstatus != 2"]
 
     if container:
-        where_conditions.append("b.custom_container_no = %(container)s")
+        where_conditions.append("c.container_no = %(container)s")
 
     if lot_no:
-        where_conditions.append("b.custom_lot_no = %(lot_no)s")
+        where_conditions.append("c.lot_no = %(lot_no)s")
 
     if cone:
-        where_conditions.append("b.custom_cone = %(cone)s")
+        where_conditions.append("bi.cone = %(cone)s")
 
     where_clause = " AND ".join(where_conditions)
 
     query = f"""
 		WITH main_data AS (
 			SELECT
-				DATE_FORMAT(b.manufacturing_date, '%%d/%%m/%%Y') AS report_date,
-				b.custom_container_no AS container_no,
-				b.item AS item,
-				b.custom_pulp AS pulp,
-				b.custom_lusture AS lusture,
-				b.custom_glue AS glue,
-				b.custom_grade AS grade,
-				ROUND(SUM(b.batch_qty), 2) AS in_qty,
+				DATE_FORMAT(c.posting_date, '%%d/%%m/%%Y') AS report_date,
+				c.container_no AS container_no,
+				bi.item AS item,
+				c.pulp AS pulp,
+				c.lusture AS lusture,
+				c.glue AS glue,
+				c.grade AS grade,
 				ROUND(
-					COALESCE(SUM(
-						CASE
-							WHEN dn.docstatus = 1 THEN dni.qty
-							ELSE 0
-						END
+					SUM(CAST(bi.qty AS DECIMAL(18,2))) +
+					COALESCE((
+						SELECT SUM(dni2.qty)
+						FROM `tabDelivery Note Item` dni2
+						INNER JOIN `tabDelivery Note` dn2 ON dn2.name = dni2.parent
+						WHERE dni2.batch_no = bi.batch_id
+						AND dn2.docstatus = 1
+						AND dn2.is_return = 1
+					), 0),
+				2) AS in_qty,
+				ROUND(
+					COALESCE((
+						SELECT SUM(dni3.qty)
+						FROM `tabDelivery Note Item` dni3
+						INNER JOIN `tabDelivery Note` dn3 ON dn3.name = dni3.parent
+						WHERE dni3.batch_no = bi.batch_id
+						AND dn3.docstatus = 1
+						AND COALESCE(dn3.is_return, 0) = 0
+					), 0) +
+					COALESCE((
+						SELECT SUM(pri2.qty)
+						FROM `tabPurchase Receipt Item` pri2
+						INNER JOIN `tabPurchase Receipt` pr2 ON pr2.name = pri2.parent
+						WHERE pri2.batch_no = bi.batch_id
+						AND pr2.docstatus = 1
+						AND pr2.is_return = 1
 					), 0),
 				2) AS out_qty,
 				ROUND(
-					SUM(b.batch_qty) -
-					COALESCE(SUM(
-						CASE
-							WHEN dn.docstatus = 1 THEN dni.qty
-							ELSE 0
-						END
-					), 0),
+					(SUM(CAST(bi.qty AS DECIMAL(18,2))) +
+					COALESCE((
+						SELECT SUM(dni2.qty)
+						FROM `tabDelivery Note Item` dni2
+						INNER JOIN `tabDelivery Note` dn2 ON dn2.name = dni2.parent
+						WHERE dni2.batch_no = bi.batch_id
+						AND dn2.docstatus = 1
+						AND dn2.is_return = 1
+					), 0)) -
+					(COALESCE((
+						SELECT SUM(dni3.qty)
+						FROM `tabDelivery Note Item` dni3
+						INNER JOIN `tabDelivery Note` dn3 ON dn3.name = dni3.parent
+						WHERE dni3.batch_no = bi.batch_id
+						AND dn3.docstatus = 1
+						AND COALESCE(dn3.is_return, 0) = 0
+					), 0) +
+					COALESCE((
+						SELECT SUM(pri2.qty)
+						FROM `tabPurchase Receipt Item` pri2
+						INNER JOIN `tabPurchase Receipt` pr2 ON pr2.name = pri2.parent
+						WHERE pri2.batch_no = bi.batch_id
+						AND pr2.docstatus = 1
+						AND pr2.is_return = 1
+					), 0)),
 				2) AS stock,
-				b.custom_lot_no AS lot_no,
-				COUNT(DISTINCT b.name) AS total_box,
-				b.custom_cone AS cone,
+				c.lot_no AS lot_no,
+				COUNT(DISTINCT bi.batch_id) AS total_box,
+				bi.cone AS cone,
 				0 AS sort_order
-			FROM `tabBatch` b
-			LEFT JOIN `tabDelivery Note Item` dni ON b.name = dni.batch_no
-			LEFT JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+			FROM `tabContainer` c
+			INNER JOIN `tabBatch Items` bi ON bi.parent = c.name
 			WHERE
 				{where_clause}
-				AND NOT EXISTS (
-					SELECT 1 FROM `tabContainer` c
-					WHERE c.container_no = b.custom_container_no
-					AND c.docstatus = 2
-				)
 			GROUP BY
-				b.manufacturing_date,
-				b.custom_container_no,
-				b.custom_lot_no,
-				b.custom_cone,
-				item,
-				pulp,
-				lusture,
-				glue,
-				grade
+				c.posting_date,
+				c.container_no,
+				c.lot_no,
+				bi.cone,
+				bi.item,
+				c.pulp,
+				c.lusture,
+				c.glue,
+				c.grade
 		),
 		lot_total AS (
 			SELECT
