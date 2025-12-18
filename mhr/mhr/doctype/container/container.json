@@ -183,6 +183,7 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "warehouse",
    "fieldtype": "Small Text",
    "label": "Warehouse"
@@ -197,7 +198,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-12-18 23:48:01.268359",
+ "modified": "2025-12-18 23:56:54.661728",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
