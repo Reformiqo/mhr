@@ -158,6 +158,7 @@ def get_delivery_note_batch(
     grade=None,
     cone=None,
     denier=None,
+    is_return = False,
 ):
 
     filters = {}
@@ -179,9 +180,9 @@ def get_delivery_note_batch(
         filters["custom_lusture"] = lusture
     if grade:
         filters["custom_grade"] = grade
-    # if cone:
-    #     filters["custom_cone"] = cone
-    if denier:
+    if cone and is_return is False:
+        filters["custom_cone"] = cone
+    if denier and is_return is False:
         filters["item_name"] = denier
 
     # Check if at least one filter is applied
