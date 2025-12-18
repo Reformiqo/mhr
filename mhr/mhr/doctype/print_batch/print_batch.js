@@ -16,6 +16,34 @@ frappe.ui.form.on('Print Batch', {
         }
     },
 
+    container_no: function(frm) {
+        // Clear lot_no when container_no changes
+        frm.set_value('lot_no', '');
+
+        if (frm.doc.container_no) {
+            // Fetch lot numbers for the selected container
+            frm.call({
+                method: "get_lot_nos",
+                args: {
+                    container_no: frm.doc.container_no
+                },
+                callback: function(response) {
+                    if (response.message) {
+                        var lot_nos = response.message;
+                        // Build options string with empty first option
+                        var options = [''].concat(lot_nos);
+                        frm.set_df_property('lot_no', 'options', options.join('\n'));
+                        frm.refresh_field('lot_no');
+                    }
+                }
+            });
+        } else {
+            // Clear lot_no options if container_no is cleared
+            frm.set_df_property('lot_no', 'options', '');
+            frm.refresh_field('lot_no');
+        }
+    },
+
     supplier_batch_no: function(frm) {
         fetch_and_append_batch(frm);
     },

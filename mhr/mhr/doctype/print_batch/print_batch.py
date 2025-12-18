@@ -3,6 +3,10 @@ from frappe.model.document import Document
 from frappe.utils.background_jobs import enqueue
 from frappe.utils.print_format import download_multi_pdf
 
+
+
+
+
 class PrintBatch(Document):
     def validate(self):
         # check the limit of the batches added to the table to 1000 0nly
@@ -71,3 +75,19 @@ class PrintBatch(Document):
         except Exception as e:
             frappe.log_error(f"Error generating PDF URL: {str(e)}")
             frappe.throw(f"Failed to generate PDF: {str(e)}")
+@frappe.whitelist()
+def get_lot_nos(container_no):
+    """Get distinct lot numbers from batches that match the given container number"""
+    if not container_no:
+        return []
+
+    lot_nos = frappe.db.sql("""
+        SELECT DISTINCT custom_lot_no
+        FROM `tabBatch`
+        WHERE custom_container_no = %s
+        AND custom_lot_no IS NOT NULL
+        AND custom_lot_no != ''
+        ORDER BY custom_lot_no
+    """, (container_no,), as_list=True)
+
+    return [lot[0] for lot in lot_nos]
