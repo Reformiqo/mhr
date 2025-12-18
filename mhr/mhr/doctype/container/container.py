@@ -29,6 +29,14 @@ class Container(Document):
         # frappe.msgprint("on_submit"
         self.create_batches()
         self.create_purchase_receipt()
+    
+    def on_update(self):
+        if self.docstatus == 1:
+            # update the merge and warehouse in batch 
+            for batch in self.batches:
+                frappe.db.set_value("Batch", batch.batch_id, "custom_merge_no", self.merge_no)
+                frappe.db.set_value("Batch", batch.batch_id, "custom_warehouse", self.warehouse)
+                frappe.db.commit()
 
     def enqueue_create_batches(self):
         # frappe.msgprint("enqueue_create_batches")
@@ -136,6 +144,8 @@ class Container(Document):
             batch_doc.custom_pulp = self.pulp
             batch_doc.custom_fsc = self.fsc
             batch_doc.cross_section = self.cross_section
+            batch_doc.custom_merge_no = self.merge_no
+            batch_doc.custom_warehouse = self.warehouse
             # batch.custom_net_weight = batch.qty
             batch_doc.custom_lot_no = self.lot_no
             batch_doc.save(ignore_permissions=True)
