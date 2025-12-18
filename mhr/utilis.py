@@ -179,8 +179,8 @@ def get_delivery_note_batch(
         filters["custom_lusture"] = lusture
     if grade:
         filters["custom_grade"] = grade
-    if cone:
-        filters["custom_cone"] = cone
+    # if cone:
+    #     filters["custom_cone"] = cone
     if denier:
         filters["item_name"] = denier
 

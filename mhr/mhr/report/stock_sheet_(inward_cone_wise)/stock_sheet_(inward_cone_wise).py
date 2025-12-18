@@ -97,14 +97,7 @@ def get_data(filters=None):
 				b.custom_lusture AS lusture,
 				b.custom_glue AS glue,
 				b.custom_grade AS grade,
-				ROUND(
-					COALESCE(SUM(
-						CASE
-							WHEN pr.docstatus = 1 THEN pri.qty
-							ELSE 0
-						END
-					), 0),
-				2) AS in_qty,
+				ROUND(SUM(b.batch_qty), 2) AS in_qty,
 				ROUND(
 					COALESCE(SUM(
 						CASE
@@ -114,12 +107,7 @@ def get_data(filters=None):
 					), 0),
 				2) AS out_qty,
 				ROUND(
-					COALESCE(SUM(
-						CASE
-							WHEN pr.docstatus = 1 THEN pri.qty
-							ELSE 0
-						END
-					), 0) -
+					SUM(b.batch_qty) -
 					COALESCE(SUM(
 						CASE
 							WHEN dn.docstatus = 1 THEN dni.qty
@@ -132,8 +120,6 @@ def get_data(filters=None):
 				b.custom_cone AS cone,
 				0 AS sort_order
 			FROM `tabBatch` b
-			LEFT JOIN `tabPurchase Receipt Item` pri ON b.name = pri.batch_no
-			LEFT JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
 			LEFT JOIN `tabDelivery Note Item` dni ON b.name = dni.batch_no
 			LEFT JOIN `tabDelivery Note` dn ON dn.name = dni.parent
 			WHERE
