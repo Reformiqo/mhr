@@ -906,26 +906,27 @@ def validate_delivery_note_batches(doc, method=None):
         doc: The Delivery Note document
         method: The trigger method (validate, before_save, etc.)
     """
-
-    for item in doc.items:
-        if item.batch_no:
-            # Check if this batch is used in any other Delivery Note Item
-            exists = frappe.db.sql(
-                """
-                SELECT name FROM `tabDelivery Note Item`
-                WHERE batch_no = %s AND parent != %s
-                LIMIT 1
-            """,
-                (item.batch_no, doc.name),
-                as_dict=1,
-            )
-
-            if exists:
-                frappe.throw(
-                    _(
-                        "Batch {0} is already used. Please select a different batch."
-                    ).format(item.batch_no)
+    # if it is not a return then apply validation if not then don't apply validation
+    if doc.is_return is False:
+        for item in doc.items:
+            if item.batch_no:
+                # Check if this batch is used in any other Delivery Note Item
+                exists = frappe.db.sql(
+                    """
+                    SELECT name FROM `tabDelivery Note Item`
+                    WHERE batch_no = %s AND parent != %s
+                    LIMIT 1
+                """,
+                    (item.batch_no, doc.name),
+                    as_dict=1,
                 )
+
+                if exists:
+                    frappe.throw(
+                        _(
+                            "Batch {0} is already used. Please select a different batch."
+                        ).format(item.batch_no)
+                    )
 
 
 @frappe.whitelist()
