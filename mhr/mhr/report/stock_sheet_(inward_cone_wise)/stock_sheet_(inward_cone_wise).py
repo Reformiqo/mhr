@@ -120,10 +120,12 @@ def get_data(filters=None):
 				b.custom_cone AS cone,
 				0 AS sort_order
 			FROM `tabBatch` b
+			LEFT JOIN `tabContainer` c ON b.custom_container_no = c.container_no
 			LEFT JOIN `tabDelivery Note Item` dni ON b.name = dni.batch_no
 			LEFT JOIN `tabDelivery Note` dn ON dn.name = dni.parent
 			WHERE
 				{where_clause}
+				AND (c.docstatus IS NULL OR c.docstatus != 2)
 			GROUP BY
 				b.manufacturing_date,
 				b.custom_container_no,
