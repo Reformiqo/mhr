@@ -105,11 +105,6 @@ class Container(Document):
         for batch in self.batches:
             qty += float(batch.qty)
             cone += cint(batch.cone)
-            if self.docstatus == 1:
-                for batch in self.batches:
-                    frappe.db.set_value("Batch", batch.batch_id, "custom_merge_no", self.merge_no)
-                    frappe.db.set_value("Batch", batch.batch_id, "custom_warehouse", self.warehouse)
-                    frappe.db.commit()
         self.total_batches = len(self.batches)
         self.total_net_weight = qty
         self.total_cone = cone
