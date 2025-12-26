@@ -43,18 +43,6 @@ def get_columns():
             "width": 120,
         },
         {
-            "label": _("IN Box"),
-            "fieldname": "IN Box",
-            "fieldtype": "Data",
-            "width": 100,
-        },
-        {
-            "label": _("OUT Box"),
-            "fieldname": "OUT Box",
-            "fieldtype": "Data",
-            "width": 100,
-        },
-        {
             "label": _("Balance Box"),
             "fieldname": "Balance Box",
             "fieldtype": "Data",
@@ -166,8 +154,6 @@ def get_data(filters=None):
 				bd.grade AS grade,
 				ROUND(COALESCE(sd.balance, 0), 2) AS balance,
 				bd.lot_no AS lot_no,
-				COUNT(DISTINCT bd.batch_id) AS in_box,
-				COUNT(DISTINCT CASE WHEN COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END) AS out_box,
 				COUNT(DISTINCT CASE WHEN COALESCE(sd.balance, 0) > 0 THEN bd.batch_id END) AS balance_box,
 				bd.cone AS cone,
 				0 AS sort_order
@@ -187,7 +173,7 @@ def get_data(filters=None):
 		main_data AS (
 			SELECT * FROM main_data_raw
 			WHERE CAST(COALESCE(cone, 0) AS SIGNED) > 0
-				AND in_box > 0
+				AND balance_box > 0
 				AND balance > 0
 		),
 		lot_total AS (
@@ -201,8 +187,6 @@ def get_data(filters=None):
 				'' AS grade,
 				SUM(balance) AS balance,
 				lot_no,
-				SUM(in_box) AS in_box,
-				SUM(out_box) AS out_box,
 				SUM(balance_box) AS balance_box,
 				'' AS cone,
 				1 AS sort_order
@@ -233,8 +217,6 @@ def get_data(filters=None):
 				'' AS grade,
 				SUM(m.balance) AS balance,
 				'' AS lot_no,
-				SUM(m.in_box) AS in_box,
-				SUM(m.out_box) AS out_box,
 				SUM(m.balance_box) AS balance_box,
 				'' AS cone,
 				2 AS sort_order
@@ -261,16 +243,6 @@ def get_data(filters=None):
 				ELSE CONCAT('<b style="color:green;">', ROUND(balance, 2), '</b>')
 			END AS `Balance`,
 			lot_no AS `Lot Number`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:green;">', in_box, '</span>')
-				ELSE CONCAT('<b style="color:green;">', in_box, '</b>')
-			END AS `IN Box`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:red;">', out_box, '</span>')
-				ELSE CONCAT('<b style="color:red;">', out_box, '</b>')
-			END AS `OUT Box`,
 			CASE
 				WHEN sort_order = 0
 				THEN CONCAT('<span style="color:green;">', balance_box, '</span>')
