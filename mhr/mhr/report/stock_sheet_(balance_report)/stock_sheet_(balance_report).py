@@ -31,18 +31,11 @@ def get_columns():
         {"label": _("Glue"), "fieldname": "Glue", "fieldtype": "Data", "width": 100},
         {"label": _("Grade"), "fieldname": "Grade", "fieldtype": "Data", "width": 100},
         {
-            "label": _("IN Qty"),
-            "fieldname": "IN Qty",
+            "label": _("Balance"),
+            "fieldname": "Balance",
             "fieldtype": "Data",
             "width": 100,
         },
-        {
-            "label": _("OUT Qty"),
-            "fieldname": "OUT Qty",
-            "fieldtype": "Data",
-            "width": 100,
-        },
-        {"label": _("Stock"), "fieldname": "Stock", "fieldtype": "Data", "width": 100},
         {
             "label": _("Lot Number"),
             "fieldname": "Lot Number",
@@ -50,8 +43,20 @@ def get_columns():
             "width": 120,
         },
         {
-            "label": _("Total Box"),
-            "fieldname": "Total Box",
+            "label": _("IN Box"),
+            "fieldname": "IN Box",
+            "fieldtype": "Data",
+            "width": 100,
+        },
+        {
+            "label": _("OUT Box"),
+            "fieldname": "OUT Box",
+            "fieldtype": "Data",
+            "width": 100,
+        },
+        {
+            "label": _("Balance Box"),
+            "fieldname": "Balance Box",
             "fieldtype": "Data",
             "width": 100,
         },
@@ -87,9 +92,9 @@ def get_data(filters=None):
 
     where_clause = " AND ".join(where_conditions)
 
-    # Use Stock Ledger Entry for accurate IN/OUT qty tracking
-    # IN qty = positive actual_qty from SLE (Purchase Receipt inward)
-    # OUT qty = negative actual_qty from SLE (Delivery Note outward)
+    # Use Stock Ledger Entry for accurate balance tracking
+    # Balance = IN qty (positive actual_qty) - OUT qty (negative actual_qty)
+    # IN Box = batches that received stock, OUT Box = batches that were delivered
     query = f"""
 		WITH batch_data AS (
 			SELECT
@@ -110,6 +115,7 @@ def get_data(filters=None):
 			-- Stock movements where batch_no is directly on SLE (older method)
 			SELECT
 				sle.batch_no AS batch_no,
+				SUM(sle.actual_qty) AS balance,
 				SUM(CASE WHEN sle.actual_qty > 0 THEN sle.actual_qty ELSE 0 END) AS in_qty,
 				SUM(CASE WHEN sle.actual_qty < 0 THEN ABS(sle.actual_qty) ELSE 0 END) AS out_qty
 			FROM `tabStock Ledger Entry` sle
@@ -124,6 +130,7 @@ def get_data(filters=None):
 			-- Stock movements via Serial and Batch Bundle (ERPNext v15+ method)
 			SELECT
 				sbe.batch_no AS batch_no,
+				SUM(sbe.qty) AS balance,
 				SUM(CASE WHEN sbe.qty > 0 THEN sbe.qty ELSE 0 END) AS in_qty,
 				SUM(CASE WHEN sbe.qty < 0 THEN ABS(sbe.qty) ELSE 0 END) AS out_qty
 			FROM `tabSerial and Batch Entry` sbe
@@ -138,6 +145,7 @@ def get_data(filters=None):
 			-- Combine both sources
 			SELECT
 				batch_no,
+				SUM(balance) AS balance,
 				SUM(in_qty) AS in_qty,
 				SUM(out_qty) AS out_qty
 			FROM (
@@ -147,7 +155,7 @@ def get_data(filters=None):
 			) combined
 			GROUP BY batch_no
 		),
-		main_data AS (
+		main_data_raw AS (
 			SELECT
 				DATE_FORMAT(bd.batch_date, '%%d/%%m/%%Y') AS report_date,
 				bd.container_no AS container_no,
@@ -156,11 +164,11 @@ def get_data(filters=None):
 				bd.lusture AS lusture,
 				bd.glue AS glue,
 				bd.grade AS grade,
-				ROUND(COALESCE(sd.in_qty, 0), 2) AS in_qty,
-				ROUND(COALESCE(sd.out_qty, 0), 2) AS out_qty,
-				ROUND(COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0), 2) AS stock,
+				ROUND(COALESCE(sd.balance, 0), 2) AS balance,
 				bd.lot_no AS lot_no,
-				COUNT(DISTINCT bd.batch_id) AS total_box,
+				COUNT(DISTINCT bd.batch_id) AS in_box,
+				COUNT(DISTINCT CASE WHEN COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END) AS out_box,
+				COUNT(DISTINCT CASE WHEN COALESCE(sd.balance, 0) > 0 THEN bd.batch_id END) AS balance_box,
 				bd.cone AS cone,
 				0 AS sort_order
 			FROM batch_data bd
@@ -176,6 +184,12 @@ def get_data(filters=None):
 				bd.glue,
 				bd.grade
 		),
+		main_data AS (
+			SELECT * FROM main_data_raw
+			WHERE CAST(COALESCE(cone, 0) AS SIGNED) > 0
+				AND in_box > 0
+				AND balance > 0
+		),
 		lot_total AS (
 			SELECT
 				report_date,
@@ -185,11 +199,11 @@ def get_data(filters=None):
 				'' AS lusture,
 				'<b>Total:</b>' AS glue,
 				'' AS grade,
-				SUM(in_qty) AS in_qty,
-				SUM(out_qty) AS out_qty,
-				ROUND(SUM(stock),2) AS stock,
+				SUM(balance) AS balance,
 				lot_no,
-				SUM(total_box) AS total_box,
+				SUM(in_box) AS in_box,
+				SUM(out_box) AS out_box,
+				SUM(balance_box) AS balance_box,
 				'' AS cone,
 				1 AS sort_order
 			FROM main_data
@@ -217,11 +231,11 @@ def get_data(filters=None):
 				'' AS lusture,
 				'<b>Grand Total:</b>' AS glue,
 				'' AS grade,
-				SUM(m.in_qty) AS in_qty,
-				SUM(m.out_qty) AS out_qty,
-				ROUND(SUM(m.stock),2) AS stock,
+				SUM(m.balance) AS balance,
 				'' AS lot_no,
-				SUM(m.total_box) AS total_box,
+				SUM(m.in_box) AS in_box,
+				SUM(m.out_box) AS out_box,
+				SUM(m.balance_box) AS balance_box,
 				'' AS cone,
 				2 AS sort_order
 			FROM main_data m
@@ -243,25 +257,25 @@ def get_data(filters=None):
 			grade AS `Grade`,
 			CASE
 				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:green;">', in_qty, '</span>')
-				ELSE CONCAT('<b>', in_qty, '</b>')
-			END AS `IN Qty`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:red;">', out_qty, '</span>')
-				ELSE CONCAT('<b>', out_qty, '</b>')
-			END AS `OUT Qty`,
-			CASE
-				WHEN sort_order = 0
-				THEN stock
-				ELSE CONCAT('<b>', stock, '</b>')
-			END AS `Stock`,
+				THEN CONCAT('<span style="color:green;">', balance, '</span>')
+				ELSE CONCAT('<b style="color:green;">', ROUND(balance, 2), '</b>')
+			END AS `Balance`,
 			lot_no AS `Lot Number`,
 			CASE
 				WHEN sort_order = 0
-				THEN total_box
-				ELSE CONCAT('<b>', total_box, '</b>')
-			END AS `Total Box`,
+				THEN CONCAT('<span style="color:green;">', in_box, '</span>')
+				ELSE CONCAT('<b style="color:green;">', in_box, '</b>')
+			END AS `IN Box`,
+			CASE
+				WHEN sort_order = 0
+				THEN CONCAT('<span style="color:red;">', out_box, '</span>')
+				ELSE CONCAT('<b style="color:red;">', out_box, '</b>')
+			END AS `OUT Box`,
+			CASE
+				WHEN sort_order = 0
+				THEN CONCAT('<span style="color:green;">', balance_box, '</span>')
+				ELSE CONCAT('<b style="color:green;">', balance_box, '</b>')
+			END AS `Balance Box`,
 			cone AS `Cone`
 		FROM (
 			SELECT * FROM main_data
