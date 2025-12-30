@@ -82,9 +82,8 @@ def get_data(filters=None):
 
     where_clause = " AND ".join(where_conditions)
 
-    # Use Stock Ledger Entry for accurate IN/OUT qty tracking
     # IN qty = positive actual_qty from SLE (Purchase Receipt inward)
-    # OUT qty = negative actual_qty from SLE (Delivery Note outward)
+    # OUT qty = from Delivery Note Item table
     query = f"""
 		WITH batch_data AS (
 			SELECT
@@ -100,12 +99,11 @@ def get_data(filters=None):
 			FROM `tabBatch` b
 			WHERE {where_clause}
 		),
-		sle_direct AS (
-			-- Stock movements where batch_no is directly on SLE (older method)
+		-- IN qty from Stock Ledger Entry (positive qty = inward)
+		in_qty_direct AS (
 			SELECT
 				sle.batch_no AS batch_no,
-				SUM(CASE WHEN sle.actual_qty > 0 THEN sle.actual_qty ELSE 0 END) AS in_qty,
-				SUM(CASE WHEN sle.actual_qty < 0 THEN ABS(sle.actual_qty) ELSE 0 END) AS out_qty
+				SUM(CASE WHEN sle.actual_qty > 0 THEN sle.actual_qty ELSE 0 END) AS in_qty
 			FROM `tabStock Ledger Entry` sle
 			WHERE sle.docstatus = 1
 			AND sle.is_cancelled = 0
@@ -114,12 +112,10 @@ def get_data(filters=None):
 			AND (sle.serial_and_batch_bundle IS NULL OR sle.serial_and_batch_bundle = '')
 			GROUP BY sle.batch_no
 		),
-		sle_bundle AS (
-			-- Stock movements via Serial and Batch Bundle (ERPNext v15+ method)
+		in_qty_bundle AS (
 			SELECT
 				sbe.batch_no AS batch_no,
-				SUM(CASE WHEN sbe.qty > 0 THEN sbe.qty ELSE 0 END) AS in_qty,
-				SUM(CASE WHEN sbe.qty < 0 THEN ABS(sbe.qty) ELSE 0 END) AS out_qty
+				SUM(CASE WHEN sbe.qty > 0 THEN sbe.qty ELSE 0 END) AS in_qty
 			FROM `tabSerial and Batch Entry` sbe
 			INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
 			WHERE sbb.docstatus = 1
@@ -128,38 +124,76 @@ def get_data(filters=None):
 			AND sbe.batch_no != ''
 			GROUP BY sbe.batch_no
 		),
-		sle_data AS (
-			-- Combine both sources
+		in_qty_data AS (
 			SELECT
 				batch_no,
-				SUM(in_qty) AS in_qty,
+				SUM(in_qty) AS in_qty
+			FROM (
+				SELECT * FROM in_qty_direct
+				UNION ALL
+				SELECT * FROM in_qty_bundle
+			) combined
+			GROUP BY batch_no
+		),
+		-- OUT qty from Delivery Note Item (direct batch_no field - older method)
+		out_qty_direct AS (
+			SELECT
+				dni.batch_no AS batch_no,
+				SUM(dni.qty) AS out_qty
+			FROM `tabDelivery Note Item` dni
+			INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+			WHERE dn.docstatus = 1
+			AND dni.batch_no IS NOT NULL
+			AND dni.batch_no != ''
+			AND (dni.serial_and_batch_bundle IS NULL OR dni.serial_and_batch_bundle = '')
+			GROUP BY dni.batch_no
+		),
+		-- OUT qty from Delivery Note Item via Serial and Batch Bundle (ERPNext v15+ method)
+		out_qty_bundle AS (
+			SELECT
+				sbe.batch_no AS batch_no,
+				SUM(ABS(sbe.qty)) AS out_qty
+			FROM `tabSerial and Batch Entry` sbe
+			INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+			INNER JOIN `tabDelivery Note Item` dni ON dni.serial_and_batch_bundle = sbb.name
+			INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+			WHERE dn.docstatus = 1
+			AND sbb.docstatus = 1
+			AND sbb.is_cancelled = 0
+			AND sbe.batch_no IS NOT NULL
+			AND sbe.batch_no != ''
+			GROUP BY sbe.batch_no
+		),
+		out_qty_data AS (
+			SELECT
+				batch_no,
 				SUM(out_qty) AS out_qty
 			FROM (
-				SELECT * FROM sle_direct
+				SELECT * FROM out_qty_direct
 				UNION ALL
-				SELECT * FROM sle_bundle
+				SELECT * FROM out_qty_bundle
 			) combined
 			GROUP BY batch_no
 		),
 		main_data AS (
 			SELECT
-				DATE_FORMAT(bd.batch_date, '%%d/%%m/%%Y') AS report_date,
+				DATE_FORMAT(MIN(bd.batch_date), '%%d/%%m/%%Y') AS report_date,
 				bd.container_no AS container_no,
 				bd.item AS item,
 				bd.pulp AS pulp,
 				bd.lusture AS lusture,
 				bd.glue AS glue,
 				bd.grade AS grade,
-				ROUND(COALESCE(sd.in_qty, 0), 2) AS in_qty,
-				ROUND(COALESCE(sd.out_qty, 0), 2) AS out_qty,
-				ROUND(COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0), 2) AS stock,
+				ROUND(SUM(COALESCE(iq.in_qty, 0)), 2) AS in_qty,
+				ROUND(SUM(COALESCE(oq.out_qty, 0)), 2) AS out_qty,
+				ROUND(SUM(COALESCE(iq.in_qty, 0)) - SUM(COALESCE(oq.out_qty, 0)), 2) AS stock,
 				bd.lot_no AS lot_no,
 				COUNT(DISTINCT bd.batch_id) AS total_box,
 				0 AS sort_order
 			FROM batch_data bd
-			LEFT JOIN sle_data sd ON sd.batch_no = bd.batch_id
+			LEFT JOIN in_qty_data iq ON iq.batch_no = bd.batch_id
+			LEFT JOIN out_qty_data oq ON oq.batch_no = bd.batch_id
 			GROUP BY
-				bd.batch_date,
 				bd.container_no,
 				bd.lot_no,
 				bd.item,
