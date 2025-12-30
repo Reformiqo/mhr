@@ -6,6 +6,228 @@
   "disabled": 0,
   "docstatus": 0,
   "doctype": "Report",
+  "filters": [
+   {
+    "default": "Today",
+    "fieldname": "fdt",
+    "fieldtype": "Date",
+    "label": "From Date",
+    "mandatory": 1,
+    "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": "Today",
+    "fieldname": "tdt",
+    "fieldtype": "Date",
+    "label": "To Date",
+    "mandatory": 1,
+    "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "container",
+    "fieldtype": "Data",
+    "label": "Container",
+    "mandatory": 0,
+    "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "lot_no",
+    "fieldtype": "Data",
+    "label": "Lot No",
+    "mandatory": 0,
+    "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "cone",
+    "fieldtype": "Data",
+    "label": "Cone",
+    "mandatory": 0,
+    "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   }
+  ],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2025-12-27 01:49:01.386763",
+  "module": "Mhr",
+  "name": "STOCK SHEET (BALANCE REPORT)",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Batch",
+  "reference_report": null,
+  "report_name": "STOCK SHEET (BALANCE REPORT)",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Item Manager"
+   },
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Guest"
+   },
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "All"
+   },
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [
+   {
+    "default": "Today",
+    "fieldname": "fdt",
+    "fieldtype": "Date",
+    "label": "From Date",
+    "mandatory": 1,
+    "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": "Today",
+    "fieldname": "tdt",
+    "fieldtype": "Date",
+    "label": "To Date",
+    "mandatory": 1,
+    "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "container",
+    "fieldtype": "Data",
+    "label": "Container",
+    "mandatory": 0,
+    "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "lot_no",
+    "fieldtype": "Data",
+    "label": "Lot No",
+    "mandatory": 0,
+    "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "cone",
+    "fieldtype": "Data",
+    "label": "Cone",
+    "mandatory": 0,
+    "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   }
+  ],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2025-12-27 22:58:38.058471",
+  "module": "Mhr",
+  "name": "STOCK SHEETS (INWARD CONELESS STOCK )",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Batch",
+  "reference_report": null,
+  "report_name": "STOCK SHEETS (INWARD CONELESS STOCK )",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Item Manager"
+   },
+   {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Guest"
+   },
+   {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "All"
+   },
+   {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
   "filters": [],
   "is_standard": "No",
   "javascript": null,
@@ -189,7 +411,7 @@
   "modified": "2024-06-20 03:56:23.760267",
   "module": "Mhr",
   "name": "Meher Creation",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Container",
   "reference_report": null,
@@ -468,7 +690,7 @@
   "modified": "2025-12-16 05:21:02.847175",
   "module": "Mhr",
   "name": "STOCK SHEETS (INWARD REST STOCK )",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
