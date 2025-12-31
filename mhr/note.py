@@ -40,7 +40,7 @@ def fetch_batches(
 
     # Check if at least one filter is applied
     if filters:
-        batches = frappe.get_all("Batch", filters=filters, fields=["name", "item", "item_name", "batch_qty", "stock_uom", "custom_supplier_batch_no", "custom_cone", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_fsc"], limit=limit)
+        batches = frappe.get_all("Batch", filters=filters, fields=["name", "item", "item_name", "batch_qty", "stock_uom", "custom_supplier_batch_no", "custom_cone", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_fsc", "custom_lot_no", "custom_container_no"], limit=limit)
         return batches
     else:
         return []
