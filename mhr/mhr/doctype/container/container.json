@@ -157,7 +157,7 @@
   },
   {
    "fieldname": "total_batches",
-   "fieldtype": "Data",
+   "fieldtype": "Int",
    "label": "Total Batches",
    "read_only": 1
   },
@@ -167,7 +167,7 @@
   },
   {
    "fieldname": "total_cone",
-   "fieldtype": "Data",
+   "fieldtype": "Int",
    "label": "Total Cone",
    "read_only": 1
   },
@@ -177,7 +177,7 @@
   },
   {
    "fieldname": "total_net_weight",
-   "fieldtype": "Float",
+   "fieldtype": "Int",
    "label": "Total Net Weight",
    "precision": "2",
    "read_only": 1
@@ -198,7 +198,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-12-18 23:56:54.661728",
+ "modified": "2026-01-02 23:58:57.320400",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
