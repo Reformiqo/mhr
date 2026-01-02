@@ -29,8 +29,6 @@ class Container(Document):
         # frappe.msgprint("on_submit"
         self.create_batches()
         self.create_purchase_receipt()
-    
-        
 
     def enqueue_create_batches(self):
         # frappe.msgprint("enqueue_create_batches")
@@ -108,8 +106,6 @@ class Container(Document):
         self.total_batches = len(self.batches)
         self.total_net_weight = qty
         self.total_cone = cone
-        
-          
 
     def create_batches(self):
         # frappe.msgprint("create_batches")
@@ -262,6 +258,11 @@ class Container(Document):
                 serial_and_batch_bundle = self.create_serial_and_batch_bundle(
                     item["item"], "Outward"
                 )
+                # Check if create_serial_and_batch_bundle returned an error dict
+                if isinstance(serial_and_batch_bundle, dict):
+                    frappe.throw(
+                        f"Failed to create Serial and Batch Bundle for item {item['item']}: {serial_and_batch_bundle.get('error', 'Unknown error')}"
+                    )
                 purchase_receipt.append(
                     "items",
                     {
@@ -284,6 +285,11 @@ class Container(Document):
                 serial_and_batch_bundle = self.create_serial_and_batch_bundle(
                     item["item"], "Inward"
                 )
+                # Check if create_serial_and_batch_bundle returned an error dict
+                if isinstance(serial_and_batch_bundle, dict):
+                    frappe.throw(
+                        f"Failed to create Serial and Batch Bundle for item {item['item']}: {serial_and_batch_bundle.get('error', 'Unknown error')}"
+                    )
                 purchase_receipt.append(
                     "items",
                     {
@@ -304,6 +310,7 @@ class Container(Document):
 
         # Save and submit the Purchase Receipt
         try:
+            purchase_receipt.flags.ignore_mandatory = True
             purchase_receipt.save()
             purchase_receipt.submit()
             frappe.db.commit()

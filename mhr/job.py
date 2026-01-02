@@ -464,3 +464,20 @@ def get_user_settings(doctype, user):
         data = {}
 
     return frappe._dict(data)
+
+
+
+@frappe.whitelist()
+def create_purchase_receipt_for_container():
+    # gett all the containers that are not in the purchase receipt using sql 
+    containers = frappe.db.sql("SELECT name FROM `tabContainer` WHERE name NOT IN (SELECT custom_container_no FROM `tabPurchase Receipt`) AND docstatus = 1")
+    for container in containers:
+        doc = frappe.get_doc("Container", container)
+        doc.create_purchase_receipt(doc)
+        frappe.db.commit()
+
+
+@frappe.whitelist()
+def enqueue_create_purchase_receipt_for_container():
+    frappe.enqueue("mhr.job.create_purchase_receipt_for_container", queue="long")
+    return "purchase receipts created successfully"
