@@ -168,6 +168,7 @@ def get_data(filters=None):
 				bf.glue,
 				bf.grade,
 				c.merge_no
+			HAVING ROUND(SUM(bf.batch_qty) - COALESCE(SUM(da.total_delivered), 0), 2) > 0
 		),
 		container_total AS (
 			SELECT
