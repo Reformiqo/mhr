@@ -150,9 +150,9 @@ def get_data(filters=None):
 				bd.lusture AS lusture,
 				bd.glue AS glue,
 				bd.grade AS grade,
-				ROUND(AVG(bd.batch_qty) * COUNT(DISTINCT CASE WHEN COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END), 2) AS in_qty,
+				ROUND(SUM(bd.batch_qty), 2) AS in_qty,
 				bd.lot_no AS lot_no,
-				COUNT(DISTINCT CASE WHEN COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END) AS total_box,
+				COUNT(DISTINCT bd.batch_id) AS total_box,
 				bd.cone AS cone,
 				0 AS sort_order
 			FROM batch_data bd
@@ -167,7 +167,6 @@ def get_data(filters=None):
 				bd.lusture,
 				bd.glue,
 				bd.grade
-			HAVING COUNT(DISTINCT CASE WHEN COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END) > 0
 		),
 		lot_total AS (
 			SELECT
