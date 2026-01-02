@@ -759,8 +759,8 @@ update_pr_with_container_details()
 
 
 @frappe.whitelist()
-def delete_containers(doctype):
-    frappe.db.sql(f"DELETE FROM `tab{doctype}`")
+def delete_doc(doctype, name):
+    frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE name = %s", (name,))
     frappe.db.commit()
     return "Success"
 

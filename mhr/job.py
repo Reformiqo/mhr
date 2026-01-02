@@ -490,3 +490,4 @@ def enqueue_create_purchase_receipt_for_container():
 def enqueue_delete_containers():
     frappe.enqueue("mhr.job.delete_containers", queue="long")
     return "containers deleted successfully"
+   
