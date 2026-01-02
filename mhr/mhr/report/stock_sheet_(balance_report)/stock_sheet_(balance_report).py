@@ -95,7 +95,8 @@ def get_data(filters=None):
 				b.custom_lusture AS lusture,
 				b.custom_glue AS glue,
 				b.custom_grade AS grade,
-				DATE(b.creation) AS batch_date
+				DATE(b.creation) AS batch_date,
+				b.batch_qty AS net_weight
 			FROM `tabBatch` b
 			WHERE {where_clause}
 		),
@@ -152,7 +153,7 @@ def get_data(filters=None):
 				bd.lusture AS lusture,
 				bd.glue AS glue,
 				bd.grade AS grade,
-				ROUND(COALESCE(sd.balance, 0), 2) AS balance,
+				ROUND(SUM(CASE WHEN COALESCE(sd.balance, 0) > 0 THEN bd.net_weight ELSE 0 END), 2) AS balance,
 				bd.lot_no AS lot_no,
 				COUNT(DISTINCT CASE WHEN COALESCE(sd.balance, 0) > 0 THEN bd.batch_id END) AS balance_box,
 				bd.cone AS cone,

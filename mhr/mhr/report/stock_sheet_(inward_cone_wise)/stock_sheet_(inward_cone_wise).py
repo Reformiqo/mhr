@@ -36,7 +36,6 @@ def get_columns():
             "fieldtype": "Data",
             "width": 100,
         },
-        {"label": _("Stock"), "fieldname": "Stock", "fieldtype": "Data", "width": 100},
         {
             "label": _("Lot Number"),
             "fieldname": "Lot Number",
@@ -96,7 +95,8 @@ def get_data(filters=None):
 				b.custom_lusture AS lusture,
 				b.custom_glue AS glue,
 				b.custom_grade AS grade,
-				DATE(b.creation) AS batch_date
+				DATE(b.creation) AS batch_date,
+				b.batch_qty AS batch_qty
 			FROM `tabBatch` b
 			WHERE {where_clause}
 		),
@@ -150,11 +150,9 @@ def get_data(filters=None):
 				bd.lusture AS lusture,
 				bd.glue AS glue,
 				bd.grade AS grade,
-				ROUND(COALESCE(sd.in_qty, 0), 2) AS in_qty,
-				ROUND(COALESCE(sd.out_qty, 0), 2) AS out_qty,
-				ROUND(COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0), 2) AS stock,
+				ROUND(AVG(bd.batch_qty) * COUNT(DISTINCT CASE WHEN COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END), 2) AS in_qty,
 				bd.lot_no AS lot_no,
-				COUNT(DISTINCT bd.batch_id) AS total_box,
+				COUNT(DISTINCT CASE WHEN COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END) AS total_box,
 				bd.cone AS cone,
 				0 AS sort_order
 			FROM batch_data bd
@@ -169,6 +167,7 @@ def get_data(filters=None):
 				bd.lusture,
 				bd.glue,
 				bd.grade
+			HAVING COUNT(DISTINCT CASE WHEN COALESCE(sd.in_qty, 0) - COALESCE(sd.out_qty, 0) > 0 THEN bd.batch_id END) > 0
 		),
 		lot_total AS (
 			SELECT
@@ -179,9 +178,7 @@ def get_data(filters=None):
 				'' AS lusture,
 				'<b>Total:</b>' AS glue,
 				'' AS grade,
-				SUM(in_qty) AS in_qty,
-				SUM(out_qty) AS out_qty,
-				ROUND(SUM(stock),2) AS stock,
+				ROUND(SUM(in_qty), 2) AS in_qty,
 				lot_no,
 				SUM(total_box) AS total_box,
 				'' AS cone,
@@ -211,9 +208,7 @@ def get_data(filters=None):
 				'' AS lusture,
 				'<b>Grand Total:</b>' AS glue,
 				'' AS grade,
-				SUM(m.in_qty) AS in_qty,
-				SUM(m.out_qty) AS out_qty,
-				ROUND(SUM(m.stock),2) AS stock,
+				ROUND(SUM(m.in_qty), 2) AS in_qty,
 				'' AS lot_no,
 				SUM(m.total_box) AS total_box,
 				'' AS cone,
@@ -240,11 +235,6 @@ def get_data(filters=None):
 				THEN CONCAT('<span style="color:green;">', in_qty, '</span>')
 				ELSE CONCAT('<b>', in_qty, '</b>')
 			END AS `IN Qty`,
-			CASE
-				WHEN sort_order = 0
-				THEN stock
-				ELSE CONCAT('<b>', stock, '</b>')
-			END AS `Stock`,
 			lot_no AS `Lot Number`,
 			CASE
 				WHEN sort_order = 0
