@@ -36,12 +36,6 @@ def get_columns():
             "fieldtype": "Data",
             "width": 100,
         },
-        {
-            "label": _("OUT Qty"),
-            "fieldname": "OUT Qty",
-            "fieldtype": "Data",
-            "width": 100,
-        },
         {"label": _("Stock"), "fieldname": "Stock", "fieldtype": "Data", "width": 100},
         {
             "label": _("Lot Number"),
@@ -246,11 +240,6 @@ def get_data(filters=None):
 				THEN CONCAT('<span style="color:green;">', in_qty, '</span>')
 				ELSE CONCAT('<b>', in_qty, '</b>')
 			END AS `IN Qty`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:red;">', out_qty, '</span>')
-				ELSE CONCAT('<b>', out_qty, '</b>')
-			END AS `OUT Qty`,
 			CASE
 				WHEN sort_order = 0
 				THEN stock
