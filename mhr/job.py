@@ -482,16 +482,8 @@ def enqueue_create_purchase_receipt_for_container():
     frappe.enqueue("mhr.job.create_purchase_receipt_for_container", queue="long")
     return "purchase receipts created successfully"
 
-@frappe.whitelist()
-def delete_containers():
-    # gett all containers that hvae 1 row in batches table and also the batch id is alreay in the batch doctype and alos the container is in draft state
-    # the batch is is in the batches table in container doctype
-    containers = frappe.get_all("Container", filters={"docstatus": 0}, fields=["name"])
-    count = 0
-    for container in containers:
-        doc = frappe.get_doc("Container", container.name)
-        for batch in doc.batches:
-            if frappe.db.exists("Batch", batch.batch_id):
+
+
                     
 
 @frappe.whitelist()
