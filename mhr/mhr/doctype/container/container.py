@@ -194,7 +194,27 @@ class Container(Document):
 
     def create_serial_and_batch_bundle(self, item_code, transaction_type):
         try:
+            # Get item's serial and batch settings
+            item_doc = frappe.get_cached_doc("Item", item_code)
+            has_serial_no = item_doc.has_serial_no
+            has_batch_no = item_doc.has_batch_no
+
+            # Skip if item requires serial numbers (not supported in this flow)
+            if has_serial_no:
+                frappe.log_error(
+                    f"Item {item_code} requires serial numbers which is not supported in container flow",
+                    "create_serial_and_batch_bundle"
+                )
+                return None
+
+            # Skip if item doesn't use batch tracking
+            if not has_batch_no:
+                return None
+
             batches = self.get_item_batches(item_code)
+            if not batches:
+                return None
+
             sb_bundle = frappe.new_doc("Serial and Batch Bundle")
             sb_bundle.company = "Meher Creations"
             sb_bundle.type_of_transaction = transaction_type
@@ -267,6 +287,9 @@ class Container(Document):
                     frappe.throw(
                         f"Failed to create Serial and Batch Bundle for item {item['item']}: {serial_and_batch_bundle.get('error', 'Unknown error')}"
                     )
+                # Skip items that returned None (serial number items or non-batch items)
+                if serial_and_batch_bundle is None:
+                    continue
                 purchase_receipt.append(
                     "items",
                     {
@@ -294,6 +317,9 @@ class Container(Document):
                     frappe.throw(
                         f"Failed to create Serial and Batch Bundle for item {item['item']}: {serial_and_batch_bundle.get('error', 'Unknown error')}"
                     )
+                # Skip items that returned None (serial number items or non-batch items)
+                if serial_and_batch_bundle is None:
+                    continue
                 purchase_receipt.append(
                     "items",
                     {
@@ -314,6 +340,14 @@ class Container(Document):
 
         # Save and submit the Purchase Receipt
         try:
+            # Skip if no items were added (all items had serial numbers or no batch tracking)
+            if not purchase_receipt.items:
+                frappe.log_error(
+                    f"No valid items for Purchase Receipt from Container {self.name}",
+                    "create_purchase_receipt"
+                )
+                return None
+
             purchase_receipt.flags.ignore_mandatory = True
             purchase_receipt.save()
             purchase_receipt.submit()
