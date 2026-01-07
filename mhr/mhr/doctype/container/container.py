@@ -151,6 +151,9 @@ class Container(Document):
 
         # Iterate over the batches in the Container document
         for batch in self.batches:
+            # Skip batches with empty item or batch_id
+            if not batch.item or not batch.batch_id:
+                continue
             # Check if the item is already in the list
             existing_item = next(
                 (item for item in items if item["item"] == batch.item), None
@@ -173,6 +176,9 @@ class Container(Document):
     def get_item_batches(self, item_code):
         batches = []
         for batch in self.batches:
+            # Skip batches with empty batch_id
+            if not batch.batch_id:
+                continue
             if batch.item == item_code:
                 batches.append(
                     {
