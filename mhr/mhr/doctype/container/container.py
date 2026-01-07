@@ -171,21 +171,19 @@ class Container(Document):
         return items
 
     def get_item_batches(self, item_code):
-        items = self.get_items()
         batches = []
-        for item in items:
-            for batch in self.batches:
-                if item["item"] == item_code:
-                    batches.append(
-                        {
-                            "batch_id": batch.batch_id,
-                            "qty": float(batch.qty),
-                            "uom": batch.uom,
-                            "cone": batch.cone,
-                            "supplier_batch_no": batch.supplier_batch_no,
-                            "warehouse": "Finished Goods - MC",
-                        }
-                    )
+        for batch in self.batches:
+            if batch.item == item_code:
+                batches.append(
+                    {
+                        "batch_id": batch.batch_id,
+                        "qty": float(batch.qty),
+                        "uom": batch.uom,
+                        "cone": batch.cone,
+                        "supplier_batch_no": batch.supplier_batch_no,
+                        "warehouse": "Finished Goods - MC",
+                    }
+                )
         return batches
 
     def create_serial_and_batch_bundle(self, item_code, transaction_type):
