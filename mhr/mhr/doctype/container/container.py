@@ -49,8 +49,15 @@ class Container(Document):
         if pr:
             # create pr return
             for pr_doc in pr:
-                self.create_purchase_receipt(is_return=1, pr=pr_doc.name)
-                frappe.db.commit()
+                try:
+                    self.create_purchase_receipt(is_return=1, pr=pr_doc.name)
+                    frappe.db.commit()
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to create PR return for container {self.name}: {str(e)}",
+                        "Container Cancel"
+                    )
+                    # Continue with cancel even if PR return fails
                 # delete all batches
         # for batch in self.batches:
         # 	if frappe.db.exists("Batch", batch.batch_id):
@@ -173,11 +180,14 @@ class Container(Document):
                 )
         return items
 
-    def get_item_batches(self, item_code):
+    def get_item_batches(self, item_code, check_exists=False):
         batches = []
         for batch in self.batches:
             # Skip batches with empty batch_id
             if not batch.batch_id:
+                continue
+            # Optionally check if batch exists in system (for returns)
+            if check_exists and not frappe.db.exists("Batch", batch.batch_id):
                 continue
             if batch.item == item_code:
                 batches.append(
@@ -211,7 +221,9 @@ class Container(Document):
             if not has_batch_no:
                 return None
 
-            batches = self.get_item_batches(item_code)
+            # For Outward transactions (returns), only include batches that exist
+            check_exists = transaction_type == "Outward"
+            batches = self.get_item_batches(item_code, check_exists=check_exists)
             if not batches:
                 return None
 
