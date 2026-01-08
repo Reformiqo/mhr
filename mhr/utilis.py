@@ -702,8 +702,16 @@ def create_purchase_receipt(container):
     # Add items to the Purchase Receipt
     for item in items:
         serial_and_batch_bundle = container_doc.create_serial_and_batch_bundle(
-            item["item"]
+            item["item"], "Inward"
         )
+        # Skip items that returned None (serial number items or non-batch items)
+        if serial_and_batch_bundle is None:
+            continue
+        # Check if create_serial_and_batch_bundle returned an error dict
+        if isinstance(serial_and_batch_bundle, dict):
+            frappe.throw(
+                f"Failed to create Serial and Batch Bundle for item {item['item']}: {serial_and_batch_bundle.get('error', 'Unknown error')}"
+            )
         purchase_receipt.append(
             "items",
             {
