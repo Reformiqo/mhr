@@ -116,7 +116,16 @@ class Container(Document):
 
     def create_batches(self):
         # frappe.msgprint("create_batches")
+        # Validate all batches first
         for batch in self.batches:
+            if not batch.item:
+                frappe.throw(
+                    f"Item is mandatory for Batch at row {batch.idx}"
+                )
+            if not batch.batch_id:
+                frappe.throw(
+                    f"Batch ID is mandatory for Batch at row {batch.idx}"
+                )
             if frappe.db.exists(
                 "Batch",
                 {
@@ -129,6 +138,8 @@ class Container(Document):
                     f"Batch {batch.batch_id} of row {batch.idx} already exists in the system"
                 )
 
+        # Create batches after validation passes
+        for batch in self.batches:
             batch_doc = frappe.new_doc("Batch")
             batch_doc.item = batch.item
             batch_doc.batch_qty = batch.qty
@@ -209,16 +220,25 @@ class Container(Document):
             has_serial_no = item_doc.has_serial_no
             has_batch_no = item_doc.has_batch_no
 
-            # Skip if item requires serial numbers (not supported in this flow)
+            # Handle items that require serial numbers
             if has_serial_no:
-                frappe.log_error(
-                    f"Item {item_code} requires serial numbers which is not supported in container flow",
-                    "create_serial_and_batch_bundle"
-                )
-                return None
+                if transaction_type == "Inward":
+                    # For regular submit, throw error - serial numbers not supported
+                    frappe.throw(
+                        f"Item {item_code} requires serial numbers which is not supported in container flow. "
+                        "Please disable serial number tracking for this item or remove it from the container."
+                    )
+                else:
+                    # For returns, just skip
+                    return None
 
             # Skip if item doesn't use batch tracking
             if not has_batch_no:
+                if transaction_type == "Inward":
+                    frappe.throw(
+                        f"Item {item_code} does not have batch tracking enabled. "
+                        "Please enable batch tracking for this item."
+                    )
                 return None
 
             # For Outward transactions (returns), only include batches that exist
@@ -352,13 +372,17 @@ class Container(Document):
 
         # Save and submit the Purchase Receipt
         try:
-            # Skip if no items were added (all items had serial numbers or no batch tracking)
+            # Check if no items were added
             if not purchase_receipt.items:
-                frappe.log_error(
-                    f"No valid items for Purchase Receipt from Container {self.name}",
-                    "create_purchase_receipt"
-                )
-                return None
+                if is_return:
+                    # For returns, just skip silently
+                    return None
+                else:
+                    # For regular submit, throw error
+                    frappe.throw(
+                        f"No valid items for Purchase Receipt from Container {self.name}. "
+                        "Please ensure all batches have valid Item and Batch ID."
+                    )
 
             purchase_receipt.flags.ignore_mandatory = True
             purchase_receipt.save()
