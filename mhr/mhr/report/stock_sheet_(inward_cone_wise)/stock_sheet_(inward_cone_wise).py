@@ -234,7 +234,7 @@ def get_data(filters=None):
 				THEN CONCAT('<span style="color:green;">', in_qty, '</span>')
 				ELSE CONCAT('<b>', in_qty, '</b>')
 			END AS `IN Qty`,
-			CASE WHEN sort_order >= 1 THEN '' ELSE lot_no END AS `Lot Number`,
+			CASE WHEN sort_order = 0 THEN lot_no ELSE '' END AS `Lot Number`,
 			CASE
 				WHEN sort_order = 0
 				THEN total_box
