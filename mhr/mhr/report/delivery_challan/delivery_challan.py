@@ -87,7 +87,7 @@ def get_data(filters=None):
             dn.total_net_weight AS total_kgs,
             dn.customer_name AS customer_name,
             COALESCE(dt.driver_name, '') AS transporter_name,
-            COALESCE(dn.custom_lr_status, dn.lr_no, '') AS lr_status
+            COALESCE(dn.lr_no, '') AS lr_status
         FROM `tabDelivery Note` dn
         LEFT JOIN `tabDelivery Stop` ds ON ds.delivery_note = dn.name
         LEFT JOIN `tabDelivery Trip` dt ON ds.parent = dt.name AND dt.docstatus = 1
