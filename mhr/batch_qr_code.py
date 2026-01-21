@@ -3,7 +3,6 @@ import frappe
 @frappe.whitelist()
 def set_si_qrcode(doc, method=None):
     pass
-# relaod the purchase receipt doctype  f a specific
 frappe.reload_doc("stock", "doctype", "purchase_receipt")
     
     # img = segno.make_qr("Hello, World")
