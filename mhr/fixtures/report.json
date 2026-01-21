@@ -6,6 +6,62 @@
   "disabled": 0,
   "docstatus": 0,
   "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": "{}",
+  "letter_head": null,
+  "modified": "2026-01-19 16:05:01.842119",
+  "module": "Mhr",
+  "name": "DELIVERY CHALLAN",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Delivery Trip",
+  "reference_report": null,
+  "report_name": "DELIVERY CHALLAN",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   },
+   {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery Manager"
+   },
+   {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery User"
+   },
+   {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Fulfillment User"
+   },
+   {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Employee Self Service"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
   "filters": [
    {
     "default": "Today",

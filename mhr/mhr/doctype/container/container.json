@@ -190,15 +190,14 @@
   },
   {
    "fieldname": "cross_section",
-   "fieldtype": "Select",
-   "label": "Cross Section",
-   "options": "\nTriangle\nRound\nGR"
+   "fieldtype": "Data",
+   "label": "Cross Section"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-02 23:58:57.320400",
+ "modified": "2026-01-21 16:26:54.227607",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
