@@ -49,9 +49,10 @@
   },
   {
    "fieldname": "glue",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Glue",
-   "options": ".\nCentrifugal\nHigh\nLow\nPALLET\nNULL\nPALLET(JUMBO BAG)\nHIGH\nBAG\nPOLYSTER\nCENT.\nPALEET\nJUMBO BAG\nLOW\nSHG\nJAMBO\nCRT\nPALLATE\nLG CMC\nPALLET(BAG)\nCARTTON\nBLACK\nJUMNO BAG\nRW\nJUBMO BAG"
+   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Glue\"]]",
+   "options": "Item Specification"
   },
   {
    "allow_on_submit": 1,
@@ -65,15 +66,17 @@
   },
   {
    "fieldname": "lusture",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Lusture",
-   "options": ".\nBright\nDull\nSilky\nBlack\nBRIEGHT\nN66\nRW\nNYLON 6 FDY\nN6 FDY\nBRIGHT\nDULL\nNULL\nNYLON\nRW(BRIGHT)\nPA6\nASKIN(FD)\nN6\nCONADU(SD)\nFLORA(FD)\nNAYLON6\nBLACK\nRW BRIGHT\nNYLON6 FDY\nPBT RESIN\nBRIGHT BLACK\nBRIGHT ROUND\nPA\nFDY\nSD\nBRIGHT OCTA\nMELANGE\nBRT\nSDCD\nFLORA\nCONADU\nBRIGHT SLUB\nPA66\nBRIGHT BLEACHED\nFD"
+   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Lusture\"]]",
+   "options": "Item Specification"
   },
   {
    "fieldname": "pulp",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Pulp",
-   "options": ".\nCotton\nWood\nBamboo\nAcrylic\nNULL"
+   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Pulp\"]]",
+   "options": "Item Specification"
   },
   {
    "fieldname": "lot_no",
@@ -86,15 +89,17 @@
   },
   {
    "fieldname": "grade",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Grade",
-   "options": ".\nA\nA Even\nA RW\nA Uneven\nA Uneven (CMC )\nA1\nA1 (CMC)\nA2\nA1 EVEN\nA2 ( CMC )\nAA\nAB\nAA EVEN\nAA EVEN ( CMC )\nAA UNEVEN\nAA UNEVEN ( CMC )\nAAA EVEN\nAA-GX400\nHIGH\nSTANDARD\nSUBSTANDARD\nA UNEVEN ( CMC )\nA1(CMC)\nNULL\nA EVEN\nF\nB\nB GRADE\nPA6\nA UNEVEN\nC"
+   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Grade\"]]",
+   "options": "Item Specification"
   },
   {
    "fieldname": "fsc",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "FSC",
-   "options": ".\n100%\nMix\nNon FSC\nECO JILIN\nECO JILIN TRACER\nNULL"
+   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"FSC\"]]",
+   "options": "Item Specification"
   },
   {
    "fieldname": "purchase_receipt_info_section",
@@ -190,14 +195,16 @@
   },
   {
    "fieldname": "cross_section",
-   "fieldtype": "Data",
-   "label": "Cross Section"
+   "fieldtype": "Link",
+   "label": "Cross Section",
+   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Cross Section\"]]",
+   "options": "Item Specification"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-21 16:26:54.227607",
+ "modified": "2026-01-21 17:10:00.000000",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
