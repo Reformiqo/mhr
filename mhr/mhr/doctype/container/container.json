@@ -194,17 +194,17 @@
    "label": "Warehouse"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "cross_section",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Cross Section",
-   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Cross Section\"]]",
-   "options": "Item Specification"
+   "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Cross Section\"]]"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-21 17:10:00.000000",
+ "modified": "2026-01-22 15:47:48.144626",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
