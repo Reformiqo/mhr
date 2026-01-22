@@ -149,9 +149,9 @@ scheduler_events = {
     # 	"daily": [
     # 		"mhr.tasks.daily"
     # 	],
-    # 	"hourly": [
-    # 		"mhr.tasks.hourly"
-    # 	],
+    	"hourly": [
+    		"mhr.batch.enqueue_recalculate_batch_qty"
+    	],
     # 	"weekly": [
     # 		"mhr.tasks.weekly"
     # 	],
