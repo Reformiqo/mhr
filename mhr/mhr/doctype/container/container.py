@@ -83,6 +83,13 @@ class Container(Document):
                     f"Failed to cancel Purchase Receipt {pr.name}: {str(e)}"
                 )
 
+        # Delete all batches linked to this container
+        for batch in self.batches:
+            if batch.batch_id and frappe.db.exists("Batch", batch.batch_id):
+                frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+
+        frappe.db.commit()
+
     def on_trash(self):
         for batch in self.batches:
             if frappe.db.exists(
