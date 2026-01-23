@@ -41,34 +41,47 @@ class Container(Document):
         frappe.db.commit()
 
     def on_cancel(self):
-        pr = frappe.get_all(
+        # Get all Purchase Receipts linked to this container
+        purchase_receipts = frappe.get_all(
             "Purchase Receipt",
-            filters={"custom_container_no": self.name},
+            filters={"custom_container_no": self.name, "docstatus": 1},
             fields=["name"],
         )
-        if pr:
-            # create pr return
-            for pr_doc in pr:
-                try:
-                    self.create_purchase_receipt(is_return=1, pr=pr_doc.name)
-                    frappe.db.commit()
-                except Exception as e:
-                    frappe.log_error(
-                        f"Failed to create PR return for container {self.name}: {str(e)}",
-                        "Container Cancel"
-                    )
-                    # Continue with cancel even if PR return fails
-                # delete all batches
-        # for batch in self.batches:
-        # 	if frappe.db.exists("Batch", batch.batch_id):
-        # 		frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
-        # 		# delte serial ad abtch budnle
-        # pr = frappe.get_all("Purchase Receipt", filters={"custom_container_no": self.name}, fields=["name"])
-        # if pr:
-        # 	# create pr return
-        # 	for pr_doc in pr:
-        # self.create_purchase_receipt(is_return=1, pr=pr_doc.name)
-        # frappe.db.commit()
+
+        for pr in purchase_receipts:
+            try:
+                pr_doc = frappe.get_doc("Purchase Receipt", pr.name)
+
+                # Get all Serial and Batch Bundles from this PR before cancelling
+                bundle_names = []
+                for item in pr_doc.items:
+                    if item.serial_and_batch_bundle:
+                        bundle_names.append(item.serial_and_batch_bundle)
+
+                # Cancel the Purchase Receipt
+                pr_doc.cancel()
+                frappe.db.commit()
+
+                # Cancel the Serial and Batch Bundles
+                for bundle_name in bundle_names:
+                    if frappe.db.exists("Serial and Batch Bundle", bundle_name):
+                        frappe.db.set_value(
+                            "Serial and Batch Bundle",
+                            bundle_name,
+                            "is_cancelled",
+                            1
+                        )
+
+                frappe.db.commit()
+
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to cancel PR {pr.name} for container {self.name}: {str(e)}",
+                    "Container Cancel"
+                )
+                frappe.throw(
+                    f"Failed to cancel Purchase Receipt {pr.name}: {str(e)}"
+                )
 
     def on_trash(self):
         for batch in self.batches:
