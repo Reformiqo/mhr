@@ -38,26 +38,8 @@ def recalculate_selected_batches(batch_names):
     if isinstance(batch_names, str):
         batch_names = json.loads(batch_names)
 
-    updated = 0
     for batch_name in batch_names:
-        # Get actual qty from Stock Ledger Entry
-        result = frappe.db.sql("""
-            SELECT COALESCE(SUM(actual_qty), 0) as qty
-            FROM `tabStock Ledger Entry`
-            WHERE batch_no = %s
-            AND is_cancelled = 0
-        """, (batch_name,), as_dict=True)
+        doc = frappe.get_doc("Batch", batch_name)
+        doc.recalculate_batch_qty()
 
-        actual_qty = result[0].qty if result else 0
-
-        # Update batch_qty directly
-        frappe.db.sql("""
-            UPDATE `tabBatch`
-            SET batch_qty = %s
-            WHERE name = %s
-        """, (actual_qty, batch_name))
-
-        updated += 1
-
-    frappe.db.commit()
-    frappe.msgprint(f"Recalculated {updated} batches")
+    frappe.msgprint(f"Recalculated {len(batch_names)} batches")
