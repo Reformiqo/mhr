@@ -129,9 +129,7 @@ doc_events = {
             "mhr.utilis.validate_batch",
             "mhr.utilis.set_delivery_note_user",
             "mhr.utilis.validate_delivery_note_batches",
-        ],
-        "autoname": "mhr.utilis.autoname",
-        # "validate": "mhr.utilis.set_total_cone"
+        ]
     },
     "Batch": {
         "validate": "mhr.batch_qr_code.set_si_qrcode",
