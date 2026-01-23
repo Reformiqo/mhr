@@ -4,13 +4,11 @@ import frappe
 def recalculate_batch_qty():
     batches = frappe.db.sql("""
         SELECT name FROM `tabBatch`
-        WHERE batch_qty > 30
     """, as_dict=True)
 
     for batch in batches:
         actual_qty = get_batch_qty(batch.name)
 
-        # Update batch_qty directly
         frappe.db.sql("""
             UPDATE `tabBatch`
             SET batch_qty = %s
@@ -18,14 +16,14 @@ def recalculate_batch_qty():
         """, (actual_qty, batch.name))
 
     frappe.db.commit()
+    return f"Recalculated {len(batches)} batches"
 
 
 def get_batch_qty(batch_name):
     """
-    Get actual batch qty from Serial and Batch Bundle (v14+) and Stock Ledger Entry.
+    Get actual batch qty from Serial and Batch Entry table.
     """
-    # Method 1: Get qty from Serial and Batch Entry (v14+ with Serial and Batch Bundle)
-    sbb_qty = frappe.db.sql("""
+    result = frappe.db.sql("""
         SELECT COALESCE(SUM(sbe.qty), 0) as qty
         FROM `tabSerial and Batch Entry` sbe
         INNER JOIN `tabSerial and Batch Bundle` sbb ON sbe.parent = sbb.name
@@ -34,18 +32,7 @@ def get_batch_qty(batch_name):
         AND sbb.is_cancelled = 0
     """, (batch_name,), as_dict=True)
 
-    if sbb_qty and sbb_qty[0].qty:
-        return sbb_qty[0].qty
-
-    # Method 2: Fallback to direct batch_no in Stock Ledger Entry (legacy)
-    sle_qty = frappe.db.sql("""
-        SELECT COALESCE(SUM(actual_qty), 0) as qty
-        FROM `tabStock Ledger Entry`
-        WHERE batch_no = %s
-        AND is_cancelled = 0
-    """, (batch_name,), as_dict=True)
-
-    return sle_qty[0].qty if sle_qty else 0
+    return result[0].qty if result else 0
 
 @frappe.whitelist()
 def enqueue_recalculate_batch_qty():
