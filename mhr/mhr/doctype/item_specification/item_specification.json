@@ -29,13 +29,12 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Value",
-   "reqd": 1,
-   "unique": 1
+   "reqd": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-21 18:32:51.386218",
+ "modified": "2026-01-23 23:32:41.580785",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Item Specification",
