@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_import": 1,
+ "allow_rename": 1,
  "autoname": "format:{specification_type}-{value}",
  "creation": "2026-01-21 17:00:00",
  "doctype": "DocType",
@@ -34,7 +35,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-23 23:32:41.580785",
+ "modified": "2026-01-24 00:17:52.368583",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Item Specification",
