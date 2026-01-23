@@ -95,47 +95,7 @@ def cleanup_orphan_bundles_for_batch(batch_name):
     Clean up orphan Serial and Batch Bundles for a specific batch.
     Keeps only the bundle linked to a valid (non-cancelled) Stock Ledger Entry.
     """
-    # Get all Serial and Batch Bundles for this batch
-    bundles = frappe.db.sql("""
-        SELECT DISTINCT
-            sbb.name as bundle_name,
-            sbb.is_cancelled,
-            sbb.docstatus,
-            sbb.voucher_type,
-            sbb.voucher_no
-        FROM `tabSerial and Batch Entry` sbe
-        INNER JOIN `tabSerial and Batch Bundle` sbb ON sbe.parent = sbb.name
-        WHERE sbe.batch_no = %s
-    """, (batch_name,), as_dict=True)
-
-    cancelled_count = 0
-    kept_count = 0
-
-    for bundle in bundles:
-        # Skip already cancelled bundles
-        if bundle.is_cancelled:
-            continue
-
-        # Check if this bundle is linked to a valid (non-cancelled) Stock Ledger Entry
-        valid_sle = frappe.db.sql("""
-            SELECT name FROM `tabStock Ledger Entry`
-            WHERE serial_and_batch_bundle = %s
-            AND is_cancelled = 0
-        """, (bundle.bundle_name,))
-
-        if valid_sle:
-            # Bundle is linked to valid SLE, keep it
-            kept_count += 1
-        else:
-            # Bundle is orphan (not linked to valid SLE), cancel it
-            frappe.db.set_value(
-                "Serial and Batch Bundle",
-                bundle.bundle_name,
-                "is_cancelled",
-                1
-            )
-            cancelled_count += 1
-
+    kept_count, cancelled_count = _cleanup_orphan_bundles(batch_name)
     frappe.db.commit()
     return f"Batch {batch_name}: Kept {kept_count} bundles, Cancelled {cancelled_count} orphan bundles"
 
@@ -156,17 +116,53 @@ def cleanup_orphan_bundles_all_batches():
     total_kept = 0
 
     for batch in batches:
-        result = cleanup_orphan_bundles_for_batch(batch.batch_no)
-        # Parse result to get counts
-        if "Cancelled" in result:
-            parts = result.split(", ")
-            for part in parts:
-                if "Kept" in part:
-                    total_kept += int(part.split(" ")[1])
-                if "Cancelled" in part:
-                    total_cancelled += int(part.split(" ")[1])
+        kept, cancelled = _cleanup_orphan_bundles(batch.batch_no)
+        total_kept += kept
+        total_cancelled += cancelled
 
+    frappe.db.commit()
     return f"Total: Kept {total_kept} bundles, Cancelled {total_cancelled} orphan bundles across {len(batches)} batches"
+
+
+def _cleanup_orphan_bundles(batch_name):
+    """
+    Internal function to clean up orphan bundles for a batch.
+    Returns tuple (kept_count, cancelled_count)
+    """
+    # Get all Serial and Batch Bundles for this batch
+    bundles = frappe.db.sql("""
+        SELECT DISTINCT
+            sbb.name as bundle_name,
+            sbb.is_cancelled
+        FROM `tabSerial and Batch Entry` sbe
+        INNER JOIN `tabSerial and Batch Bundle` sbb ON sbe.parent = sbb.name
+        WHERE sbe.batch_no = %s
+        AND sbb.is_cancelled = 0
+    """, (batch_name,), as_dict=True)
+
+    cancelled_count = 0
+    kept_count = 0
+
+    for bundle in bundles:
+        # Check if this bundle is linked to a valid (non-cancelled) Stock Ledger Entry
+        valid_sle = frappe.db.sql("""
+            SELECT name FROM `tabStock Ledger Entry`
+            WHERE serial_and_batch_bundle = %s
+            AND is_cancelled = 0
+        """, (bundle.bundle_name,))
+
+        if valid_sle:
+            kept_count += 1
+        else:
+            frappe.db.set_value(
+                "Serial and Batch Bundle",
+                bundle.bundle_name,
+                "is_cancelled",
+                1
+            )
+            cancelled_count += 1
+
+    return kept_count, cancelled_count
 
 
 @frappe.whitelist()
