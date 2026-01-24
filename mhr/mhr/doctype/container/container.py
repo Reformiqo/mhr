@@ -41,6 +41,25 @@ class Container(Document):
         frappe.db.commit()
 
     def on_cancel(self):
+        # First check if any batches have been consumed (have outward transactions)
+        consumed_batches = self.get_consumed_batches()
+        if consumed_batches:
+            batch_list = ", ".join(consumed_batches[:5])  # Show first 5
+            if len(consumed_batches) > 5:
+                batch_list += f" and {len(consumed_batches) - 5} more"
+
+            # Get Delivery Notes that used these batches
+            delivery_notes = self.get_delivery_notes_for_batches(consumed_batches)
+            dn_list = ", ".join(delivery_notes[:5]) if delivery_notes else "Unknown"
+            if len(delivery_notes) > 5:
+                dn_list += f" and {len(delivery_notes) - 5} more"
+
+            frappe.throw(
+                f"Cannot cancel Container {self.name} because stock from the following batches "
+                f"has already been consumed: {batch_list}.<br><br>"
+                f"Please cancel the following Delivery Notes first: {dn_list}"
+            )
+
         # Get all Purchase Receipts linked to this container
         purchase_receipts = frappe.get_all(
             "Purchase Receipt",
@@ -89,6 +108,47 @@ class Container(Document):
                 frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
 
         frappe.db.commit()
+
+    def get_consumed_batches(self):
+        """Check which batches from this container have outward transactions (stock consumed)"""
+        consumed = []
+        for batch in self.batches:
+            if not batch.batch_id:
+                continue
+            # Check if there are any outward Serial and Batch Entries for this batch
+            outward_qty = frappe.db.sql("""
+                SELECT COALESCE(SUM(ABS(sbe.qty)), 0) as qty
+                FROM `tabSerial and Batch Entry` sbe
+                INNER JOIN `tabSerial and Batch Bundle` sbb ON sbe.parent = sbb.name
+                WHERE sbe.batch_no = %s
+                AND sbb.type_of_transaction = 'Outward'
+                AND sbb.docstatus = 1
+                AND sbb.is_cancelled = 0
+            """, (batch.batch_id,), as_dict=True)
+
+            if outward_qty and outward_qty[0].qty > 0:
+                consumed.append(batch.batch_id)
+
+        return consumed
+
+    def get_delivery_notes_for_batches(self, batch_names):
+        """Get Delivery Notes that consumed stock from the given batches"""
+        if not batch_names:
+            return []
+
+        placeholders = ", ".join(["%s"] * len(batch_names))
+        delivery_notes = frappe.db.sql(f"""
+            SELECT DISTINCT sbb.voucher_no
+            FROM `tabSerial and Batch Entry` sbe
+            INNER JOIN `tabSerial and Batch Bundle` sbb ON sbe.parent = sbb.name
+            WHERE sbe.batch_no IN ({placeholders})
+            AND sbb.voucher_type = 'Delivery Note'
+            AND sbb.type_of_transaction = 'Outward'
+            AND sbb.docstatus = 1
+            AND sbb.is_cancelled = 0
+        """, tuple(batch_names), as_dict=True)
+
+        return [dn.voucher_no for dn in delivery_notes if dn.voucher_no]
 
     def on_trash(self):
         for batch in self.batches:
