@@ -1034,3 +1034,79 @@ def cancel_receipts():
 def enqueue_cancel_receipts():
     frappe.enqueue("mhr.utilis.cancel_receipts", queue="long")
     return "receipts cancelled successfully"
+
+
+@frappe.whitelist()
+def validate_batch_container_match(doc, method=None):
+    """
+    Validates that all batches in Serial and Batch Bundles belong to the same container
+    as specified in the Delivery Note header.
+
+    This prevents batches from Container A being used in a Delivery Note meant for Container B.
+    """
+    # Skip if no container is specified in the Delivery Note
+    if not doc.custom_container_no:
+        return
+
+    # Skip for returns
+    if doc.is_return:
+        return
+
+    mismatched_batches = []
+
+    for item in doc.items:
+        # Check Serial and Batch Bundle
+        if item.serial_and_batch_bundle:
+            # Get all batches in this bundle
+            bundle_entries = frappe.get_all(
+                "Serial and Batch Entry",
+                filters={"parent": item.serial_and_batch_bundle},
+                fields=["batch_no"]
+            )
+
+            for entry in bundle_entries:
+                if entry.batch_no:
+                    # Get the batch's container_no
+                    batch_container = frappe.db.get_value(
+                        "Batch", entry.batch_no, "custom_container_no"
+                    )
+
+                    # Check if it matches the DN's container
+                    if batch_container and batch_container != doc.custom_container_no:
+                        mismatched_batches.append({
+                            "batch": entry.batch_no,
+                            "batch_container": batch_container,
+                            "dn_container": doc.custom_container_no
+                        })
+
+        # Also check direct batch_no field if populated
+        if item.batch_no:
+            batch_container = frappe.db.get_value(
+                "Batch", item.batch_no, "custom_container_no"
+            )
+
+            if batch_container and batch_container != doc.custom_container_no:
+                mismatched_batches.append({
+                    "batch": item.batch_no,
+                    "batch_container": batch_container,
+                    "dn_container": doc.custom_container_no
+                })
+
+    # If there are mismatched batches, throw an error
+    if mismatched_batches:
+        error_details = "<br>".join([
+            f"Batch <b>{m['batch']}</b> belongs to Container <b>{m['batch_container']}</b>"
+            for m in mismatched_batches[:5]  # Show first 5
+        ])
+
+        if len(mismatched_batches) > 5:
+            error_details += f"<br>... and {len(mismatched_batches) - 5} more"
+
+        frappe.throw(
+            _(
+                "Cannot save Delivery Note. The following batches do not belong to "
+                "Container <b>{0}</b>:<br><br>{1}<br><br>"
+                "Please select batches from the correct container."
+            ).format(doc.custom_container_no, error_details),
+            title=_("Container Mismatch")
+        )
