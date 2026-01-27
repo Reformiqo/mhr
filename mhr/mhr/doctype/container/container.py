@@ -581,3 +581,182 @@ class Container(Document):
             "message": f"Container {self.name} resubmitted successfully",
             "purchase_receipt": pr_name
         }
+
+    @frappe.whitelist()
+    def debug_container(self):
+        """
+        Analyze the container and its batches to identify data integrity issues.
+        Returns detailed analysis of all connections.
+        """
+        debug_info = {
+            "container": {
+                "name": self.name,
+                "container_no": self.container_no,
+                "lot_no": self.lot_no,
+                "docstatus": self.docstatus,
+                "total_batches_in_table": len(self.batches)
+            },
+            "batches": [],
+            "issues": [],
+            "summary": {
+                "batches_exist": 0,
+                "batches_missing": 0,
+                "batches_with_wrong_container": 0,
+                "batches_with_wrong_lot": 0,
+                "orphan_bundles": 0,
+                "mismatched_delivery_notes": 0
+            }
+        }
+
+        # Check Purchase Receipt
+        purchase_receipts = frappe.get_all(
+            "Purchase Receipt",
+            filters={"custom_container_no": self.name},
+            fields=["name", "docstatus", "posting_date"]
+        )
+        debug_info["purchase_receipts"] = purchase_receipts
+
+        if not purchase_receipts:
+            debug_info["issues"].append({
+                "type": "ERROR",
+                "message": f"No Purchase Receipt found for container {self.name}"
+            })
+
+        # Analyze each batch in the container
+        for batch_row in self.batches:
+            if not batch_row.batch_id:
+                continue
+
+            batch_info = {
+                "batch_id": batch_row.batch_id,
+                "item": batch_row.item,
+                "qty": batch_row.qty,
+                "exists": False,
+                "batch_data": None,
+                "serial_batch_bundles": [],
+                "delivery_notes": [],
+                "issues": []
+            }
+
+            # Check if batch exists
+            if frappe.db.exists("Batch", batch_row.batch_id):
+                batch_info["exists"] = True
+                debug_info["summary"]["batches_exist"] += 1
+
+                # Get batch details
+                batch_doc = frappe.db.get_value("Batch", batch_row.batch_id,
+                    ["item", "custom_container_no", "custom_lot_no", "batch_qty"], as_dict=True)
+                batch_info["batch_data"] = batch_doc
+
+                # Check if batch has correct container_no
+                if batch_doc.get("custom_container_no") != self.container_no:
+                    batch_info["issues"].append({
+                        "type": "WARNING",
+                        "message": f"Batch container_no mismatch: Batch has '{batch_doc.get('custom_container_no')}' but Container has '{self.container_no}'"
+                    })
+                    debug_info["summary"]["batches_with_wrong_container"] += 1
+
+                # Check if batch has correct lot_no
+                if batch_doc.get("custom_lot_no") != self.lot_no:
+                    batch_info["issues"].append({
+                        "type": "WARNING",
+                        "message": f"Batch lot_no mismatch: Batch has '{batch_doc.get('custom_lot_no')}' but Container has '{self.lot_no}'"
+                    })
+                    debug_info["summary"]["batches_with_wrong_lot"] += 1
+
+                # Get all Serial and Batch Bundles that reference this batch
+                bundles = frappe.db.sql("""
+                    SELECT DISTINCT
+                        sbb.name as bundle_name,
+                        sbb.voucher_type,
+                        sbb.voucher_no,
+                        sbb.type_of_transaction,
+                        sbb.docstatus,
+                        sbb.is_cancelled,
+                        sbe.qty as entry_qty
+                    FROM `tabSerial and Batch Entry` sbe
+                    INNER JOIN `tabSerial and Batch Bundle` sbb ON sbe.parent = sbb.name
+                    WHERE sbe.batch_no = %s
+                    ORDER BY sbb.creation DESC
+                """, (batch_row.batch_id,), as_dict=True)
+
+                for bundle in bundles:
+                    bundle_detail = dict(bundle)
+
+                    # Check if the voucher exists
+                    if bundle.voucher_no and bundle.voucher_type:
+                        voucher_exists = frappe.db.exists(bundle.voucher_type, bundle.voucher_no)
+                        bundle_detail["voucher_exists"] = voucher_exists
+
+                        if not voucher_exists:
+                            batch_info["issues"].append({
+                                "type": "ERROR",
+                                "message": f"Bundle {bundle.bundle_name} references non-existent {bundle.voucher_type}: {bundle.voucher_no}"
+                            })
+                            debug_info["summary"]["orphan_bundles"] += 1
+
+                        # If it's a Delivery Note, check if it matches this container
+                        if bundle.voucher_type == "Delivery Note" and voucher_exists:
+                            dn_data = frappe.db.get_value("Delivery Note", bundle.voucher_no,
+                                ["custom_container_no", "custom_lot_no", "customer_name", "docstatus"], as_dict=True)
+                            bundle_detail["delivery_note_data"] = dn_data
+
+                            # Check for container/lot mismatch
+                            if dn_data:
+                                if dn_data.get("custom_container_no") and dn_data.get("custom_container_no") != self.container_no:
+                                    batch_info["issues"].append({
+                                        "type": "CRITICAL",
+                                        "message": f"MISMATCH: Batch from Container '{self.container_no}' is used in Delivery Note '{bundle.voucher_no}' which belongs to Container '{dn_data.get('custom_container_no')}'"
+                                    })
+                                    debug_info["summary"]["mismatched_delivery_notes"] += 1
+
+                                # Check Delivery Note Item for batch_no field
+                                dn_items = frappe.db.sql("""
+                                    SELECT name, item_code, batch_no, custom_container_no, custom_lot_no,
+                                           serial_and_batch_bundle
+                                    FROM `tabDelivery Note Item`
+                                    WHERE parent = %s AND serial_and_batch_bundle = %s
+                                """, (bundle.voucher_no, bundle.bundle_name), as_dict=True)
+
+                                bundle_detail["delivery_note_items"] = dn_items
+
+                                for item in dn_items:
+                                    if not item.batch_no:
+                                        batch_info["issues"].append({
+                                            "type": "WARNING",
+                                            "message": f"Delivery Note Item has empty batch_no field"
+                                        })
+
+                    batch_info["serial_batch_bundles"].append(bundle_detail)
+
+            else:
+                debug_info["summary"]["batches_missing"] += 1
+                batch_info["issues"].append({
+                    "type": "ERROR",
+                    "message": f"Batch {batch_row.batch_id} does not exist in the system"
+                })
+
+            # Add batch issues to main issues list
+            for issue in batch_info["issues"]:
+                issue["batch_id"] = batch_row.batch_id
+                debug_info["issues"].append(issue)
+
+            debug_info["batches"].append(batch_info)
+
+        # Check for batches in the system that claim to belong to this container but are not in the table
+        external_batches = frappe.db.sql("""
+            SELECT name, item, custom_lot_no, batch_qty
+            FROM `tabBatch`
+            WHERE custom_container_no = %s
+        """, (self.container_no,), as_dict=True)
+
+        batch_ids_in_table = [b.batch_id for b in self.batches if b.batch_id]
+        for ext_batch in external_batches:
+            if ext_batch.name not in batch_ids_in_table:
+                debug_info["issues"].append({
+                    "type": "WARNING",
+                    "batch_id": ext_batch.name,
+                    "message": f"Batch {ext_batch.name} claims to belong to this container but is not in the batches table"
+                })
+
+        return debug_info
