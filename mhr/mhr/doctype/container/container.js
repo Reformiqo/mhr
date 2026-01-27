@@ -1,10 +1,36 @@
 frappe.ui.form.on("Container", {
     refresh: function(frm) {
-        console.log(this)
+        // Add Resubmit button for submitted containers
+        if (frm.doc.docstatus === 1) {
+            frm.add_custom_button(__('Resubmit'), function() {
+                frappe.confirm(
+                    __('This will delete existing batches and Purchase Receipt, then recreate them. Are you sure?'),
+                    function() {
+                        frappe.call({
+                            method: 'resubmit_container',
+                            doc: frm.doc,
+                            freeze: true,
+                            freeze_message: __('Resubmitting Container...'),
+                            callback: function(r) {
+                                if (r.message) {
+                                    frappe.msgprint({
+                                        title: __('Success'),
+                                        message: r.message.message + (r.message.purchase_receipt ? '<br>Purchase Receipt: ' + r.message.purchase_receipt : ''),
+                                        indicator: 'green'
+                                    });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }, __('Actions'));
+        }
     },
-        qty: function(frm, cdt, cdn) {
+    qty: function(frm, cdt, cdn) {
         console.log("qty");
-        var d = locals[cdt][cdn];}
+        var d = locals[cdt][cdn];
+    }
 });
 
 frappe.ui.form.on("Batches", {

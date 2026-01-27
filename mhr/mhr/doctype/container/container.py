@@ -222,7 +222,6 @@ class Container(Document):
         for batch in self.batches:
             batch_doc = frappe.new_doc("Batch")
             batch_doc.item = batch.item
-            batch_doc.batch_qty = batch.qty
             batch_doc.stock_uom = batch.uom
             batch_doc.batch_id = batch.batch_id
             batch_doc.custom_supplier_batch_no = batch.supplier_batch_no
@@ -497,3 +496,88 @@ class Container(Document):
     # def autoname(self):
     # 	# frappe.msgprint("autoname")
     # 	self.name = self.container_no
+
+    @frappe.whitelist()
+    def resubmit_container(self):
+        """
+        Resubmit the container - cleans up existing batches/PR and recreates them.
+        Used when submit didn't create batches/PR properly.
+        """
+        # Check if container is submitted
+        if self.docstatus != 1:
+            frappe.throw("Container must be submitted to use Resubmit")
+
+        # Check if any Delivery Notes have been created against this container's batches
+        consumed_batches = self.get_consumed_batches()
+        if consumed_batches:
+            delivery_notes = self.get_delivery_notes_for_batches(consumed_batches)
+            dn_list = ", ".join(delivery_notes[:5]) if delivery_notes else "Unknown"
+            if len(delivery_notes) > 5:
+                dn_list += f" and {len(delivery_notes) - 5} more"
+
+            frappe.throw(
+                f"Cannot resubmit Container {self.name} because Delivery Notes have already been created "
+                f"against this container's batches.<br><br>"
+                f"Delivery Notes: {dn_list}"
+            )
+
+        # Step 1: Cancel and delete existing Purchase Receipts and Serial and Batch Bundles
+        purchase_receipts = frappe.get_all(
+            "Purchase Receipt",
+            filters={"custom_container_no": self.name, "docstatus": ["in", [0, 1]]},
+            fields=["name", "docstatus"],
+        )
+
+        for pr in purchase_receipts:
+            try:
+                pr_doc = frappe.get_doc("Purchase Receipt", pr.name)
+
+                # Get all Serial and Batch Bundles from this PR
+                bundle_names = []
+                for item in pr_doc.items:
+                    if item.serial_and_batch_bundle:
+                        bundle_names.append(item.serial_and_batch_bundle)
+
+                # Cancel if submitted
+                if pr_doc.docstatus == 1:
+                    pr_doc.cancel()
+                    frappe.db.commit()
+
+                # Delete the PR
+                frappe.db.sql("DELETE FROM `tabPurchase Receipt Item` WHERE parent = %s", pr.name)
+                frappe.db.sql("DELETE FROM `tabPurchase Receipt` WHERE name = %s", pr.name)
+
+                # Delete the Serial and Batch Bundles
+                for bundle_name in bundle_names:
+                    if frappe.db.exists("Serial and Batch Bundle", bundle_name):
+                        frappe.db.sql("DELETE FROM `tabSerial and Batch Entry` WHERE parent = %s", bundle_name)
+                        frappe.db.sql("DELETE FROM `tabSerial and Batch Bundle` WHERE name = %s", bundle_name)
+
+                frappe.db.commit()
+
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to cleanup PR {pr.name} for container {self.name}: {str(e)}",
+                    "Container Resubmit"
+                )
+                frappe.throw(f"Failed to cleanup Purchase Receipt {pr.name}: {str(e)}")
+
+        # Step 2: Delete all existing batches for this container
+        for batch in self.batches:
+            if batch.batch_id and frappe.db.exists("Batch", batch.batch_id):
+                frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+
+        frappe.db.commit()
+
+        # Step 3: Recreate batches (same as on_submit)
+        self.create_batches()
+
+        # Step 4: Recreate purchase receipt (same as on_submit)
+        pr_name = self.create_purchase_receipt()
+
+        frappe.db.commit()
+
+        return {
+            "message": f"Container {self.name} resubmitted successfully",
+            "purchase_receipt": pr_name
+        }
