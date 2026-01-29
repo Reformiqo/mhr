@@ -178,7 +178,7 @@ def get_data(filters=None):
 				'<b>Total:</b>' AS glue,
 				'' AS grade,
 				ROUND(SUM(in_qty), 2) AS in_qty,
-				'' AS lot_no,
+				lot_no AS lot_no,
 				SUM(total_box) AS total_box,
 				'' AS cone,
 				1 AS sort_order
