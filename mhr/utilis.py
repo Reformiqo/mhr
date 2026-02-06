@@ -205,6 +205,7 @@ def get_delivery_note_batch(
                 "glue": item.custom_glue,
                 "pulp": item.custom_pulp,
                 "fsc": item.custom_fsc,
+                "notes": item.custom_notes,
             }
 
 
@@ -229,6 +230,7 @@ def get_item_batch(batch):
         "glue": item.custom_glue,
         "pulp": item.custom_pulp,
         "fsc": item.custom_fsc,
+        "notes": item.custom_notes,
     }
 
 
@@ -757,7 +759,8 @@ def update_pr_with_container_details():
             pr.custom_grade = c.grade,
             pr.custom_pulp = c.pulp,
             pr.custom_fsc = c.fsc,
-            pr.custom_merge_no = c.merge_no
+            pr.custom_merge_no = c.merge_no,
+            pr.custom_notes = c.notes
     """
     )
     frappe.db.commit()

@@ -233,6 +233,7 @@ class Container(Document):
             batch_doc.custom_pulp = self.pulp
             batch_doc.custom_fsc = self.fsc
             batch_doc.cross_section = self.cross_section
+            batch_doc.custom_notes = self.notes
             batch_doc.custom_merge_no = self.merge_no
             batch_doc.custom_warehouse = self.warehouse
             # batch.custom_net_weight = batch.qty
@@ -383,6 +384,7 @@ class Container(Document):
         purchase_receipt.custom_pulp = self.pulp
         purchase_receipt.custom_fsc = self.fsc
         purchase_receipt.custom_merge_no = self.merge_no
+        purchase_receipt.custom_notes = self.notes
         purchase_receipt.items = []
 
         # Add items to the Purchase Receipt

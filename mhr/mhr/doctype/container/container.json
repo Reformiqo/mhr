@@ -19,6 +19,7 @@
   "grade",
   "fsc",
   "cross_section",
+  "notes",
   "warehouse",
   "purchase_receipt_info_section",
   "supplier",
@@ -199,6 +200,12 @@
    "fieldtype": "Data",
    "label": "Cross Section",
    "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Cross Section\"]]"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
   }
  ],
  "index_web_pages_for_search": 1,
