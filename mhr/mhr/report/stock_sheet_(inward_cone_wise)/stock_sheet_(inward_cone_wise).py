@@ -3,6 +3,8 @@
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
+from collections import defaultdict
 
 
 def execute(filters=None):
@@ -65,11 +67,67 @@ def get_columns():
     ]
 
 
+def get_delivered_batch_ids(batch_ids):
+    """Get set of batch IDs delivered via Delivery Notes (direct + bundle)."""
+    if not batch_ids:
+        return set()
+
+    delivered = set()
+    CHUNK = 2000
+
+    DNI = frappe.qb.DocType("Delivery Note Item")
+    DN = frappe.qb.DocType("Delivery Note")
+    SBE = frappe.qb.DocType("Serial and Batch Entry")
+    SBB = frappe.qb.DocType("Serial and Batch Bundle")
+
+    for i in range(0, len(batch_ids), CHUNK):
+        chunk = batch_ids[i : i + CHUNK]
+
+        # Direct delivery (batch_no on DNI itself)
+        rows = (
+            frappe.qb.from_(DNI)
+            .inner_join(DN)
+            .on(DN.name == DNI.parent)
+            .select(DNI.batch_no)
+            .distinct()
+            .where(DN.docstatus == 1)
+            .where(DNI.batch_no.isin(chunk))
+            .where(
+                (DNI.serial_and_batch_bundle.isnull())
+                | (DNI.serial_and_batch_bundle == "")
+            )
+        ).run(as_dict=True)
+
+        for r in rows:
+            delivered.add(r.batch_no)
+
+        # Bundle delivery (via Serial and Batch Bundle)
+        rows = (
+            frappe.qb.from_(SBE)
+            .inner_join(SBB)
+            .on(SBB.name == SBE.parent)
+            .inner_join(DNI)
+            .on(DNI.serial_and_batch_bundle == SBB.name)
+            .inner_join(DN)
+            .on(DN.name == DNI.parent)
+            .select(SBE.batch_no)
+            .distinct()
+            .where(DN.docstatus == 1)
+            .where(SBB.docstatus == 1)
+            .where(SBB.is_cancelled == 0)
+            .where(SBE.batch_no.isin(chunk))
+        ).run(as_dict=True)
+
+        for r in rows:
+            delivered.add(r.batch_no)
+
+    return delivered
+
+
 def get_data(filters=None):
     if not filters:
         filters = {}
 
-    # Get date filters (fdt and tdt from JSON)
     fdt = filters.get("fdt")
     tdt = filters.get("tdt")
     container = filters.get("container")
@@ -78,184 +136,176 @@ def get_data(filters=None):
     if not fdt or not tdt:
         frappe.throw(_("Please select From Date and To Date"))
 
-    # Build WHERE conditions dynamically for Batch table
-    where_conditions = ["b.creation BETWEEN %(fdt)s AND %(tdt)s"]
+    # Step 1: Query filtered batches
+    Batch = frappe.qb.DocType("Batch")
+    query = (
+        frappe.qb.from_(Batch)
+        .select(
+            Batch.name.as_("batch_id"),
+            Batch.item,
+            Batch.custom_container_no.as_("container_no"),
+            Batch.custom_lot_no.as_("lot_no"),
+            Batch.custom_pulp.as_("pulp"),
+            Batch.custom_lusture.as_("lusture"),
+            Batch.custom_glue.as_("glue"),
+            Batch.custom_grade.as_("grade"),
+            Batch.creation,
+        )
+        .where(Batch.creation >= fdt)
+        .where(Batch.creation <= tdt)
+    )
 
     if container:
-        where_conditions.append("b.custom_container_no = %(container)s")
-
+        query = query.where(Batch.custom_container_no == container)
     if lot_no:
-        where_conditions.append("b.custom_lot_no = %(lot_no)s")
+        query = query.where(Batch.custom_lot_no == lot_no)
 
-    where_clause = " AND ".join(where_conditions)
+    batches = query.run(as_dict=True)
+    if not batches:
+        return []
 
-    query = f"""
-		WITH batch_data AS (
-			SELECT
-				b.name AS batch_id,
-				b.item AS item,
-				b.custom_container_no AS container_no,
-				b.custom_lot_no AS lot_no,
-				b.custom_pulp AS pulp,
-				b.custom_lusture AS lusture,
-				b.custom_glue AS glue,
-				b.custom_grade AS grade,
-				DATE(b.creation) AS batch_date
-			FROM `tabBatch` b
-			WHERE {where_clause}
-		),
-		out_qty_direct AS (
-			SELECT DISTINCT
-				dni.batch_no AS batch_no
-			FROM `tabDelivery Note Item` dni
-			INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
-			WHERE dn.docstatus = 1
-			AND dni.batch_no IN (SELECT batch_id FROM batch_data)
-			AND (dni.serial_and_batch_bundle IS NULL OR dni.serial_and_batch_bundle = '')
-		),
-		out_qty_bundle AS (
-			SELECT DISTINCT
-				sbe.batch_no AS batch_no
-			FROM `tabSerial and Batch Entry` sbe
-			INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
-			INNER JOIN `tabDelivery Note Item` dni ON dni.serial_and_batch_bundle = sbb.name
-			INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
-			WHERE dn.docstatus = 1
-			AND sbb.docstatus = 1
-			AND sbb.is_cancelled = 0
-			AND sbe.batch_no IN (SELECT batch_id FROM batch_data)
-		),
-		out_batches AS (
-			SELECT DISTINCT batch_no
-			FROM (
-				SELECT * FROM out_qty_direct
-				UNION ALL
-				SELECT * FROM out_qty_bundle
-			) combined
-		),
-		main_data AS (
-			SELECT
-				DATE_FORMAT(MIN(bd.batch_date), '%%d/%%m/%%Y') AS report_date,
-				MIN(bd.batch_date) AS raw_date,
-				bd.container_no AS container_no,
-				bd.item AS item,
-				bd.pulp AS pulp,
-				bd.lusture AS lusture,
-				bd.glue AS glue,
-				bd.grade AS grade,
-				COUNT(DISTINCT bd.batch_id) AS in_qty,
-				COUNT(DISTINCT ob.batch_no) AS out_qty,
-				COUNT(DISTINCT bd.batch_id) - COUNT(DISTINCT ob.batch_no) AS stock,
-				bd.lot_no AS lot_no,
-				COUNT(DISTINCT bd.batch_id) AS total_box,
-				0 AS sort_order
-			FROM batch_data bd
-			LEFT JOIN out_batches ob ON ob.batch_no = bd.batch_id
-			GROUP BY
-				bd.container_no,
-				bd.lot_no,
-				bd.item,
-				bd.pulp,
-				bd.lusture,
-				bd.glue,
-				bd.grade
-		),
-		lot_total AS (
-			SELECT
-				report_date,
-				raw_date,
-				container_no,
-				CAST(COUNT(item) AS CHAR) AS item,
-				'' AS pulp,
-				'' AS lusture,
-				'Total:' AS glue,
-				'' AS grade,
-				SUM(in_qty) AS in_qty,
-				SUM(out_qty) AS out_qty,
-				ROUND(SUM(stock),2) AS stock,
-				lot_no,
-				SUM(total_box) AS total_box,
-				1 AS sort_order
-			FROM main_data
-			GROUP BY
-				report_date,
-				raw_date,
-				container_no,
-				lot_no
-		),
-		container_lot_count AS (
-			SELECT
-				report_date,
-				raw_date,
-				container_no,
-				COUNT(DISTINCT lot_no) AS lot_count
-			FROM main_data
-			GROUP BY
-				report_date,
-				raw_date,
-				container_no
-		),
-		container_total AS (
-			SELECT
-				m.report_date,
-				m.raw_date,
-				m.container_no,
-				CAST(COUNT(m.item) AS CHAR) AS item,
-				'' AS pulp,
-				'' AS lusture,
-				'Grand Total:' AS glue,
-				'' AS grade,
-				SUM(m.in_qty) AS in_qty,
-				SUM(m.out_qty) AS out_qty,
-				ROUND(SUM(m.stock),2) AS stock,
-				'' AS lot_no,
-				SUM(m.total_box) AS total_box,
-				2 AS sort_order
-			FROM main_data m
-			INNER JOIN container_lot_count c
-				ON m.report_date = c.report_date
-				AND m.container_no = c.container_no
-			WHERE c.lot_count > 1
-			GROUP BY
-				m.report_date,
-				m.raw_date,
-				m.container_no
-		)
-		SELECT
-			CASE WHEN sort_order >= 1 THEN '' ELSE report_date END AS `Date`,
-			CASE WHEN sort_order >= 1 THEN '' ELSE container_no END AS `Container Number`,
-			item AS `Item`,
-			pulp AS `Pulp`,
-			lusture AS `Lusture`,
-			glue AS `Glue`,
-			grade AS `Grade`,
-			in_qty AS `IN Qty`,
-			out_qty AS `OUT Qty`,
-			stock AS `Stock`,
-			lot_no AS `Lot Number`,
-			total_box AS `Total Box`,
-			sort_order AS `sort_order`
-		FROM (
-			SELECT * FROM main_data
-			UNION ALL
-			SELECT * FROM lot_total
-			UNION ALL
-			SELECT * FROM container_total
-		) final
-		ORDER BY
-			raw_date DESC,
-			container_no,
-			CASE WHEN lot_no = '' THEN 'ZZZZZ' ELSE lot_no END,
-			sort_order
-	"""
+    batch_ids = [b.batch_id for b in batches]
 
-    params = {"fdt": fdt, "tdt": tdt}
+    # Step 2: Get set of delivered batch IDs
+    delivered_set = get_delivered_batch_ids(batch_ids)
 
-    if container:
-        params["container"] = container
+    # Step 3: Aggregate by group key (no cone/date grouping)
+    groups = {}
+    for b in batches:
+        batch_date = getdate(b.creation)
+        key = (
+            b.container_no or "",
+            b.lot_no or "",
+            b.item or "",
+            b.pulp or "",
+            b.lusture or "",
+            b.glue or "",
+            b.grade or "",
+        )
 
-    if lot_no:
-        params["lot_no"] = lot_no
+        if key not in groups:
+            groups[key] = {
+                "min_date": batch_date,
+                "container_no": b.container_no or "",
+                "item": b.item or "",
+                "pulp": b.pulp or "",
+                "lusture": b.lusture or "",
+                "glue": b.glue or "",
+                "grade": b.grade or "",
+                "lot_no": b.lot_no or "",
+                "batch_ids": set(),
+            }
 
-    data = frappe.db.sql(query, params, as_dict=1)
-    return data
+        if batch_date < groups[key]["min_date"]:
+            groups[key]["min_date"] = batch_date
+
+        groups[key]["batch_ids"].add(b.batch_id)
+
+    # Step 4: Build main data rows
+    main_rows = []
+    for g in groups.values():
+        in_qty = len(g["batch_ids"])
+        out_qty = len(g["batch_ids"] & delivered_set)
+        stock = in_qty - out_qty
+
+        g["report_date"] = g["min_date"].strftime("%d/%m/%Y")
+        g["in_qty"] = in_qty
+        g["out_qty"] = out_qty
+        g["stock"] = stock
+        g["total_box"] = in_qty
+        g["sort_order"] = 0
+        main_rows.append(g)
+
+    if not main_rows:
+        return []
+
+    # Step 5: Compute lot totals (sort_order=1)
+    lot_groups = defaultdict(list)
+    for row in main_rows:
+        lot_key = (row["report_date"], row["container_no"], row["lot_no"])
+        lot_groups[lot_key].append(row)
+
+    lot_totals = []
+    for (report_date, container_no, lot), rows in lot_groups.items():
+        lot_totals.append(
+            {
+                "min_date": rows[0]["min_date"],
+                "report_date": report_date,
+                "container_no": container_no,
+                "item": str(len(rows)),
+                "pulp": "",
+                "lusture": "",
+                "glue": "Total:",
+                "grade": "",
+                "in_qty": sum(r["in_qty"] for r in rows),
+                "out_qty": sum(r["out_qty"] for r in rows),
+                "stock": round(sum(r["stock"] for r in rows), 2),
+                "lot_no": lot,
+                "total_box": sum(r["total_box"] for r in rows),
+                "sort_order": 1,
+            }
+        )
+
+    # Step 6: Compute container totals (sort_order=2, only when multiple lots)
+    container_groups = defaultdict(list)
+    for row in main_rows:
+        ck = (row["report_date"], row["container_no"])
+        container_groups[ck].append(row)
+
+    container_totals = []
+    for (report_date, container_no), rows in container_groups.items():
+        lots = set(r["lot_no"] for r in rows)
+        if len(lots) > 1:
+            container_totals.append(
+                {
+                    "min_date": rows[0]["min_date"],
+                    "report_date": report_date,
+                    "container_no": container_no,
+                    "item": str(len(rows)),
+                    "pulp": "",
+                    "lusture": "",
+                    "glue": "Grand Total:",
+                    "grade": "",
+                    "in_qty": sum(r["in_qty"] for r in rows),
+                    "out_qty": sum(r["out_qty"] for r in rows),
+                    "stock": round(sum(r["stock"] for r in rows), 2),
+                    "lot_no": "",
+                    "total_box": sum(r["total_box"] for r in rows),
+                    "sort_order": 2,
+                }
+            )
+
+    # Step 7: Combine and sort
+    all_rows = main_rows + lot_totals + container_totals
+    all_rows.sort(
+        key=lambda r: (
+            -r["min_date"].toordinal(),
+            r["container_no"],
+            r["lot_no"] if r["lot_no"] else "\xff",
+            r["sort_order"],
+        )
+    )
+
+    # Step 8: Format output
+    result = []
+    for row in all_rows:
+        so = row["sort_order"]
+        result.append(
+            {
+                "Date": "" if so >= 1 else row["report_date"],
+                "Container Number": "" if so >= 1 else row["container_no"],
+                "Item": row["item"],
+                "Pulp": row["pulp"],
+                "Lusture": row["lusture"],
+                "Glue": row["glue"],
+                "Grade": row["grade"],
+                "IN Qty": row["in_qty"],
+                "OUT Qty": row["out_qty"],
+                "Stock": row["stock"],
+                "Lot Number": row["lot_no"],
+                "Total Box": row["total_box"],
+                "sort_order": so,
+            }
+        )
+
+    return result
