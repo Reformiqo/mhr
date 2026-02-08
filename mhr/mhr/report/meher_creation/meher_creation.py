@@ -1,40 +1,12 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, get_datetime_str
-import time
-from frappe.utils.background_jobs import enqueue
+from frappe.utils import flt
 
 
 def execute(filters=None):
     columns = get_columns()
-    
-    # Check if we should use cached data (cache valid for 1 hour)
-    cache_key = f"meher_creation_report_{get_cache_key(filters)}"
-    cached_data = frappe.cache().get_value(cache_key)
-    
-    if cached_data:
-        return columns, cached_data
-    
-    # Get data with pagination to avoid timeouts
     data = get_datas(filters=filters)
-    
-    # Cache the data for 1 hour
-    frappe.cache().set_value(cache_key, data, expires_in_sec=3600)
-    
     return columns, data
-
-
-def get_cache_key(filters):
-    """Generate a unique cache key based on filters"""
-    if not filters:
-        return "no_filters"
-    
-    key_parts = []
-    for k, v in filters.items():
-        if v:
-            key_parts.append(f"{k}_{v}")
-    
-    return "_".join(key_parts) or "default"
 
 
 def get_columns():

@@ -49,6 +49,13 @@ def get_columns():
             "width": 100,
         },
         {"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 100},
+        {
+            "label": _("sort_order"),
+            "fieldname": "sort_order",
+            "fieldtype": "Int",
+            "width": 0,
+            "hidden": 1,
+        },
     ]
 
 
@@ -80,9 +87,6 @@ def get_data(filters=None):
 
     where_clause = " AND ".join(where_conditions)
 
-    # Use Stock Ledger Entry for accurate balance tracking
-    # Balance = IN qty (positive actual_qty) - OUT qty (negative actual_qty)
-    # IN Box = batches that received stock, OUT Box = batches that were delivered
     query = f"""
 		WITH batch_data AS (
 			SELECT
@@ -101,7 +105,6 @@ def get_data(filters=None):
 			WHERE {where_clause}
 		),
 		sle_direct AS (
-			-- Stock movements where batch_no is directly on SLE (older method)
 			SELECT
 				sle.batch_no AS batch_no,
 				SUM(sle.actual_qty) AS balance,
@@ -110,13 +113,11 @@ def get_data(filters=None):
 			FROM `tabStock Ledger Entry` sle
 			WHERE sle.docstatus = 1
 			AND sle.is_cancelled = 0
-			AND sle.batch_no IS NOT NULL
-			AND sle.batch_no != ''
+			AND sle.batch_no IN (SELECT batch_id FROM batch_data)
 			AND (sle.serial_and_batch_bundle IS NULL OR sle.serial_and_batch_bundle = '')
 			GROUP BY sle.batch_no
 		),
 		sle_bundle AS (
-			-- Stock movements via Serial and Batch Bundle (ERPNext v15+ method)
 			SELECT
 				sbe.batch_no AS batch_no,
 				SUM(sbe.qty) AS balance,
@@ -126,12 +127,10 @@ def get_data(filters=None):
 			INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
 			WHERE sbb.docstatus = 1
 			AND sbb.is_cancelled = 0
-			AND sbe.batch_no IS NOT NULL
-			AND sbe.batch_no != ''
+			AND sbe.batch_no IN (SELECT batch_id FROM batch_data)
 			GROUP BY sbe.batch_no
 		),
 		sle_data AS (
-			-- Combine both sources
 			SELECT
 				batch_no,
 				SUM(balance) AS balance,
@@ -147,12 +146,13 @@ def get_data(filters=None):
 		main_data_raw AS (
 			SELECT
 				DATE_FORMAT(bd.batch_date, '%%d/%%m/%%Y') AS report_date,
+				bd.batch_date AS raw_date,
 				bd.container_no AS container_no,
 				bd.item AS item,
-				SUBSTRING_INDEX(bd.pulp, '-', -1) AS pulp,
-				SUBSTRING_INDEX(bd.lusture, '-', -1) AS lusture,
-				SUBSTRING_INDEX(bd.glue, '-', -1) AS glue,
-				SUBSTRING_INDEX(bd.grade, '-', -1) AS grade,
+				bd.pulp AS pulp,
+				bd.lusture AS lusture,
+				bd.glue AS glue,
+				bd.grade AS grade,
 				ROUND(SUM(CASE WHEN COALESCE(sd.balance, 0) > 0 THEN bd.net_weight ELSE 0 END), 2) AS balance,
 				bd.lot_no AS lot_no,
 				COUNT(DISTINCT CASE WHEN COALESCE(sd.balance, 0) > 0 THEN bd.batch_id END) AS balance_box,
@@ -180,11 +180,12 @@ def get_data(filters=None):
 		lot_total AS (
 			SELECT
 				report_date,
+				raw_date,
 				container_no,
-				CONCAT('<b>', COUNT(item), '</b>') AS item,
+				CAST(COUNT(item) AS CHAR) AS item,
 				'' AS pulp,
 				'' AS lusture,
-				'<b>Total:</b>' AS glue,
+				'Total:' AS glue,
 				'' AS grade,
 				SUM(balance) AS balance,
 				lot_no,
@@ -194,27 +195,31 @@ def get_data(filters=None):
 			FROM main_data
 			GROUP BY
 				report_date,
+				raw_date,
 				container_no,
 				lot_no
 		),
 		container_lot_count AS (
 			SELECT
 				report_date,
+				raw_date,
 				container_no,
 				COUNT(DISTINCT lot_no) AS lot_count
 			FROM main_data
 			GROUP BY
 				report_date,
+				raw_date,
 				container_no
 		),
 		container_total AS (
 			SELECT
 				m.report_date,
+				m.raw_date,
 				m.container_no,
-				CONCAT('<b>', COUNT(m.item), '</b>') AS item,
+				CAST(COUNT(m.item) AS CHAR) AS item,
 				'' AS pulp,
 				'' AS lusture,
-				'<b>Grand Total:</b>' AS glue,
+				'Grand Total:' AS glue,
 				'' AS grade,
 				SUM(m.balance) AS balance,
 				'' AS lot_no,
@@ -228,6 +233,7 @@ def get_data(filters=None):
 			WHERE c.lot_count > 1
 			GROUP BY
 				m.report_date,
+				m.raw_date,
 				m.container_no
 		)
 		SELECT
@@ -238,18 +244,11 @@ def get_data(filters=None):
 			lusture AS `Lusture`,
 			glue AS `Glue`,
 			grade AS `Grade`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:green;">', balance, '</span>')
-				ELSE CONCAT('<b style="color:green;">', ROUND(balance, 2), '</b>')
-			END AS `Balance`,
+			ROUND(balance, 2) AS `Balance`,
 			lot_no AS `Lot Number`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:green;">', balance_box, '</span>')
-				ELSE CONCAT('<b style="color:green;">', balance_box, '</b>')
-			END AS `Balance Box`,
-			cone AS `Cone`
+			balance_box AS `Balance Box`,
+			cone AS `Cone`,
+			sort_order AS `sort_order`
 		FROM (
 			SELECT * FROM main_data
 			UNION ALL
@@ -258,7 +257,7 @@ def get_data(filters=None):
 			SELECT * FROM container_total
 		) final
 		ORDER BY
-			STR_TO_DATE(report_date, '%%d/%%m/%%Y') DESC,
+			raw_date DESC,
 			container_no,
 			CASE WHEN lot_no = '' THEN 'ZZZZZ' ELSE lot_no END,
 			sort_order,
@@ -277,4 +276,12 @@ def get_data(filters=None):
         params["cone"] = cone
 
     data = frappe.db.sql(query, params, as_dict=1)
+
+    # Post-process: strip Item Specification prefixes (e.g. "SPEC-value" -> "value")
+    for row in data:
+        for field in ("Pulp", "Lusture", "Glue", "Grade"):
+            val = row.get(field)
+            if val and "-" in str(val):
+                row[field] = str(val).rsplit("-", 1)[-1]
+
     return data

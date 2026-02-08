@@ -8,7 +8,7 @@ frappe.query_reports["STOCK SHEET (INWARD CONE WISE)"] = {
 			"fieldtype": "Date",
 			"label": "From Date",
 			"mandatory": 1,
-			"default": frappe.datetime.get_today() - 30,
+			"default": frappe.datetime.add_days(frappe.datetime.get_today(), -30),
 		},
 		{
 			"fieldname": "tdt",
@@ -16,7 +16,6 @@ frappe.query_reports["STOCK SHEET (INWARD CONE WISE)"] = {
 			"label": "To Date",
 			"mandatory": 1,
 			"default": frappe.datetime.get_today(),
-
 		},
 		{
 			"fieldname": "container",
@@ -36,6 +35,22 @@ frappe.query_reports["STOCK SHEET (INWARD CONE WISE)"] = {
 			"label": "Cone",
 			"mandatory": 0,
 		}
+	],
+	formatter: function(value, row, column, data, default_formatter) {
+		value = default_formatter(value, row, column, data);
+		if (!data) return value;
 
-	]
+		if (data.sort_order >= 1) {
+			value = "<b>" + value + "</b>";
+		}
+
+		if (column.fieldname === "IN Qty") {
+			value = "<span style='color:green'>" + value + "</span>";
+		}
+		if (column.fieldname === "OUT Qty") {
+			value = "<span style='color:red'>" + value + "</span>";
+		}
+
+		return value;
+	}
 };

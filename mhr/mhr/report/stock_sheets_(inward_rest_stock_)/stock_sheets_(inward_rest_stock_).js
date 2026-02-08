@@ -35,5 +35,15 @@ frappe.query_reports["STOCK SHEETS (INWARD REST STOCK )"] = {
 			"label": "Cone",
 			"mandatory": 0,
 		}
-	]
+	],
+	formatter: function(value, row, column, data, default_formatter) {
+		value = default_formatter(value, row, column, data);
+		if (!data) return value;
+
+		if (data.sort_order >= 1) {
+			value = "<b>" + value + "</b>";
+		}
+
+		return value;
+	}
 };

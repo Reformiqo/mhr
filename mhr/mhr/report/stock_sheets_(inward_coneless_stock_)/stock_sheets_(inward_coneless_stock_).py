@@ -15,12 +15,17 @@ def get_columns():
     return [
         {"label": _("Date"), "fieldname": "Date", "fieldtype": "Data", "width": 120},
         {
-            "label": _("Container Number"),
-            "fieldname": "Container Number",
+            "label": _("Container No"),
+            "fieldname": "Container No",
             "fieldtype": "Data",
             "width": 150,
         },
-        {"label": _("Item"), "fieldname": "Item", "fieldtype": "Data", "width": 150},
+        {
+            "label": _("Product Name"),
+            "fieldname": "Product Name",
+            "fieldtype": "Data",
+            "width": 150,
+        },
         {"label": _("Pulp"), "fieldname": "Pulp", "fieldtype": "Data", "width": 100},
         {
             "label": _("Lusture"),
@@ -31,29 +36,54 @@ def get_columns():
         {"label": _("Glue"), "fieldname": "Glue", "fieldtype": "Data", "width": 100},
         {"label": _("Grade"), "fieldname": "Grade", "fieldtype": "Data", "width": 100},
         {
-            "label": _("IN Qty"),
-            "fieldname": "IN Qty",
+            "label": _("Total Op./ Purc Qty"),
+            "fieldname": "Total Op./ Purc Qty",
+            "fieldtype": "Float",
+            "width": 120,
+        },
+        {
+            "label": _("Closing Stock"),
+            "fieldname": "Closing Stock",
+            "fieldtype": "Float",
+            "width": 120,
+        },
+        {
+            "label": _("Mrg. No."),
+            "fieldname": "Mrg. No.",
             "fieldtype": "Data",
             "width": 100,
         },
         {
-            "label": _("OUT Qty"),
-            "fieldname": "OUT Qty",
-            "fieldtype": "Data",
-            "width": 100,
-        },
-        {"label": _("Stock"), "fieldname": "Stock", "fieldtype": "Data", "width": 100},
-        {
-            "label": _("Lot Number"),
-            "fieldname": "Lot Number",
+            "label": _("Lot No."),
+            "fieldname": "Lot No.",
             "fieldtype": "Data",
             "width": 120,
         },
         {
-            "label": _("Total Box"),
-            "fieldname": "Total Box",
-            "fieldtype": "Data",
+            "label": _("No Of Cone"),
+            "fieldname": "No Of Cone",
+            "fieldtype": "Float",
             "width": 100,
+        },
+        {
+            "label": _("Stock Box"),
+            "fieldname": "Stock Box",
+            "fieldtype": "Int",
+            "width": 100,
+        },
+        {"label": _("Sales"), "fieldname": "Sales", "fieldtype": "Float", "width": 100},
+        {
+            "label": _("Remark"),
+            "fieldname": "Remark",
+            "fieldtype": "Data",
+            "width": 150,
+        },
+        {
+            "label": _("sort_order"),
+            "fieldname": "sort_order",
+            "fieldtype": "Int",
+            "width": 0,
+            "hidden": 1,
         },
     ]
 
@@ -67,12 +97,13 @@ def get_data(filters=None):
     tdt = filters.get("tdt")
     container = filters.get("container")
     lot_no = filters.get("lot_no")
+    cone = filters.get("cone")
 
     if not fdt or not tdt:
         frappe.throw(_("Please select From Date and To Date"))
 
-    # Build WHERE conditions dynamically for Batch table
-    where_conditions = ["b.creation BETWEEN %(fdt)s AND %(tdt)s"]
+    # Build WHERE conditions dynamically for optimization
+    where_conditions = ["b.manufacturing_date BETWEEN %(fdt)s AND %(tdt)s"]
 
     if container:
         where_conditions.append("b.custom_container_no = %(container)s")
@@ -80,180 +111,126 @@ def get_data(filters=None):
     if lot_no:
         where_conditions.append("b.custom_lot_no = %(lot_no)s")
 
+    if cone:
+        where_conditions.append("b.custom_cone = %(cone)s")
+
     where_clause = " AND ".join(where_conditions)
 
-    # IN qty = COUNT of batches (number of boxes received)
-    # OUT qty = COUNT of batches delivered via Delivery Note
     query = f"""
-		WITH batch_data AS (
+		WITH batch_filtered AS (
 			SELECT
-				b.name AS batch_id,
-				b.item AS item,
+				b.name,
+				DATE_FORMAT(b.manufacturing_date, '%%d-%%m-%%Y') AS report_date,
+				b.manufacturing_date AS raw_date,
 				b.custom_container_no AS container_no,
-				b.custom_lot_no AS lot_no,
+				b.item AS item,
 				b.custom_pulp AS pulp,
 				b.custom_lusture AS lusture,
 				b.custom_glue AS glue,
 				b.custom_grade AS grade,
-				DATE(b.creation) AS batch_date
+				b.batch_qty,
+				b.custom_lot_no AS lot_no,
+				b.custom_cone AS cone
 			FROM `tabBatch` b
-			WHERE {where_clause}
+			WHERE
+				{where_clause}
 		),
-		-- OUT qty from Delivery Note Item (count of batches delivered)
-		out_qty_direct AS (
-			SELECT DISTINCT
-				dni.batch_no AS batch_no
+		delivery_agg AS (
+			SELECT
+				dni.batch_no,
+				SUM(CASE WHEN dn.docstatus = 1 THEN dni.qty ELSE 0 END) AS total_delivered
 			FROM `tabDelivery Note Item` dni
 			INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
-			WHERE dn.docstatus = 1
-			AND dni.batch_no IS NOT NULL
-			AND dni.batch_no != ''
-			AND (dni.serial_and_batch_bundle IS NULL OR dni.serial_and_batch_bundle = '')
-		),
-		-- OUT qty from Delivery Note Item via Serial and Batch Bundle (ERPNext v15+ method)
-		out_qty_bundle AS (
-			SELECT DISTINCT
-				sbe.batch_no AS batch_no
-			FROM `tabSerial and Batch Entry` sbe
-			INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
-			INNER JOIN `tabDelivery Note Item` dni ON dni.serial_and_batch_bundle = sbb.name
-			INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
-			WHERE dn.docstatus = 1
-			AND sbb.docstatus = 1
-			AND sbb.is_cancelled = 0
-			AND sbe.batch_no IS NOT NULL
-			AND sbe.batch_no != ''
-		),
-		out_batches AS (
-			SELECT DISTINCT batch_no
-			FROM (
-				SELECT * FROM out_qty_direct
-				UNION ALL
-				SELECT * FROM out_qty_bundle
-			) combined
+			WHERE dni.batch_no IN (SELECT name FROM batch_filtered)
+			GROUP BY dni.batch_no
 		),
 		main_data AS (
 			SELECT
-				DATE_FORMAT(MIN(bd.batch_date), '%%d/%%m/%%Y') AS report_date,
-				bd.container_no AS container_no,
-				bd.item AS item,
-				bd.pulp AS pulp,
-				bd.lusture AS lusture,
-				bd.glue AS glue,
-				bd.grade AS grade,
-				COUNT(DISTINCT bd.batch_id) AS in_qty,
-				COUNT(DISTINCT ob.batch_no) AS out_qty,
-				COUNT(DISTINCT bd.batch_id) - COUNT(DISTINCT ob.batch_no) AS stock,
-				bd.lot_no AS lot_no,
-				COUNT(DISTINCT bd.batch_id) AS total_box,
+				bf.report_date,
+				bf.raw_date,
+				bf.container_no,
+				bf.item,
+				bf.pulp,
+				bf.lusture,
+				bf.glue,
+				bf.grade,
+				ROUND(SUM(bf.batch_qty), 2) AS total_purchase_qty,
+				ROUND(SUM(bf.batch_qty) - COALESCE(SUM(da.total_delivered), 0), 2) AS closing_stock,
+				ROUND(COALESCE(SUM(da.total_delivered), 0), 2) AS sales,
+				c.merge_no AS merge_no,
+				bf.lot_no,
+				COUNT(DISTINCT bf.cone) AS no_of_cone,
+				COUNT(bf.name) AS stock_box,
+				'' AS remark,
 				0 AS sort_order
-			FROM batch_data bd
-			LEFT JOIN out_batches ob ON ob.batch_no = bd.batch_id
+			FROM batch_filtered bf
+			LEFT JOIN delivery_agg da ON bf.name = da.batch_no
+			LEFT JOIN `tabContainer` c ON c.container_no = bf.container_no
 			GROUP BY
-				bd.container_no,
-				bd.lot_no,
-				bd.item,
-				bd.pulp,
-				bd.lusture,
-				bd.glue,
-				bd.grade
+				bf.report_date,
+				bf.raw_date,
+				bf.container_no,
+				bf.lot_no,
+				bf.item,
+				bf.pulp,
+				bf.lusture,
+				bf.glue,
+				bf.grade,
+				c.merge_no
+			HAVING ROUND(SUM(bf.batch_qty) - COALESCE(SUM(da.total_delivered), 0), 2) > 0
 		),
-		lot_total AS (
+		container_total AS (
 			SELECT
 				report_date,
+				raw_date,
 				container_no,
-				CONCAT('<b>', COUNT(item), '</b>') AS item,
+				CAST(COUNT(item) AS CHAR) AS item,
 				'' AS pulp,
 				'' AS lusture,
-				'<b>Total:</b>' AS glue,
+				'Total:' AS glue,
 				'' AS grade,
-				SUM(in_qty) AS in_qty,
-				SUM(out_qty) AS out_qty,
-				ROUND(SUM(stock),2) AS stock,
-				lot_no,
-				SUM(total_box) AS total_box,	
+				ROUND(SUM(total_purchase_qty), 2) AS total_purchase_qty,
+				ROUND(SUM(closing_stock), 2) AS closing_stock,
+				'' AS merge_no,
+				'' AS lot_no,
+				SUM(no_of_cone) AS no_of_cone,
+				SUM(stock_box) AS stock_box,
+				ROUND(SUM(sales), 2) AS sales,
+				'' AS remark,
 				1 AS sort_order
 			FROM main_data
 			GROUP BY
 				report_date,
-				container_no,
-				lot_no
-		),
-		container_lot_count AS (
-			SELECT
-				report_date,
-				container_no,
-				COUNT(DISTINCT lot_no) AS lot_count
-			FROM main_data
-			GROUP BY
-				report_date,
+				raw_date,
 				container_no
-		),
-		container_total AS (
-			SELECT
-				m.report_date,
-				m.container_no,
-				CONCAT('<b>', COUNT(m.item), '</b>') AS item,
-				'' AS pulp,
-				'' AS lusture,
-				'<b>Grand Total:</b>' AS glue,
-				'' AS grade,
-				SUM(m.in_qty) AS in_qty,
-				SUM(m.out_qty) AS out_qty,
-				ROUND(SUM(m.stock),2) AS stock,
-				'' AS lot_no,
-				SUM(m.total_box) AS total_box,
-				2 AS sort_order
-			FROM main_data m
-			INNER JOIN container_lot_count c
-				ON m.report_date = c.report_date
-				AND m.container_no = c.container_no
-			WHERE c.lot_count > 1
-			GROUP BY
-				m.report_date,
-				m.container_no
 		)
 		SELECT
-			CASE WHEN sort_order >= 1 THEN '' ELSE report_date END AS `Date`,
-			CASE WHEN sort_order >= 1 THEN '' ELSE container_no END AS `Container Number`,
-			item AS `Item`,
+			CASE WHEN sort_order = 1 THEN '' ELSE report_date END AS `Date`,
+			CASE WHEN sort_order = 1 THEN '' ELSE container_no END AS `Container No`,
+			item AS `Product Name`,
 			pulp AS `Pulp`,
 			lusture AS `Lusture`,
 			glue AS `Glue`,
 			grade AS `Grade`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:green;">', in_qty, '</span>')
-				ELSE CONCAT('<b>', in_qty, '</b>')
-			END AS `IN Qty`,
-			CASE
-				WHEN sort_order = 0
-				THEN CONCAT('<span style="color:red;">', out_qty, '</span>')
-				ELSE CONCAT('<b>', out_qty, '</b>')
-			END AS `OUT Qty`,
-			CASE
-				WHEN sort_order = 0
-				THEN stock
-				ELSE CONCAT('<b>', stock, '</b>')
-			END AS `Stock`,
-			lot_no AS `Lot Number`,
-			CASE
-				WHEN sort_order = 0
-				THEN total_box
-				ELSE CONCAT('<b>', total_box, '</b>')
-			END AS `Total Box`
+			total_purchase_qty AS `Total Op./ Purc Qty`,
+			closing_stock AS `Closing Stock`,
+			merge_no AS `Mrg. No.`,
+			lot_no AS `Lot No.`,
+			no_of_cone AS `No Of Cone`,
+			stock_box AS `Stock Box`,
+			sales AS `Sales`,
+			remark AS `Remark`,
+			sort_order AS `sort_order`
 		FROM (
 			SELECT * FROM main_data
-			UNION ALL
-			SELECT * FROM lot_total
 			UNION ALL
 			SELECT * FROM container_total
 		) final
 		ORDER BY
-			STR_TO_DATE(report_date, '%%d/%%m/%%Y') DESC,
+			raw_date DESC,
 			container_no,
-			CASE WHEN lot_no = '' THEN 'ZZZZZ' ELSE lot_no END,
-			sort_order
+			sort_order,
+			lot_no
 	"""
 
     params = {"fdt": fdt, "tdt": tdt}
@@ -263,6 +240,9 @@ def get_data(filters=None):
 
     if lot_no:
         params["lot_no"] = lot_no
+
+    if cone:
+        params["cone"] = cone
 
     data = frappe.db.sql(query, params, as_dict=1)
     return data

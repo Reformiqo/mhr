@@ -32,5 +32,19 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 			"label": __("Cone"),
 			"fieldtype": "Data"
 		}
-	]
+	],
+	formatter: function(value, row, column, data, default_formatter) {
+		value = default_formatter(value, row, column, data);
+		if (!data) return value;
+
+		if (data.sort_order >= 1) {
+			value = "<b>" + value + "</b>";
+		}
+
+		if (column.fieldname === "Balance" || column.fieldname === "Balance Box") {
+			value = "<span style='color:green'>" + value + "</span>";
+		}
+
+		return value;
+	}
 };

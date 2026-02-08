@@ -78,6 +78,13 @@ def get_columns():
             "fieldtype": "Data",
             "width": 150,
         },
+        {
+            "label": _("sort_order"),
+            "fieldname": "sort_order",
+            "fieldtype": "Int",
+            "width": 0,
+            "hidden": 1,
+        },
     ]
 
 
@@ -114,6 +121,7 @@ def get_data(filters=None):
 			SELECT
 				b.name,
 				DATE_FORMAT(b.manufacturing_date, '%%d-%%m-%%Y') AS report_date,
+				b.manufacturing_date AS raw_date,
 				b.custom_container_no AS container_no,
 				b.item AS item,
 				b.custom_pulp AS pulp,
@@ -122,8 +130,7 @@ def get_data(filters=None):
 				b.custom_grade AS grade,
 				b.batch_qty,
 				b.custom_lot_no AS lot_no,
-				b.custom_cone AS cone,
-				b.manufacturing_date
+				b.custom_cone AS cone
 			FROM `tabBatch` b
 			WHERE
 				{where_clause}
@@ -140,6 +147,7 @@ def get_data(filters=None):
 		main_data AS (
 			SELECT
 				bf.report_date,
+				bf.raw_date,
 				bf.container_no,
 				bf.item,
 				bf.pulp,
@@ -160,6 +168,7 @@ def get_data(filters=None):
 			LEFT JOIN `tabContainer` c ON c.container_no = bf.container_no
 			GROUP BY
 				bf.report_date,
+				bf.raw_date,
 				bf.container_no,
 				bf.lot_no,
 				bf.item,
@@ -173,11 +182,12 @@ def get_data(filters=None):
 		container_total AS (
 			SELECT
 				report_date,
+				raw_date,
 				container_no,
-				CONCAT('<b>', COUNT(item), '</b>') AS item,
+				CAST(COUNT(item) AS CHAR) AS item,
 				'' AS pulp,
 				'' AS lusture,
-				'<b>Total:</b>' AS glue,
+				'Total:' AS glue,
 				'' AS grade,
 				ROUND(SUM(total_purchase_qty), 2) AS total_purchase_qty,
 				ROUND(SUM(closing_stock), 2) AS closing_stock,
@@ -191,6 +201,7 @@ def get_data(filters=None):
 			FROM main_data
 			GROUP BY
 				report_date,
+				raw_date,
 				container_no
 		)
 		SELECT
@@ -201,41 +212,22 @@ def get_data(filters=None):
 			lusture AS `Lusture`,
 			glue AS `Glue`,
 			grade AS `Grade`,
-			CASE
-				WHEN sort_order = 0
-				THEN total_purchase_qty
-				ELSE CONCAT('<b>', total_purchase_qty, '</b>')
-			END AS `Total Op./ Purc Qty`,
-			CASE
-				WHEN sort_order = 0
-				THEN closing_stock
-				ELSE CONCAT('<b>', closing_stock, '</b>')
-			END AS `Closing Stock`,
+			total_purchase_qty AS `Total Op./ Purc Qty`,
+			closing_stock AS `Closing Stock`,
 			merge_no AS `Mrg. No.`,
 			lot_no AS `Lot No.`,
-			CASE
-				WHEN sort_order = 0
-				THEN no_of_cone
-				ELSE CONCAT('<b>', no_of_cone, '</b>')
-			END AS `No Of Cone`,
-			CASE
-				WHEN sort_order = 0
-				THEN stock_box
-				ELSE CONCAT('<b>', stock_box, '</b>')
-			END AS `Stock Box`,
-			CASE
-				WHEN sort_order = 0
-				THEN sales
-				ELSE CONCAT('<b>', sales, '</b>')
-			END AS `Sales`,
-			remark AS `Remark`
+			no_of_cone AS `No Of Cone`,
+			stock_box AS `Stock Box`,
+			sales AS `Sales`,
+			remark AS `Remark`,
+			sort_order AS `sort_order`
 		FROM (
 			SELECT * FROM main_data
 			UNION ALL
 			SELECT * FROM container_total
 		) final
 		ORDER BY
-			STR_TO_DATE(report_date, '%%d-%%m-%%Y') DESC,
+			raw_date DESC,
 			container_no,
 			sort_order,
 			lot_no
