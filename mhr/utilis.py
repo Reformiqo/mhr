@@ -1074,12 +1074,13 @@ def validate_batch_container_match(doc, method=None):
                         "Batch", entry.batch_no, "custom_container_no"
                     )
 
-                    # Check if it matches the DN's container
-                    if batch_container and batch_container != doc.custom_container_no:
-                        mismatched_batches.append({
-                            "batch": entry.batch_no,
-                            "batch_container": batch_container,
-                            "dn_container": doc.custom_container_no
+                    # Check if it matches the items container no
+                    if batch_container:
+                        if batch_container and batch_container != item.container_no:
+                            mismatched_batches.append({
+                                "batch": entry.batch_no,
+                                "batch_container": batch_container,
+                                "dn_container": doc.custom_container_no
                         })
 
         # Also check direct batch_no field if populated
@@ -1092,7 +1093,7 @@ def validate_batch_container_match(doc, method=None):
                 mismatched_batches.append({
                     "batch": item.batch_no,
                     "batch_container": batch_container,
-                    "dn_container": doc.custom_container_no
+                    "dn_container": item.custom_container_no
                 })
 
     # If there are mismatched batches, throw an error
