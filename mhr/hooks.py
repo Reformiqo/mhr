@@ -125,6 +125,7 @@ app_license = "mit"
 doc_events = {
     "Delivery Note": {
         "on_submit": "mhr.utilis.update_item_batch",
+        "on_cancel": "mhr.utilis.reverse_item_batch",
         "validate": [
             # "mhr.utilis.validate_batch",
             "mhr.utilis.set_delivery_note_user",
