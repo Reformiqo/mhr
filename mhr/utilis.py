@@ -809,6 +809,8 @@ def update_container_batch_qty(container: str):
 @frappe.whitelist()
 def set_delivery_note_user(doc, method=None):
     doc.prepared_by = frappe.session.user
+    if doc.is_return:
+        doc.custom_denier = frappe.db.get_value("Batch", doc.custom_batch, "item_name")
 
 
 @frappe.whitelist()
