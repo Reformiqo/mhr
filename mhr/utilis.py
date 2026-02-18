@@ -239,8 +239,11 @@ def update_item_batch(doc, method=None):
     for item in doc.items:
         current_cone = cint(frappe.db.get_value("Batch", item.batch_no, "custom_cone"))
         if doc.is_return:
-            # Return DN: add cones back to batch
-            new_cone = current_cone + cint(item.custom_cone)
+            # Return DN: get cone from original DN item since return items may have cone = 0
+            cone_value = cint(item.custom_cone)
+            if not cone_value and item.dn_detail:
+                cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
+            new_cone = current_cone + cone_value
         else:
             # Regular DN: subtract cones from batch
             new_cone = current_cone - cint(item.custom_cone)
@@ -253,8 +256,11 @@ def reverse_item_batch(doc, method=None):
     for item in doc.items:
         current_cone = cint(frappe.db.get_value("Batch", item.batch_no, "custom_cone"))
         if doc.is_return:
-            # Cancelling a return DN: subtract cones again
-            new_cone = current_cone - cint(item.custom_cone)
+            # Cancelling a return DN: get cone from original DN item
+            cone_value = cint(item.custom_cone)
+            if not cone_value and item.dn_detail:
+                cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
+            new_cone = current_cone - cone_value
         else:
             # Cancelling a regular DN: add cones back
             new_cone = current_cone + cint(item.custom_cone)
