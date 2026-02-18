@@ -3,8 +3,8 @@ import frappe
 
 def execute():
     # First: clean data in ALL cone columns so ALTER TABLE won't fail
-    # The columns are currently varchar (Data type) with values like '6.0', '6', '', etc.
-    # Convert to clean integers: '6.0' -> '6', '' -> '0', NULL -> '0'
+    # The columns are currently varchar (Data type) with values like '6.0', '6', '',
+    # or even junk like '210/72F 7.5 GPD'
     columns = [
         ("tabBatch", "custom_cone"),
         ("tabDelivery Note", "custom_cone"),
@@ -19,13 +19,16 @@ def execute():
 
     for table, column in columns:
         try:
-            # Set empty/null to '0', then round any decimals like '6.0' to '6'
+            # Step 1: Set non-numeric values to '0' (letters, special chars, empty, null)
             frappe.db.sql("""
                 UPDATE `{table}`
                 SET `{column}` = '0'
-                WHERE `{column}` IS NULL OR `{column}` = ''
+                WHERE `{column}` IS NULL
+                   OR `{column}` = ''
+                   OR `{column}` REGEXP '[^0-9.\-]'
             """.format(table=table, column=column))
 
+            # Step 2: Round any remaining decimals like '6.0' to '6'
             frappe.db.sql("""
                 UPDATE `{table}`
                 SET `{column}` = CAST(ROUND(CAST(`{column}` AS DECIMAL(20,2))) AS SIGNED)
