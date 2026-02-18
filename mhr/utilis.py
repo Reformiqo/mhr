@@ -237,35 +237,45 @@ def get_item_batch(batch):
 @frappe.whitelist()
 def update_item_batch(doc, method=None):
     for item in doc.items:
-        current_cone = cint(frappe.db.get_value("Batch", item.batch_no, "custom_cone"))
+        if not item.batch_no:
+            continue
         if doc.is_return:
-            # Return DN: get cone from original DN item since return items may have cone = 0
             cone_value = cint(item.custom_cone)
             if not cone_value and item.dn_detail:
                 cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
-            new_cone = current_cone + cone_value
+            frappe.db.sql("""
+                UPDATE `tabBatch`
+                SET custom_cone = custom_cone + %s
+                WHERE name = %s
+            """, (cone_value, item.batch_no))
         else:
-            # Regular DN: subtract cones from batch
-            new_cone = current_cone - cint(item.custom_cone)
-        frappe.db.set_value("Batch", item.batch_no, "custom_cone", new_cone)
-        frappe.db.commit()
+            frappe.db.sql("""
+                UPDATE `tabBatch`
+                SET custom_cone = custom_cone - %s
+                WHERE name = %s
+            """, (cint(item.custom_cone), item.batch_no))
 
 
 @frappe.whitelist()
 def reverse_item_batch(doc, method=None):
     for item in doc.items:
-        current_cone = cint(frappe.db.get_value("Batch", item.batch_no, "custom_cone"))
+        if not item.batch_no:
+            continue
         if doc.is_return:
-            # Cancelling a return DN: get cone from original DN item
             cone_value = cint(item.custom_cone)
             if not cone_value and item.dn_detail:
                 cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
-            new_cone = current_cone - cone_value
+            frappe.db.sql("""
+                UPDATE `tabBatch`
+                SET custom_cone = custom_cone - %s
+                WHERE name = %s
+            """, (cone_value, item.batch_no))
         else:
-            # Cancelling a regular DN: add cones back
-            new_cone = current_cone + cint(item.custom_cone)
-        frappe.db.set_value("Batch", item.batch_no, "custom_cone", new_cone)
-        frappe.db.commit()
+            frappe.db.sql("""
+                UPDATE `tabBatch`
+                SET custom_cone = custom_cone + %s
+                WHERE name = %s
+            """, (cint(item.custom_cone), item.batch_no))
 
 
 @frappe.whitelist()

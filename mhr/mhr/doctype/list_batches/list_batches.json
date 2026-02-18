@@ -21,7 +21,7 @@
   },
   {
    "fieldname": "cone",
-   "fieldtype": "Data",
+   "fieldtype": "Int",
    "in_list_view": 1,
    "label": "Cone"
   },
