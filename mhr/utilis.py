@@ -841,6 +841,19 @@ def update_container_batch_qty(container: str):
 
 
 @frappe.whitelist()
+def set_return_cone_from_original(doc, method=None):
+    if not doc.is_return or not doc.return_against:
+        return
+    for item in doc.items:
+        if item.dn_detail and not cint(item.custom_cone):
+            original_cone = cint(frappe.db.get_value(
+                "Delivery Note Item", item.dn_detail, "custom_cone"
+            ))
+            if original_cone:
+                item.custom_cone = original_cone
+
+
+@frappe.whitelist()
 def set_delivery_note_user(doc, method=None):
     doc.prepared_by = frappe.session.user
    

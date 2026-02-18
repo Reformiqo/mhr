@@ -129,6 +129,7 @@ doc_events = {
         "validate": [
             # "mhr.utilis.validate_batch",
             "mhr.utilis.set_delivery_note_user",
+            "mhr.utilis.set_return_cone_from_original",
             # "mhr.utilis.validate_delivery_note_batches",
             # "mhr.utilis.validate_batch_container_match",
         ]
