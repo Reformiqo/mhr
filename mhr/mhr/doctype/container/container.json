@@ -213,14 +213,14 @@
   {
    "allow_on_submit": 1,
    "fieldname": "production_date",
-   "fieldtype": "Date",
+   "fieldtype": "Data",
    "label": "Production Date"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-02-23 15:06:25.058189",
+ "modified": "2026-02-23 15:39:13.719077",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
