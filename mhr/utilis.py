@@ -240,9 +240,12 @@ def update_item_batch(doc, method=None):
         if not item.batch_no:
             continue
         if doc.is_return:
-            cone_value = cint(item.custom_cone)
-            if not cone_value and item.dn_detail:
+            # Always use cone from the original DN item (authoritative source)
+            cone_value = 0
+            if item.dn_detail:
                 cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
+            if not cone_value:
+                cone_value = cint(item.custom_cone)
             frappe.db.sql("""
                 UPDATE `tabBatch`
                 SET custom_cone = custom_cone + %s
@@ -262,9 +265,11 @@ def reverse_item_batch(doc, method=None):
         if not item.batch_no:
             continue
         if doc.is_return:
-            cone_value = cint(item.custom_cone)
-            if not cone_value and item.dn_detail:
+            cone_value = 0
+            if item.dn_detail:
                 cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
+            if not cone_value:
+                cone_value = cint(item.custom_cone)
             frappe.db.sql("""
                 UPDATE `tabBatch`
                 SET custom_cone = custom_cone - %s
