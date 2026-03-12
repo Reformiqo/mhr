@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 from frappe.utils.print_format import download_pdf, download_multi_pdf
 import json
 
@@ -1090,6 +1090,41 @@ def cancel_receipts():
 def enqueue_cancel_receipts():
     frappe.enqueue("mhr.utilis.cancel_receipts", queue="long")
     return "receipts cancelled successfully"
+
+
+@frappe.whitelist()
+def validate_so_available_qty(doc, method=None):
+    """Prevent overbooking: ensure SO item qty does not exceed available stock for batches."""
+    for item in doc.items:
+        if not item.custom_batch_no:
+            continue
+
+        # Get current stock balance for this batch
+        batch_balance = flt(frappe.db.get_value("Batch", item.custom_batch_no, "batch_qty"))
+
+        # Get total already-booked qty from other submitted SOs (excluding this one)
+        already_booked = frappe.db.sql("""
+            SELECT COALESCE(SUM(soi.qty - soi.delivered_qty), 0)
+            FROM `tabSales Order Item` soi
+            JOIN `tabSales Order` so ON so.name = soi.parent
+            WHERE soi.custom_batch_no = %s
+            AND so.docstatus = 1
+            AND so.name != %s
+            AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
+        """, (item.custom_batch_no, doc.name))[0][0]
+
+        available = flt(batch_balance) - flt(already_booked)
+        requested = flt(item.qty)
+
+        if requested > available:
+            frappe.throw(
+                _("Row {0}: Batch {1} has only {2} kg available ({3} kg in stock, {4} kg already booked). "
+                  "You are trying to book {5} kg.").format(
+                    item.idx, item.custom_batch_no,
+                    round(available, 2), round(batch_balance, 2),
+                    round(flt(already_booked), 2), round(requested, 2)
+                )
+            )
 
 
 @frappe.whitelist()

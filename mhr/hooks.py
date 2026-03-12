@@ -140,6 +140,9 @@ doc_events = {
     "Stock Entry": {
         "validate": "mhr.utilis.update_stock_entry",
     },
+    "Sales Order": {
+        "validate": "mhr.utilis.validate_so_available_qty",
+    },
 }
 
 # Scheduled Tasks

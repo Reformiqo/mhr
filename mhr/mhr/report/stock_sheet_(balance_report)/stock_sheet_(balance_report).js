@@ -45,6 +45,19 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 			value = "<span style='color:green'>" + value + "</span>";
 		}
 
+		if (column.fieldname === "Booked Qty" && parseFloat(data["Booked Qty"]) > 0) {
+			value = "<span style='color:orange'>" + value + "</span>";
+		}
+
+		if (column.fieldname === "Available Qty") {
+			let avail = parseFloat(data["Available Qty"]);
+			if (avail > 0) {
+				value = "<span style='color:green'>" + value + "</span>";
+			} else if (avail <= 0) {
+				value = "<span style='color:red'>" + value + "</span>";
+			}
+		}
+
 		return value;
 	}
 };
