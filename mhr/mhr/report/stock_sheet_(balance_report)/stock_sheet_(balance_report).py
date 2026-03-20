@@ -53,7 +53,7 @@ def get_columns():
         },
         {"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 100},
         {
-            "label": _("Booked Qty"),
+            "label": _("Total Booked"),
             "fieldname": "Booked Qty",
             "fieldtype": "Data",
             "width": 110,
@@ -77,8 +77,44 @@ def get_columns():
             "width": 120,
         },
         {
+            "label": _("Booked Qty"),
+            "fieldname": "Buyer Qty",
+            "fieldtype": "Data",
+            "width": 110,
+        },
+        {
             "label": _("Lifting Terms"),
             "fieldname": "Lifting Terms",
+            "fieldtype": "Data",
+            "width": 120,
+        },
+        {
+            "label": _("Merge No"),
+            "fieldname": "Merge No",
+            "fieldtype": "Data",
+            "width": 120,
+        },
+        {
+            "label": _("Cross Section"),
+            "fieldname": "Cross Section",
+            "fieldtype": "Data",
+            "width": 130,
+        },
+        {
+            "label": _("Production Date"),
+            "fieldname": "Production Date",
+            "fieldtype": "Data",
+            "width": 120,
+        },
+        {
+            "label": _("Notes"),
+            "fieldname": "Notes",
+            "fieldtype": "Data",
+            "width": 150,
+        },
+        {
+            "label": _("Location"),
+            "fieldname": "Location",
             "fieldtype": "Data",
             "width": 120,
         },
@@ -150,14 +186,15 @@ def get_batch_balances(batch_ids):
 
 
 def get_booked_quantities(batch_ids):
-    """Get booked qty, buyers, sales person, lifting terms per batch from submitted Sales Orders.
+    """Get per-booking details per batch from submitted Sales Orders.
 
-    Booked Qty = SO item qty - delivered qty (only for open/partially delivered SOs).
+    Returns a dict: batch_id -> list of {booked_qty, buyer, sales_person, lifting_terms}
+    Only includes bookings where remaining qty (qty - delivered_qty) > 0.
     """
     if not batch_ids:
         return {}
 
-    booked_map = {}  # batch_id -> {booked_qty, buyers, sales_persons, lifting_terms}
+    booked_map = {}  # batch_id -> list of individual bookings
     CHUNK = 2000
 
     SOI = frappe.qb.DocType("Sales Order Item")
@@ -190,20 +227,14 @@ def get_booked_quantities(batch_ids):
 
             bid = r.batch_no
             if bid not in booked_map:
-                booked_map[bid] = {
-                    "booked_qty": 0.0,
-                    "buyers": set(),
-                    "sales_persons": set(),
-                    "lifting_terms": set(),
-                }
+                booked_map[bid] = []
 
-            booked_map[bid]["booked_qty"] += remaining
-            if r.customer_name:
-                booked_map[bid]["buyers"].add(r.customer_name)
-            if r.sales_person:
-                booked_map[bid]["sales_persons"].add(r.sales_person)
-            if r.lifting_terms:
-                booked_map[bid]["lifting_terms"].add(r.lifting_terms)
+            booked_map[bid].append({
+                "booked_qty": remaining,
+                "buyer": r.customer_name or "",
+                "sales_person": r.sales_person or "",
+                "lifting_terms": r.lifting_terms or "",
+            })
 
     return booked_map
 
@@ -237,6 +268,11 @@ def get_data(filters=None):
             Batch.custom_grade.as_("grade"),
             Batch.creation,
             Batch.batch_qty.as_("net_weight"),
+            Batch.custom_merge_no.as_("merge_no"),
+            Batch.custom_cross_section.as_("cross_section"),
+            Batch.custom_production_date.as_("production_date"),
+            Batch.custom_notes.as_("notes"),
+            Batch.custom_location.as_("location"),
         )
         .where(Batch.creation >= fdt)
         .where(Batch.creation <= tdt)
@@ -258,7 +294,7 @@ def get_data(filters=None):
     # Step 2: Get stock balance per batch
     balance_map = get_batch_balances(batch_ids)
 
-    # Step 2b: Get booked quantities per batch
+    # Step 2b: Get per-booking details per batch
     booked_map = get_booked_quantities(batch_ids)
 
     # Step 3: Aggregate by group key in Python
@@ -291,22 +327,24 @@ def get_data(filters=None):
                 "balance": 0.0,
                 "balance_box": 0,
                 "booked_qty": 0.0,
-                "buyers": set(),
-                "sales_persons": set(),
-                "lifting_terms": set(),
+                "bookings": [],  # list of individual booking dicts
+                "merge_no": b.merge_no or "",
+                "cross_section": b.cross_section or "",
+                "production_date": str(b.production_date) if b.production_date else "",
+                "notes": b.notes or "",
+                "location": b.location or "",
             }
 
         if flt(balance_map.get(b.batch_id, 0)) > 0:
             groups[key]["balance"] += flt(b.net_weight)
             groups[key]["balance_box"] += 1
 
-        # Aggregate booking data for this batch
-        bk = booked_map.get(b.batch_id)
-        if bk:
-            groups[key]["booked_qty"] += bk["booked_qty"]
-            groups[key]["buyers"].update(bk["buyers"])
-            groups[key]["sales_persons"].update(bk["sales_persons"])
-            groups[key]["lifting_terms"].update(bk["lifting_terms"])
+        # Collect individual bookings for this batch
+        bk_list = booked_map.get(b.batch_id)
+        if bk_list:
+            for bk in bk_list:
+                groups[key]["booked_qty"] += bk["booked_qty"]
+                groups[key]["bookings"].append(bk)
 
     # Step 4: Filter - cone > 0, balance_box > 0, balance > 0
     main_rows = []
@@ -350,9 +388,12 @@ def get_data(filters=None):
                 "sort_order": 1,
                 "booked_qty": round(sum(r["booked_qty"] for r in rows), 2),
                 "available_qty": round(sum(r["available_qty"] for r in rows), 2),
-                "buyers": set(),
-                "sales_persons": set(),
-                "lifting_terms": set(),
+                "bookings": [],
+                "merge_no": "",
+                "cross_section": "",
+                "production_date": "",
+                "notes": "",
+                "location": "",
             }
         )
 
@@ -383,9 +424,12 @@ def get_data(filters=None):
                     "sort_order": 2,
                     "booked_qty": round(sum(r["booked_qty"] for r in rows), 2),
                     "available_qty": round(sum(r["available_qty"] for r in rows), 2),
-                    "buyers": set(),
-                    "sales_persons": set(),
-                    "lifting_terms": set(),
+                    "bookings": [],
+                    "merge_no": "",
+                    "cross_section": "",
+                    "production_date": "",
+                    "notes": "",
+                    "location": "",
                 }
             )
 
@@ -401,30 +445,78 @@ def get_data(filters=None):
         )
     )
 
-    # Step 8: Format output
+    # Step 8: Format output — expand booking rows
     result = []
     for row in all_rows:
         so = row["sort_order"]
-        result.append(
-            {
-                "Date": "" if so >= 1 else row["report_date"],
-                "Container Number": "" if so >= 1 else row["container_no"],
-                "Item": row["item"],
-                "Pulp": strip_prefix(row["pulp"]) if so == 0 else row["pulp"],
-                "Lusture": strip_prefix(row["lusture"]) if so == 0 else row["lusture"],
-                "Glue": strip_prefix(row["glue"]) if so == 0 else row["glue"],
-                "Grade": strip_prefix(row["grade"]) if so == 0 else row["grade"],
-                "Balance": round(flt(row["balance"]), 2),
-                "Lot Number": row["lot_no"],
-                "Balance Box": row["balance_box"],
-                "Cone": row["cone"],
-                "Booked Qty": round(flt(row["booked_qty"]), 2),
-                "Available Qty": round(flt(row.get("available_qty", 0)), 2),
-                "Buyers": ", ".join(sorted(row.get("buyers", set()))) if so == 0 else "",
-                "Sales Person": ", ".join(sorted(row.get("sales_persons", set()))) if so == 0 else "",
-                "Lifting Terms": ", ".join(sorted(row.get("lifting_terms", set()))) if so == 0 else "",
-                "sort_order": so,
-            }
-        )
+        bookings = row.get("bookings", [])
+
+        # Base output dict for this stock row
+        base = {
+            "Date": "" if so >= 1 else row["report_date"],
+            "Container Number": "" if so >= 1 else row["container_no"],
+            "Item": row["item"],
+            "Pulp": strip_prefix(row["pulp"]) if so == 0 else row["pulp"],
+            "Lusture": strip_prefix(row["lusture"]) if so == 0 else row["lusture"],
+            "Glue": strip_prefix(row["glue"]) if so == 0 else row["glue"],
+            "Grade": strip_prefix(row["grade"]) if so == 0 else row["grade"],
+            "Balance": round(flt(row["balance"]), 2),
+            "Lot Number": row["lot_no"],
+            "Balance Box": row["balance_box"],
+            "Cone": row["cone"],
+            "Booked Qty": round(flt(row["booked_qty"]), 2),
+            "Available Qty": round(flt(row.get("available_qty", 0)), 2),
+            "Merge No": row.get("merge_no", "") if so == 0 else "",
+            "Cross Section": row.get("cross_section", "") if so == 0 else "",
+            "Production Date": row.get("production_date", "") if so == 0 else "",
+            "Notes": row.get("notes", "") if so == 0 else "",
+            "Location": row.get("location", "") if so == 0 else "",
+            "sort_order": so,
+        }
+
+        if so != 0 or not bookings:
+            # Total/grand-total rows, or detail rows with no bookings
+            base["Buyers"] = ""
+            base["Sales Person"] = ""
+            base["Buyer Qty"] = ""
+            base["Lifting Terms"] = ""
+            result.append(base)
+        else:
+            # First booking row — include all stock data
+            first = bookings[0]
+            first_row = dict(base)
+            first_row["Buyers"] = first["buyer"]
+            first_row["Sales Person"] = first["sales_person"]
+            first_row["Buyer Qty"] = round(flt(first["booked_qty"]), 2) if first["booked_qty"] else ""
+            first_row["Lifting Terms"] = first["lifting_terms"]
+            result.append(first_row)
+
+            # Subsequent booking rows — blank out stock columns
+            for bk in bookings[1:]:
+                result.append({
+                    "Date": "",
+                    "Container Number": "",
+                    "Item": "",
+                    "Pulp": "",
+                    "Lusture": "",
+                    "Glue": "",
+                    "Grade": "",
+                    "Balance": "",
+                    "Lot Number": "",
+                    "Balance Box": "",
+                    "Cone": "",
+                    "Booked Qty": "",
+                    "Available Qty": "",
+                    "Buyers": bk["buyer"],
+                    "Sales Person": bk["sales_person"],
+                    "Buyer Qty": round(flt(bk["booked_qty"]), 2) if bk["booked_qty"] else "",
+                    "Lifting Terms": bk["lifting_terms"],
+                    "Merge No": "",
+                    "Cross Section": "",
+                    "Production Date": "",
+                    "Notes": "",
+                    "Location": "",
+                    "sort_order": -1,  # sub-booking row
+                })
 
     return result
