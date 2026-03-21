@@ -1,4 +1,17 @@
 frappe.ui.form.on("Container", {
+    setup: function(frm) {
+        frm.set_query("set_warehouse", function() {
+            return {
+                filters: {
+                    company: frm.doc.company,
+                    is_group: 0
+                }
+            };
+        });
+    },
+    company: function(frm) {
+        frm.set_value("set_warehouse", "");
+    },
     refresh: function(frm) {
         // Add buttons for submitted containers
         if (frm.doc.docstatus === 1) {

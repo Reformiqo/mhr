@@ -288,7 +288,7 @@ class Container(Document):
                         "uom": batch.uom,
                         "cone": batch.cone,
                         "supplier_batch_no": batch.supplier_batch_no,
-                        "warehouse": "Finished Goods - MC",
+                        "warehouse": self.set_warehouse,
                     }
                 )
         return batches
@@ -328,14 +328,14 @@ class Container(Document):
                 return None
 
             sb_bundle = frappe.new_doc("Serial and Batch Bundle")
-            sb_bundle.company = "Meher Creations"
+            sb_bundle.company = self.company
             sb_bundle.type_of_transaction = transaction_type
             sb_bundle.has_batch_no = 1
             sb_bundle.has_serial_no = 0
             sb_bundle.item_code = item_code
             sb_bundle.item_name = item_code
             sb_bundle.voucher_type = "Purchase Receipt"
-            sb_bundle.warehouse = "Finished Goods - MC"
+            sb_bundle.warehouse = self.set_warehouse
 
             for batch in batches:
                 sb_bundle.append(
@@ -346,7 +346,7 @@ class Container(Document):
                         "uom": batch["uom"],
                         "cone": batch["cone"],
                         "supplier_batch_no": batch["supplier_batch_no"],
-                        "warehouse": "Finished Goods - MC",
+                        "warehouse": self.set_warehouse,
                     },
                 )
 
@@ -373,6 +373,7 @@ class Container(Document):
 
         # Create a new Purchase Receipt document
         purchase_receipt = frappe.new_doc("Purchase Receipt")
+        purchase_receipt.company = self.company
         purchase_receipt.supplier = self.supplier
         purchase_receipt.posting_date = self.posting_date
         purchase_receipt.custom_container_no = self.name
@@ -410,7 +411,7 @@ class Container(Document):
                         "item_name": item["item"],
                         "qty": -(flt(item["batch_qty"])),
                         "stock_uom": item["stock_uom"],
-                        "warehouse": "Finished Goods - MC",
+                        "warehouse": self.set_warehouse,
                         "allow_zero_valuation_rate": 1,
                         "rate": 100,
                         "price_list_rate": 100,
@@ -440,7 +441,7 @@ class Container(Document):
                         "item_name": item["item"],
                         "qty": item["batch_qty"],
                         "stock_uom": item["stock_uom"],
-                        "warehouse": "Finished Goods - MC",
+                        "warehouse": self.set_warehouse,
                         "allow_zero_valuation_rate": 1,
                         "rate": 100,
                         "price_list_rate": 100,

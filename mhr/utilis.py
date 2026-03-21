@@ -373,15 +373,16 @@ def get_item_batches(item_code):
 def create_serial_and_batch_bundle(item_code):
     try:
         batches = get_item_batches(item_code)
+        doc = frappe.get_last_doc("Container")
         sb_bundle = frappe.new_doc("Serial and Batch Bundle")
-        sb_bundle.company = "Meher Creation"
+        sb_bundle.company = doc.company
         sb_bundle.type_of_transaction = "Inward"
         sb_bundle.has_batch_no = 1
         sb_bundle.has_serial_no = 0
         sb_bundle.item_code = item_code
         sb_bundle.item_name = item_code
         sb_bundle.voucher_type = "Purchase Receipt"
-        sb_bundle.warehouse = "Finished Goods - MC"
+        sb_bundle.warehouse = doc.set_warehouse
         for batch in batches:
             sb_bundle.append(
                 "entries",
@@ -391,7 +392,7 @@ def create_serial_and_batch_bundle(item_code):
                     "uom": batch["uom"],
                     "cone": batch["cone"],
                     "supplier_batch_no": batch["supplier_batch_no"],
-                    "warehouse": "Finished Goods - MC",
+                    "warehouse": doc.set_warehouse,
                 },
             )
 
@@ -411,6 +412,7 @@ def create_purchase_receipt():
 
     # Create a new Purchase Receipt document
     purchase_receipt = frappe.new_doc("Purchase Receipt")
+    purchase_receipt.company = doc.company
     purchase_receipt.supplier = doc.supplier
     purchase_receipt.posting_date = doc.posting_date
     purchase_receipt.custom_total_batches = len(items)
@@ -426,7 +428,7 @@ def create_purchase_receipt():
                 "item_name": item["item"],
                 "qty": item["batch_qty"],
                 "stock_uom": item["stock_uom"],
-                "warehouse": "Finished Goods - MC",
+                "warehouse": doc.set_warehouse,
                 "allow_zero_valuation_rate": 1,
                 "rate": 100,
                 "price_list_rate": 100,
@@ -734,6 +736,7 @@ def create_purchase_receipt(container):
 
     # Create a new Purchase Receipt document
     purchase_receipt = frappe.new_doc("Purchase Receipt")
+    purchase_receipt.company = container_doc.company
     purchase_receipt.supplier = container_doc.supplier
     purchase_receipt.posting_date = container_doc.posting_date
     purchase_receipt.custom_container_no = container_doc.name
@@ -760,7 +763,7 @@ def create_purchase_receipt(container):
                 "item_name": item["item"],
                 "qty": item["batch_qty"],
                 "stock_uom": item["stock_uom"],
-                "warehouse": "Finished Goods - MC",
+                "warehouse": container_doc.set_warehouse,
                 "allow_zero_valuation_rate": 1,
                 "rate": 100,
                 "price_list_rate": 100,

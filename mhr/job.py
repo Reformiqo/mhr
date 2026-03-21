@@ -36,7 +36,7 @@ def get_item_batches(container, item_code):
                 "uom": batch.uom,
                 "cone": batch.cone,
                 "supplier_batch_no": batch.supplier_batch_no,
-                "warehouse": "Finished Goods - MC"
+                "warehouse": container.set_warehouse
 
                 })
     return batches
@@ -44,15 +44,15 @@ def create_serial_and_batch_bundle(container, item_code, transaction_type):
     try:
         batches  = get_item_batches(container, item_code)
         sb_bundle = frappe.new_doc("Serial and Batch Bundle")
-        sb_bundle.company = "Meher Creations"
+        sb_bundle.company = container.company
         sb_bundle.type_of_transaction = transaction_type
         sb_bundle.has_batch_no = 1
         sb_bundle.has_serial_no = 0
         sb_bundle.item_code = item_code
         sb_bundle.item_name = item_code
         sb_bundle.voucher_type = "Purchase Receipt"
-        sb_bundle.warehouse = "Finished Goods - MC"
-        
+        sb_bundle.warehouse = container.set_warehouse
+
         for batch in batches:
             sb_bundle.append("entries", {
                 "batch_no": batch['batch_id'],
@@ -60,7 +60,7 @@ def create_serial_and_batch_bundle(container, item_code, transaction_type):
                 "uom": batch['uom'],
                 "cone": batch['cone'],
                 "supplier_batch_no": batch['supplier_batch_no'],
-                "warehouse": "Finished Goods - MC",
+                "warehouse": container.set_warehouse,
 
             })
             
@@ -91,6 +91,7 @@ def create_purchase_receipt(container, is_return=0, pr=None):
 
     # Create a new Purchase Receipt document
     purchase_receipt = frappe.new_doc("Purchase Receipt")
+    purchase_receipt.company = container.company
     purchase_receipt.supplier = container.supplier
     purchase_receipt.posting_date = container.posting_date
     purchase_receipt.custom_container_no = container.name
@@ -115,7 +116,7 @@ def create_purchase_receipt(container, is_return=0, pr=None):
                 "item_name": item["item"],
                 "qty": -(flt(item["batch_qty"])),
                 "stock_uom": item["stock_uom"],
-                "warehouse": "Finished Goods - MC",
+                "warehouse": container.set_warehouse,
                 "allow_zero_valuation_rate": 1,
                 "rate": 100,
                 "price_list_rate": 100,
@@ -132,7 +133,7 @@ def create_purchase_receipt(container, is_return=0, pr=None):
                 "item_name": item["item"],
                 "qty": item["batch_qty"],
                 "stock_uom": item["stock_uom"],
-                "warehouse": "Finished Goods - MC",
+                "warehouse": container.set_warehouse,
                 "allow_zero_valuation_rate": 1,
                 "rate": 100,
                 "price_list_rate": 100,

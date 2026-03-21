@@ -23,9 +23,11 @@
   "cross_section",
   "warehouse",
   "purchase_receipt_info_section",
+  "company",
   "supplier",
   "posting_date",
   "column_break_tfsi",
+  "set_warehouse",
   "item",
   "posting_time",
   "batches_section",
@@ -111,6 +113,13 @@
    "label": "Purchase Receipt Info"
   },
   {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
    "fieldname": "supplier",
    "fieldtype": "Link",
    "label": "Supplier",
@@ -153,6 +162,13 @@
    "print_hide": 1,
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "set_warehouse",
+   "fieldtype": "Link",
+   "label": "Accepted Warehouse",
+   "options": "Warehouse",
+   "reqd": 1
   },
   {
    "fieldname": "item",
@@ -220,7 +236,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-02-23 15:39:13.719077",
+ "modified": "2026-03-21 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Container",
