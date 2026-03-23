@@ -7,15 +7,13 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 			"fieldname": "fdt",
 			"label": __("From Date"),
 			"fieldtype": "Date",
-			"default": frappe.datetime.get_today(),
-			"reqd": 1
+			"reqd": 0
 		},
 		{
 			"fieldname": "tdt",
 			"label": __("To Date"),
 			"fieldtype": "Date",
-			"default": frappe.datetime.get_today(),
-			"reqd": 1
+			"reqd": 0
 		},
 		{
 			"fieldname": "container",

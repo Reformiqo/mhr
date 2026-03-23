@@ -249,34 +249,39 @@ def get_data(filters=None):
     lot_no = filters.get("lot_no")
     cone = filters.get("cone")
 
-    if not fdt or not tdt:
-        frappe.throw(_("Please select From Date and To Date"))
 
     # Step 1: Query filtered batches
     Batch = frappe.qb.DocType("Batch")
+    batch_meta = frappe.get_meta("Batch")
+    select_fields = [
+        Batch.name.as_("batch_id"),
+        Batch.item,
+        Batch.custom_container_no.as_("container_no"),
+        Batch.custom_lot_no.as_("lot_no"),
+        Batch.custom_cone.as_("cone"),
+        Batch.custom_pulp.as_("pulp"),
+        Batch.custom_lusture.as_("lusture"),
+        Batch.custom_glue.as_("glue"),
+        Batch.custom_grade.as_("grade"),
+        Batch.creation,
+        Batch.batch_qty.as_("net_weight"),
+        Batch.custom_merge_no.as_("merge_no"),
+        Batch.custom_cross_section.as_("cross_section"),
+        Batch.custom_production_date.as_("production_date"),
+        Batch.custom_notes.as_("notes"),
+    ]
+    if batch_meta.has_field("custom_location"):
+        select_fields.append(Batch.custom_location.as_("location"))
+
     query = (
         frappe.qb.from_(Batch)
-        .select(
-            Batch.name.as_("batch_id"),
-            Batch.item,
-            Batch.custom_container_no.as_("container_no"),
-            Batch.custom_lot_no.as_("lot_no"),
-            Batch.custom_cone.as_("cone"),
-            Batch.custom_pulp.as_("pulp"),
-            Batch.custom_lusture.as_("lusture"),
-            Batch.custom_glue.as_("glue"),
-            Batch.custom_grade.as_("grade"),
-            Batch.creation,
-            Batch.batch_qty.as_("net_weight"),
-            Batch.custom_merge_no.as_("merge_no"),
-            Batch.custom_cross_section.as_("cross_section"),
-            Batch.custom_production_date.as_("production_date"),
-            Batch.custom_notes.as_("notes"),
-            Batch.custom_location.as_("location"),
-        )
-        .where(Batch.creation >= fdt)
-        .where(Batch.creation <= tdt)
+        .select(*select_fields)
     )
+
+    if fdt:
+        query = query.where(Batch.creation >= fdt)
+    if tdt:
+        query = query.where(Batch.creation <= tdt)
 
     if container:
         query = query.where(Batch.custom_container_no == container)
