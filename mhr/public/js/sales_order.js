@@ -1,4 +1,49 @@
 frappe.ui.form.on('Sales Order', {
+    custom_container_no: function(frm) {
+        let container_no = frm.doc.custom_container_no;
+        if (!container_no) {
+            frm.set_value('custom_lot_no', '');
+            frm.set_value('custom_daniar', '');
+            return;
+        }
+
+        frappe.call({
+            method: 'mhr.sales_order.get_container_details',
+            args: { container_no: container_no },
+            callback: function(r) {
+                if (!r.message || !r.message.length) {
+                    frappe.msgprint(__('No submitted Container found for {0}', [container_no]));
+                    return;
+                }
+
+                let results = r.message;
+
+                if (results.length === 1) {
+                    frm.set_value('custom_lot_no', results[0].lot_no);
+                    frm.set_value('custom_daniar', results[0].item);
+                } else {
+                    // Multiple combinations - let user pick
+                    let options = results.map(function(r) {
+                        return r.lot_no + ' | ' + r.item;
+                    });
+
+                    frappe.prompt({
+                        label: __('Select Lot No / Item'),
+                        fieldname: 'selection',
+                        fieldtype: 'Select',
+                        options: options,
+                        reqd: 1
+                    }, function(values) {
+                        let idx = options.indexOf(values.selection);
+                        let selected = results[idx];
+                        frm.set_value('custom_lot_no', selected.lot_no);
+                        frm.set_value('custom_daniar', selected.item);
+                    }, __('Multiple entries found'), __('Select'));
+                }
+            }
+        });
+    },
+
     custom_quantity_weight: function(frm) {
         fetch_and_fill_batches(frm);
     }

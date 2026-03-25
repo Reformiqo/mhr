@@ -77,6 +77,30 @@ def get_item_batch(batch):
     }
 
 
+@frappe.whitelist()
+def get_container_details(container_no):
+    """Fetch unique lot_no and item combinations from Container for a given container_no."""
+    containers = frappe.get_all(
+        "Container",
+        filters={"container_no": container_no, "docstatus": 1},
+        fields=["lot_no", "item"],
+        order_by="creation desc",
+    )
+    if not containers:
+        return []
+
+    # Deduplicate by (lot_no, item)
+    seen = set()
+    unique = []
+    for c in containers:
+        key = (c.get("lot_no"), c.get("item"))
+        if key not in seen:
+            seen.add(key)
+            unique.append({"lot_no": c.get("lot_no"), "item": c.get("item")})
+
+    return unique
+
+
 def _get_available_qty(batch_name, batch_qty):
     """Calculate available qty = batch stock - already booked in submitted SOs."""
     already_booked = flt(frappe.db.sql("""

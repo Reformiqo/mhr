@@ -232,8 +232,9 @@ class Container(Document):
             batch_doc.custom_grade = self.grade
             batch_doc.custom_pulp = self.pulp
             batch_doc.custom_fsc = self.fsc
-            batch_doc.cross_section = self.cross_section
+            batch_doc.custom_cross_section = self.cross_section
             batch_doc.custom_notes = self.notes
+            batch_doc.custom_production_date = self.production_date
             batch_doc.custom_merge_no = self.merge_no
             batch_doc.custom_warehouse = self.warehouse
             # batch.custom_net_weight = batch.qty

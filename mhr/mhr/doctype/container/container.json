@@ -113,11 +113,11 @@
    "label": "Purchase Receipt Info"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "company",
    "fieldtype": "Link",
    "label": "Company",
-   "options": "Company",
-   "reqd": 1
+   "options": "Company"
   },
   {
    "fieldname": "supplier",
@@ -164,11 +164,11 @@
    "search_index": 1
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "set_warehouse",
    "fieldtype": "Link",
    "label": "Accepted Warehouse",
-   "options": "Warehouse",
-   "reqd": 1
+   "options": "Warehouse"
   },
   {
    "fieldname": "item",
