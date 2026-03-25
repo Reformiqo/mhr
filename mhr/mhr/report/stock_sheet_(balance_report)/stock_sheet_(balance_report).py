@@ -120,6 +120,8 @@ def get_booked_quantities(batch_ids):
     SOI = frappe.qb.DocType("Sales Order Item")
     SO = frappe.qb.DocType("Sales Order")
 
+    # Step 1: Query bookings (SOI + SO) without Sales Team to avoid cartesian product
+    so_names = set()
     for i in range(0, len(batch_ids), CHUNK):
         chunk = batch_ids[i : i + CHUNK]
 
@@ -133,8 +135,7 @@ def get_booked_quantities(batch_ids):
                 SOI.qty,
                 SOI.delivered_qty,
                 SO.customer_name,
-                SOI.custom_sales_person.as_("sales_person"),
-                SOI.custom_lifting_terms.as_("lifting_terms"),
+                SO.custom_lifting_terms.as_("lifting_terms"),
             )
             .where(SO.docstatus == 1)
             .where(SO.status.isin(["To Deliver and Bill", "To Deliver", "To Bill", "Partially Delivered"]))
@@ -150,13 +151,40 @@ def get_booked_quantities(batch_ids):
             if bid not in booked_map:
                 booked_map[bid] = []
 
+            so_names.add(r.sales_order)
             booked_map[bid].append({
                 "booked_qty": remaining,
                 "sales_order": r.sales_order or "",
                 "buyer": r.customer_name or "",
-                "sales_person": r.sales_person or "",
+                "sales_person": "",
                 "lifting_terms": r.lifting_terms or "",
             })
+
+    # Step 2: Fetch sales persons per Sales Order from Sales Team child table
+    sales_person_map = {}  # SO name -> comma-separated sales persons
+    if so_names:
+        ST = frappe.qb.DocType("Sales Team")
+        so_list = list(so_names)
+        for i in range(0, len(so_list), CHUNK):
+            chunk = so_list[i : i + CHUNK]
+            st_rows = (
+                frappe.qb.from_(ST)
+                .select(ST.parent, ST.sales_person)
+                .where(ST.parent.isin(chunk))
+                .where(ST.parenttype == "Sales Order")
+            ).run(as_dict=True)
+            for st in st_rows:
+                if st.parent not in sales_person_map:
+                    sales_person_map[st.parent] = []
+                if st.sales_person and st.sales_person not in sales_person_map[st.parent]:
+                    sales_person_map[st.parent].append(st.sales_person)
+
+    # Step 3: Assign sales person to each booking
+    for bid, bookings in booked_map.items():
+        for bk in bookings:
+            so_id = bk.get("sales_order")
+            persons = sales_person_map.get(so_id, [])
+            bk["sales_person"] = ", ".join(persons) if persons else ""
 
     return booked_map
 
@@ -174,7 +202,6 @@ def get_data(filters=None):
 
     # Step 1: Query filtered batches
     Batch = frappe.qb.DocType("Batch")
-    batch_meta = frappe.get_meta("Batch")
     select_fields = [
         Batch.name.as_("batch_id"),
         Batch.item,
@@ -188,12 +215,7 @@ def get_data(filters=None):
         Batch.creation,
         Batch.batch_qty.as_("net_weight"),
         Batch.custom_merge_no.as_("merge_no"),
-        Batch.custom_cross_section.as_("cross_section"),
-        Batch.custom_production_date.as_("production_date"),
-        Batch.custom_notes.as_("notes"),
     ]
-    if batch_meta.has_field("custom_location"):
-        select_fields.append(Batch.custom_location.as_("location"))
 
     query = (
         frappe.qb.from_(Batch)
@@ -224,6 +246,38 @@ def get_data(filters=None):
     # Step 2b: Get per-booking details per batch
     booked_map = get_booked_quantities(batch_ids)
 
+    # Step 2c: Get cross_section, notes, warehouse from Container doctype
+    container_keys = set()
+    for b in batches:
+        container_keys.add((b.container_no or "", b.lot_no or ""))
+    container_info = {}  # (container_no, lot_no) -> {cross_section, notes, location}
+    if container_keys:
+        Container = frappe.qb.DocType("Container")
+        cont_nos = list(set(ck[0] for ck in container_keys if ck[0]))
+        if cont_nos:
+            cont_rows = (
+                frappe.qb.from_(Container)
+                .select(
+                    Container.container_no,
+                    Container.lot_no,
+                    Container.cross_section,
+                    Container.notes,
+                    Container.warehouse,
+                    Container.production_date,
+                )
+                .where(Container.docstatus == 1)
+                .where(Container.container_no.isin(cont_nos))
+            ).run(as_dict=True)
+            for cr in cont_rows:
+                ck = (cr.container_no or "", cr.lot_no or "")
+                if ck in container_keys:
+                    container_info[ck] = {
+                        "cross_section": cr.cross_section or "",
+                        "notes": cr.notes or "",
+                        "location": cr.warehouse or "",
+                        "production_date": str(cr.production_date) if cr.production_date else "",
+                    }
+
     # Step 3: Aggregate by group key in Python
     groups = {}
     for b in batches:
@@ -241,6 +295,7 @@ def get_data(filters=None):
         )
 
         if key not in groups:
+            ci = container_info.get((b.container_no or "", b.lot_no or ""), {})
             groups[key] = {
                 "batch_date": batch_date,
                 "container_no": b.container_no or "",
@@ -256,10 +311,10 @@ def get_data(filters=None):
                 "booked_qty": 0.0,
                 "bookings": [],  # list of individual booking dicts
                 "merge_no": b.merge_no or "",
-                "cross_section": b.cross_section or "",
-                "production_date": str(b.production_date) if b.production_date else "",
-                "notes": b.notes or "",
-                "location": b.location or "",
+                "cross_section": ci.get("cross_section", ""),
+                "production_date": ci.get("production_date", ""),
+                "notes": ci.get("notes", ""),
+                "location": ci.get("location", ""),
             }
 
         if flt(balance_map.get(b.batch_id, 0)) > 0:
