@@ -38,6 +38,9 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 		if (data.sort_order >= 1) {
 			value = "<b>" + value + "</b>";
 		}
+		if (data.sort_order === 3) {
+			value = "<b style='font-size:1.1em'>" + value + "</b>";
+		}
 
 		if (column.fieldname === "Balance" || column.fieldname === "Balance Box") {
 			value = "<span style='color:green'>" + value + "</span>";

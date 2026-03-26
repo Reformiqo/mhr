@@ -437,6 +437,15 @@ def get_data(filters=None):
         )
     )
 
+    # Step 7b: Compute report-level grand total (only from detail rows, sort_order=0)
+    report_total = {
+        "balance": round(sum(r["balance"] for r in main_rows), 2),
+        "balance_box": sum(r["balance_box"] for r in main_rows),
+        "booked_qty": round(sum(r["booked_qty"] for r in main_rows), 2),
+        "available_qty": round(sum(r["available_qty"] for r in main_rows), 2),
+        "cone": sum(int(r["cone"]) if r["cone"] else 0 for r in main_rows),
+    }
+
     # Step 8: Format output — expand booking rows
     result = []
     for row in all_rows:
@@ -519,5 +528,33 @@ def get_data(filters=None):
                     "Location": "",
                     "sort_order": -1,  # sub-booking row
                 })
+
+    # Append report-level grand total row
+    result.append({
+        "Date": "",
+        "Container Number": "",
+        "Item": "<b>Total</b>",
+        "Pulp": "",
+        "Lusture": "",
+        "Glue": "",
+        "Grade": "",
+        "Balance": report_total["balance"],
+        "Lot Number": "",
+        "Balance Box": report_total["balance_box"],
+        "Cone": report_total["cone"],
+        "Booked Qty": report_total["booked_qty"],
+        "Available Qty": report_total["available_qty"],
+        "Sales Order": "",
+        "Buyers": "",
+        "Sales Person": "",
+        "Buyer Qty": "",
+        "Lifting Terms": "",
+        "Merge No": "",
+        "Cross Section": "",
+        "Production Date": "",
+        "Notes": "",
+        "Location": "",
+        "sort_order": 3,
+    })
 
     return result
