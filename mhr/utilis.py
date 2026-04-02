@@ -864,7 +864,14 @@ def set_return_cone_from_original(doc, method=None):
 @frappe.whitelist()
 def set_delivery_note_user(doc, method=None):
     doc.prepared_by = frappe.session.user
-   
+
+
+def calculate_delivery_note_totals(doc, method=None):
+    total_cone = 0
+    for item in doc.items:
+        total_cone += cint(item.custom_cone or 0)
+    doc.custom_total_cone = total_cone
+    doc.custom_item_length = len(doc.items)
 
 
 @frappe.whitelist()
