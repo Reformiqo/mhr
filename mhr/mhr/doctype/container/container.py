@@ -3,7 +3,7 @@
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import cint, flt, now
+from frappe.utils import cint, flt, now, getdate
 
 
 class Container(Document):
@@ -234,7 +234,7 @@ class Container(Document):
             batch_doc.custom_fsc = self.fsc
             batch_doc.custom_cross_section = self.cross_section
             batch_doc.custom_notes = self.notes
-            batch_doc.custom_production_date = self.production_date
+            batch_doc.custom_production_date = getdate(self.production_date) if self.production_date else None
             batch_doc.custom_merge_no = self.merge_no
             batch_doc.custom_warehouse = self.warehouse
             # batch.custom_net_weight = batch.qty
