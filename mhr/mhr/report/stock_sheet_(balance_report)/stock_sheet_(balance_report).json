@@ -43,6 +43,14 @@
    "label": "Cone",
    "mandatory": 0,
    "wildcard_filter": 0
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "mandatory": 0,
+   "options": "Company",
+   "wildcard_filter": 0
   }
  ],
  "idx": 0,

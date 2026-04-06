@@ -44,6 +44,14 @@ frappe.ui.form.on('Sales Order', {
         });
     },
 
+    custom_no_of_boxes: function(frm) {
+        fetch_and_fill_batches(frm);
+    },
+
+    custom_cone: function(frm) {
+        fetch_and_fill_batches(frm);
+    },
+
     custom_quantity_weight: function(frm) {
         fetch_and_fill_batches(frm);
     }
@@ -53,6 +61,8 @@ function fetch_and_fill_batches(frm) {
     let item_code = frm.doc.custom_daniar;
     let container_no = frm.doc.custom_container_no;
     let lot_no = frm.doc.custom_lot_no;
+    let boxes = frm.doc.custom_no_of_boxes || 0;
+    let cone = frm.doc.custom_cone || 0;
     let qty = frm.doc.custom_quantity_weight || 0;
 
     if (!item_code) return;
@@ -63,7 +73,9 @@ function fetch_and_fill_batches(frm) {
             item_code: item_code,
             container_no: container_no,
             lot_no: lot_no,
-            qty: qty
+            cone: cone,
+            qty: qty,
+            boxes: boxes
         },
         callback: function(r) {
             if (!r.message || !r.message.length) {
@@ -75,6 +87,7 @@ function fetch_and_fill_batches(frm) {
 
             let batches = r.message;
             let total_qty = 0;
+            let total_cones = 0;
 
             batches.forEach(function(batch) {
                 let row = frm.add_child('items');
@@ -87,14 +100,47 @@ function fetch_and_fill_batches(frm) {
                 row.custom_lot_number = batch.custom_lot_no;
                 row.custom_container_number = batch.custom_container_no;
                 row.custom_grade = batch.custom_grade;
+                row.custom_cone = batch.allotted_cones || 0;
                 total_qty += batch.allotted_qty;
+                total_cones += (batch.allotted_cones || 0);
             });
+
+            // Auto-fill the fields that were not used as input
+            if (boxes) {
+                // Allocated by boxes — fill cone and weight
+                frm.set_value('custom_cone', total_cones);
+                frm.set_value('custom_quantity_weight', total_qty);
+            } else if (cone) {
+                // Allocated by cone — fill boxes and weight
+                frm.set_value('custom_no_of_boxes', batches.length);
+                frm.set_value('custom_quantity_weight', total_qty);
+            } else if (qty) {
+                // Allocated by weight — fill boxes and cone
+                frm.set_value('custom_no_of_boxes', batches.length);
+                frm.set_value('custom_cone', total_cones);
+            } else {
+                frm.set_value('custom_no_of_boxes', batches.length);
+            }
 
             frm.refresh_field('items');
 
+            if (boxes && batches.length < boxes) {
+                frappe.msgprint(
+                    __('Only {0} batch(es) available. Requested: {1} boxes',
+                    [batches.length, boxes])
+                );
+            }
+
+            if (cone && total_cones < cone) {
+                frappe.msgprint(
+                    __('Only {0} cones available across {1} batch(es). Requested: {2}',
+                    [total_cones, batches.length, cone])
+                );
+            }
+
             if (qty && total_qty < qty) {
                 frappe.msgprint(
-                    __('Only {0} available across {1} batch(es). Requested: {2}',
+                    __('Only {0} weight available across {1} batch(es). Requested: {2}',
                     [total_qty, batches.length, qty])
                 );
             }
@@ -117,11 +163,10 @@ frappe.ui.form.on('Sales Order Item', {
                     'item_code': d.item_code,
                     'custom_lot_number': d.lot_no,
                     'custom_container_number': d.container_no,
-                    'custom_grade': d.grade
+                    'custom_grade': d.grade,
+                    'custom_cone': d.cone
                 });
             }
         });
     }
 });
-
-

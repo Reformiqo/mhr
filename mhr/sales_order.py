@@ -3,9 +3,11 @@ from frappe.utils import flt
 
 
 @frappe.whitelist()
-def get_so_batches(item_code, container_no=None, lot_no=None, qty=0):
-    """Fetch batches for Sales Order based on item, container, lot and auto-split by qty."""
+def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, boxes=0):
+    """Fetch batches for Sales Order based on item, container, lot and auto-split by cone, qty or boxes."""
     qty = flt(qty)
+    cone = int(cone or 0)
+    boxes = int(boxes or 0)
     filters = {"item": item_code, "batch_qty": (">", 0)}
     if container_no:
         filters["custom_container_no"] = container_no
@@ -24,6 +26,50 @@ def get_so_batches(item_code, container_no=None, lot_no=None, qty=0):
         order_by="custom_supplier_batch_no asc",
     )
 
+    if boxes:
+        # Allocate by number of boxes (1 batch = 1 box), take full available qty from each
+        result = []
+        remaining_boxes = boxes
+        for b in batches:
+            if remaining_boxes <= 0:
+                break
+            available = _get_available_qty(b.name, b.batch_qty)
+            if available <= 0:
+                continue
+            b["available_qty"] = available
+            b["allotted_qty"] = available
+            b["allotted_cones"] = int(b.custom_cone or 0)
+            result.append(b)
+            remaining_boxes -= 1
+        return result
+
+    if cone:
+        # Allocate by cone count, calculate proportional weight
+        result = []
+        remaining_cones = cone
+        for b in batches:
+            if remaining_cones <= 0:
+                break
+            available_qty = _get_available_qty(b.name, b.batch_qty)
+            if available_qty <= 0:
+                continue
+            batch_cones = int(b.custom_cone or 0)
+            if batch_cones <= 0:
+                continue
+            available_cones = _get_available_cones(b.name, batch_cones)
+            if available_cones <= 0:
+                continue
+            allotted_cones = min(available_cones, remaining_cones)
+            # Proportional weight based on cones
+            allotted_weight = flt(b.batch_qty) * allotted_cones / batch_cones
+            b["available_qty"] = available_qty
+            b["allotted_qty"] = flt(allotted_weight, 3)
+            b["allotted_cones"] = allotted_cones
+            b["available_cones"] = available_cones
+            result.append(b)
+            remaining_cones -= allotted_cones
+        return result
+
     if not qty:
         result = []
         for b in batches:
@@ -31,6 +77,7 @@ def get_so_batches(item_code, container_no=None, lot_no=None, qty=0):
             if available > 0:
                 b["available_qty"] = available
                 b["allotted_qty"] = available
+                b["allotted_cones"] = int(b.custom_cone or 0)
                 result.append(b)
         return result
 
@@ -44,8 +91,14 @@ def get_so_batches(item_code, container_no=None, lot_no=None, qty=0):
         if available <= 0:
             continue
         allotted = min(available, remaining)
+        batch_cones = int(b.custom_cone or 0)
+        if batch_cones and b.batch_qty:
+            allotted_cones = int(round(batch_cones * allotted / flt(b.batch_qty)))
+        else:
+            allotted_cones = 0
         b["available_qty"] = available
         b["allotted_qty"] = allotted
+        b["allotted_cones"] = allotted_cones
         result.append(b)
         remaining -= allotted
 
@@ -112,3 +165,16 @@ def _get_available_qty(batch_name, batch_qty):
         AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
     """, batch_name)[0][0])
     return flt(batch_qty) - already_booked
+
+
+def _get_available_cones(batch_name, batch_cones):
+    """Calculate available cones = batch cones - already booked cones in submitted SOs."""
+    already_booked = flt(frappe.db.sql("""
+        SELECT COALESCE(SUM(soi.custom_cone), 0)
+        FROM `tabSales Order Item` soi
+        JOIN `tabSales Order` so ON so.name = soi.parent
+        WHERE soi.custom_batch_no = %s
+        AND so.docstatus = 1
+        AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
+    """, batch_name)[0][0])
+    return int(batch_cones) - int(already_booked)

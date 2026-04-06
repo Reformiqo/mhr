@@ -44,6 +44,7 @@ def get_columns():
         {"label": _("Production Date"), "fieldname": "Production Date", "fieldtype": "Data", "width": 120},
         {"label": _("Notes"), "fieldname": "Notes", "fieldtype": "Data", "width": 150},
         {"label": _("Location"), "fieldname": "Location", "fieldtype": "Data", "width": 100},
+        {"label": _("Accepted Warehouse"), "fieldname": "Accepted Warehouse", "fieldtype": "Data", "width": 150},
         {"label": _("sort_order"), "fieldname": "sort_order", "fieldtype": "Int", "width": 0, "hidden": 1},
     ]
 
@@ -198,6 +199,7 @@ def get_data(filters=None):
     container = filters.get("container")
     lot_no = filters.get("lot_no")
     cone = filters.get("cone")
+    company = filters.get("company")
 
 
     # Step 1: Query filtered batches
@@ -234,6 +236,19 @@ def get_data(filters=None):
     if cone:
         query = query.where(Batch.custom_cone == cone)
 
+    # Filter by company via Container doctype
+    if company:
+        Container = frappe.qb.DocType("Container")
+        company_containers = (
+            frappe.qb.from_(Container)
+            .select(Container.container_no)
+            .where(Container.docstatus == 1)
+            .where(Container.company == company)
+        ).run(pluck="container_no")
+        if not company_containers:
+            return []
+        query = query.where(Batch.custom_container_no.isin(company_containers))
+
     batches = query.run(as_dict=True)
     if not batches:
         return []
@@ -250,7 +265,7 @@ def get_data(filters=None):
     container_keys = set()
     for b in batches:
         container_keys.add((b.container_no or "", b.lot_no or ""))
-    container_info = {}  # (container_no, lot_no) -> {cross_section, notes, location}
+    container_info = {}  # (container_no, lot_no) -> {cross_section, notes, location, accepted_warehouse}
     if container_keys:
         Container = frappe.qb.DocType("Container")
         cont_nos = list(set(ck[0] for ck in container_keys if ck[0]))
@@ -264,6 +279,7 @@ def get_data(filters=None):
                     Container.notes,
                     Container.warehouse,
                     Container.production_date,
+                    Container.set_warehouse,
                 )
                 .where(Container.docstatus == 1)
                 .where(Container.container_no.isin(cont_nos))
@@ -276,6 +292,7 @@ def get_data(filters=None):
                         "notes": cr.notes or "",
                         "location": cr.warehouse or "",
                         "production_date": str(cr.production_date) if cr.production_date else "",
+                        "accepted_warehouse": cr.set_warehouse or "",
                     }
 
     # Step 3: Aggregate by group key in Python
@@ -315,6 +332,7 @@ def get_data(filters=None):
                 "production_date": ci.get("production_date", ""),
                 "notes": ci.get("notes", ""),
                 "location": ci.get("location", ""),
+                "accepted_warehouse": ci.get("accepted_warehouse", ""),
             }
 
         if flt(balance_map.get(b.batch_id, 0)) > 0:
@@ -386,6 +404,7 @@ def get_data(filters=None):
                 "production_date": "",
                 "notes": "",
                 "location": "",
+                "accepted_warehouse": "",
             }
         )
 
@@ -422,6 +441,7 @@ def get_data(filters=None):
                     "production_date": "",
                     "notes": "",
                     "location": "",
+                    "accepted_warehouse": "",
                 }
             )
 
@@ -472,6 +492,7 @@ def get_data(filters=None):
             "Production Date": row.get("production_date", "") if so == 0 else "",
             "Notes": row.get("notes", "") if so == 0 else "",
             "Location": row.get("location", "") if so == 0 else "",
+            "Accepted Warehouse": row.get("accepted_warehouse", "") if so == 0 else "",
             "sort_order": so,
         }
 
@@ -526,6 +547,7 @@ def get_data(filters=None):
                     "Production Date": "",
                     "Notes": "",
                     "Location": "",
+                    "Accepted Warehouse": "",
                     "sort_order": -1,  # sub-booking row
                 })
 
@@ -554,6 +576,7 @@ def get_data(filters=None):
         "Production Date": "",
         "Notes": "",
         "Location": "",
+        "Accepted Warehouse": "",
         "sort_order": 3,
     })
 

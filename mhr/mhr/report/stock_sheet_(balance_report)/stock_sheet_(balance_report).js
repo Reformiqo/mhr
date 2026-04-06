@@ -29,6 +29,12 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 			"fieldname": "cone",
 			"label": __("Cone"),
 			"fieldtype": "Data"
+		},
+		{
+			"fieldname": "company",
+			"label": __("Company"),
+			"fieldtype": "Link",
+			"options": "Company"
 		}
 	],
 	formatter: function(value, row, column, data, default_formatter) {

@@ -6,6 +6,90 @@
   "disabled": 0,
   "docstatus": 0,
   "doctype": "Report",
+  "filters": [
+   {
+    "default": "Today",
+    "fieldname": "fdt",
+    "fieldtype": "Date",
+    "label": "From Date",
+    "mandatory": 0,
+    "options": null,
+    "wildcard_filter": 0
+   },
+   {
+    "default": "Today",
+    "fieldname": "tdt",
+    "fieldtype": "Date",
+    "label": "To Date",
+    "mandatory": 0,
+    "options": null,
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "container",
+    "fieldtype": "Data",
+    "label": "Container",
+    "mandatory": 0,
+    "options": null,
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "lot_no",
+    "fieldtype": "Data",
+    "label": "Lot No",
+    "mandatory": 0,
+    "options": null,
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "cone",
+    "fieldtype": "Data",
+    "label": "Cone",
+    "mandatory": 0,
+    "options": null,
+    "wildcard_filter": 0
+   }
+  ],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2026-03-25 18:00:00",
+  "module": "Mhr",
+  "name": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Batch",
+  "reference_report": null,
+  "report_name": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "role": "Item Manager"
+   },
+   {
+    "role": "Guest"
+   },
+   {
+    "role": "All"
+   },
+   {
+    "role": "Stock User"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
   "filters": [],
   "is_standard": "Yes",
   "javascript": null,
@@ -101,7 +185,7 @@
   "modified": "2025-12-27 01:49:01.386763",
   "module": "Mhr",
   "name": "STOCK SHEET (BALANCE REPORT)",
-  "prepared_report": 0,
+  "prepared_report": 1,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
