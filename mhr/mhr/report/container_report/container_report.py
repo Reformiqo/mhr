@@ -3,7 +3,6 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt
 
 
 PRECISION = 3
@@ -11,8 +10,7 @@ PRECISION = 3
 
 def execute(filters=None):
 	columns = get_columns()
-	data, total_row = get_data(filters)
-	data.append(total_row)
+	data = get_data(filters)
 	return columns, data
 
 
@@ -107,27 +105,4 @@ def get_data(filters=None):
 		row["glue"] = strip_prefix(row.get("glue"))
 		row["grade"] = strip_prefix(row.get("grade"))
 
-	# Build total row with 3 precision
-	total_in = round(sum(flt(r.get("in_qty", 0)) for r in rows), PRECISION)
-	total_out = round(sum(flt(r.get("out_qty", 0)) for r in rows), PRECISION)
-	total_stock = round(total_in - total_out, PRECISION)
-	total_box = sum(r.get("total_box", 0) for r in rows)
-
-	total_row = {
-		"date": "",
-		"container_number": "",
-		"item": "Total",
-		"pulp": "",
-		"lusture": "",
-		"glue": "",
-		"grade": "",
-		"in_qty": total_in,
-		"out_qty": total_out,
-		"stock": total_stock,
-		"lot_number": "",
-		"cone": "",
-		"total_box": total_box,
-		"is_total_row": 1,
-	}
-
-	return rows, total_row
+	return rows
