@@ -43,7 +43,7 @@ def strip_prefix(val):
 def get_data(filters=None):
 	query = """
 		SELECT
-			DATE_FORMAT(b.manufacturing_date, '%%d/%%m/%%Y') AS `date`,
+			DATE_FORMAT(b.manufacturing_date, '%%%%d/%%%%m/%%%%Y') AS `date`,
 			b.custom_container_no AS container_number,
 			b.item AS item,
 			b.custom_pulp AS pulp,
@@ -83,7 +83,7 @@ def get_data(filters=None):
 			GROUP BY sbe.batch_no
 		) AS outward ON b.name = outward.batch_no
 		GROUP BY
-			DATE_FORMAT(b.manufacturing_date, '%%d/%%m/%%Y'),
+			DATE_FORMAT(b.manufacturing_date, '%%%%d/%%%%m/%%%%Y'),
 			b.custom_container_no,
 			b.custom_lot_no,
 			b.custom_cone,
