@@ -642,7 +642,7 @@
   "timeout": 0
  },
  {
-  "add_total_row": 0,
+  "add_total_row": 1,
   "add_translate_data": 0,
   "columns": [],
   "disabled": 0,
@@ -652,8 +652,8 @@
   "is_standard": "Yes",
   "javascript": null,
   "json": null,
-  "letter_head": "Stock Ledger",
-  "modified": "2026-04-10 00:00:00.000000",
+  "letter_head": null,
+  "modified": "2026-04-10 00:00:00",
   "module": "Mhr",
   "name": "Container Report",
   "prepared_report": 0,

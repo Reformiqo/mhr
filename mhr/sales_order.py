@@ -10,7 +10,9 @@ def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, box
     boxes = int(boxes or 0)
     filters = {"item": item_code, "batch_qty": (">", 0)}
     if container_no:
-        filters["custom_container_no"] = container_no
+        # container_no may be a Container doc name; resolve to the container_no field value
+        actual_container_no = frappe.db.get_value("Container", container_no, "container_no") or container_no
+        filters["custom_container_no"] = actual_container_no
     if lot_no:
         filters["custom_lot_no"] = lot_no
 
@@ -27,29 +29,26 @@ def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, box
     )
 
     if boxes and cone:
-        # Allocate by boxes and cones: pick N boxes, distribute cones across them
+        # Filter batches that have exactly the requested cone count, then pick N boxes
         result = []
         remaining_boxes = boxes
-        remaining_cones = cone
         for b in batches:
-            if remaining_boxes <= 0 or remaining_cones <= 0:
+            if remaining_boxes <= 0:
                 break
+            batch_cones = int(b.custom_cone or 0)
+            if batch_cones != cone:
+                continue
             available = _get_available_qty(b.name, b.batch_qty)
             if available <= 0:
-                continue
-            batch_cones = int(b.custom_cone or 0)
-            if batch_cones <= 0:
                 continue
             available_cones = _get_available_cones(b.name, batch_cones)
             if available_cones <= 0:
                 continue
-            allotted_cones = min(available_cones, remaining_cones)
             b["available_qty"] = available
             b["allotted_qty"] = available
-            b["allotted_cones"] = allotted_cones
+            b["allotted_cones"] = available_cones
             result.append(b)
             remaining_boxes -= 1
-            remaining_cones -= allotted_cones
         return result
 
     if boxes:
@@ -154,15 +153,33 @@ def get_item_batch(batch):
 
 @frappe.whitelist()
 def get_container_details(container_no):
-    """Fetch unique lot_no and item combinations from Container for a given container_no."""
+    """Fetch unique lot_no and item combinations from all Container docs with the same container_no."""
+    if not frappe.db.exists("Container", container_no):
+        return []
+
+    # Get the container_no field value from the selected doc
+    actual_container_no = frappe.db.get_value("Container", container_no, "container_no")
+    if not actual_container_no:
+        return []
+
+    # Find all submitted Container docs with the same container_no
     containers = frappe.get_all(
         "Container",
-        filters={"container_no": container_no, "docstatus": 1},
+        filters={"container_no": actual_container_no, "docstatus": 1},
         fields=["lot_no", "item"],
         order_by="creation desc",
     )
-    if not containers:
-        return []
+
+    # For containers missing item, try to get from batches
+    for c in containers:
+        if not c.get("item"):
+            batch_item = frappe.db.get_value(
+                "Batch Items",
+                {"parent": c.name},
+                "item",
+            )
+            if batch_item:
+                c["item"] = batch_item
 
     # Deduplicate by (lot_no, item)
     seen = set()

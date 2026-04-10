@@ -1,38 +1,12 @@
 frappe.ui.form.on('Sales Order', {
     refresh: function(frm) {
-        // Setup autocomplete dropdown for Container No
-        let field = frm.fields_dict.custom_container_no;
-        if (field && field.$input && !field.$input.data('awesomplete')) {
-            let awesomplete = new Awesomplete(field.$input[0], {
-                minChars: 0,
-                maxItems: 20,
-                autoFirst: true,
-            });
-            field.$input.data('awesomplete', awesomplete);
-
-            // Fetch suggestions on focus and input
-            function fetch_suggestions() {
-                frappe.call({
-                    method: 'mhr.sales_order.get_container_numbers',
-                    args: { txt: field.$input.val() || '' },
-                    callback: function(r) {
-                        if (!r.message) return;
-                        awesomplete.list = r.message;
-                        awesomplete.evaluate();
-                    }
-                });
-            }
-
-            field.$input.on('focus', fetch_suggestions);
-            field.$input.on('input', fetch_suggestions);
-
-            // On selecting from dropdown, set value and fetch container details
-            awesomplete.input.addEventListener('awesomplete-selectcomplete', function() {
-                let container_no = field.$input.val();
-                frm._container_selected = true;
-                frm.set_value('custom_container_no', container_no);
-            });
-        }
+        // Show submitted Containers, searchable by container_no, item and lot_no
+        frm.set_query('custom_container_no', function() {
+            return {
+                filters: { docstatus: 1 },
+                or_filters: {}
+            };
+        });
 
         // Toggle field visibility based on Fetch By
         toggle_fetch_fields(frm);
@@ -45,46 +19,7 @@ frappe.ui.form.on('Sales Order', {
             frm.set_value('custom_daniar', '');
             return;
         }
-
-        // Only fetch details when selected from dropdown, not on every keystroke
-        if (!frm._container_selected) return;
-        frm._container_selected = false;
-
-        frappe.call({
-            method: 'mhr.sales_order.get_container_details',
-            args: { container_no: container_no },
-            callback: function(r) {
-                if (!r.message || !r.message.length) {
-                    frappe.msgprint(__('No submitted Container found for {0}', [container_no]));
-                    return;
-                }
-
-                let results = r.message;
-
-                if (results.length === 1) {
-                    frm.set_value('custom_lot_no', results[0].lot_no);
-                    frm.set_value('custom_daniar', results[0].item);
-                } else {
-                    // Multiple combinations - let user pick
-                    let options = results.map(function(r) {
-                        return r.lot_no + ' | ' + r.item;
-                    });
-
-                    frappe.prompt({
-                        label: __('Select Lot No / Item'),
-                        fieldname: 'selection',
-                        fieldtype: 'Select',
-                        options: options,
-                        reqd: 1
-                    }, function(values) {
-                        let idx = options.indexOf(values.selection);
-                        let selected = results[idx];
-                        frm.set_value('custom_lot_no', selected.lot_no);
-                        frm.set_value('custom_daniar', selected.item);
-                    }, __('Multiple entries found'), __('Select'));
-                }
-            }
-        });
+        fetch_container_details(frm, container_no);
     },
 
     custom_fetch_by: function(frm) {
@@ -120,6 +55,44 @@ frappe.ui.form.on('Sales Order', {
         }
     }
 });
+
+function fetch_container_details(frm, container_no) {
+    frappe.call({
+        method: 'mhr.sales_order.get_container_details',
+        args: { container_no: container_no },
+        callback: function(r) {
+            if (!r.message || !r.message.length) {
+                frappe.msgprint(__('No submitted Container found for {0}', [container_no]));
+                return;
+            }
+
+            let results = r.message;
+
+            if (results.length === 1) {
+                frm.set_value('custom_lot_no', results[0].lot_no);
+                frm.set_value('custom_daniar', results[0].item);
+            } else {
+                // Multiple lot/item combinations — let user pick
+                let options = results.map(function(r) {
+                    return (r.lot_no || '-') + ' | ' + (r.item || '-');
+                });
+
+                frappe.prompt({
+                    label: __('Select Lot No / Daniar'),
+                    fieldname: 'selection',
+                    fieldtype: 'Select',
+                    options: options,
+                    reqd: 1
+                }, function(values) {
+                    let idx = options.indexOf(values.selection);
+                    let selected = results[idx];
+                    frm.set_value('custom_lot_no', selected.lot_no);
+                    frm.set_value('custom_daniar', selected.item);
+                }, __('Multiple entries found'), __('Select'));
+            }
+        }
+    });
+}
 
 function toggle_fetch_fields(frm) {
     let fetch_by = frm.doc.custom_fetch_by;
