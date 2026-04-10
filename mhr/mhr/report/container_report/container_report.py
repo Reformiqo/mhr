@@ -127,6 +127,7 @@ def get_data(filters=None):
 		"lot_number": "",
 		"cone": "",
 		"total_box": total_box,
+		"is_total_row": 1,
 	}
 
 	return rows, total_row
