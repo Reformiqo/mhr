@@ -640,5 +640,40 @@
    }
   ],
   "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": "Stock Ledger",
+  "modified": "2026-04-10 00:00:00.000000",
+  "module": "Mhr",
+  "name": "Container Report",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Batch",
+  "reference_report": null,
+  "report_name": "Container Report",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "role": "Stock User"
+   },
+   {
+    "role": "All"
+   },
+   {
+    "role": "System Manager"
+   }
+  ],
+  "timeout": 0
  }
 ]

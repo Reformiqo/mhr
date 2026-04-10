@@ -26,6 +26,32 @@ def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, box
         order_by="custom_supplier_batch_no asc",
     )
 
+    if boxes and cone:
+        # Allocate by boxes and cones: pick N boxes, distribute cones across them
+        result = []
+        remaining_boxes = boxes
+        remaining_cones = cone
+        for b in batches:
+            if remaining_boxes <= 0 or remaining_cones <= 0:
+                break
+            available = _get_available_qty(b.name, b.batch_qty)
+            if available <= 0:
+                continue
+            batch_cones = int(b.custom_cone or 0)
+            if batch_cones <= 0:
+                continue
+            available_cones = _get_available_cones(b.name, batch_cones)
+            if available_cones <= 0:
+                continue
+            allotted_cones = min(available_cones, remaining_cones)
+            b["available_qty"] = available
+            b["allotted_qty"] = available
+            b["allotted_cones"] = allotted_cones
+            result.append(b)
+            remaining_boxes -= 1
+            remaining_cones -= allotted_cones
+        return result
+
     if boxes:
         # Allocate by number of boxes (1 batch = 1 box), take full available qty from each
         result = []
@@ -81,26 +107,22 @@ def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, box
                 result.append(b)
         return result
 
-    # Auto-split: fill batches until requested qty is met
+    # Weight mode: pick full batches (no partial) until total >= requested weight
+    # Sort by weight descending to pick fewest batches
+    batches.sort(key=lambda b: flt(b.batch_qty), reverse=True)
     result = []
-    remaining = qty
+    total_weight = 0
     for b in batches:
-        if remaining <= 0:
+        if total_weight >= qty:
             break
         available = _get_available_qty(b.name, b.batch_qty)
         if available <= 0:
             continue
-        allotted = min(available, remaining)
-        batch_cones = int(b.custom_cone or 0)
-        if batch_cones and b.batch_qty:
-            allotted_cones = int(round(batch_cones * allotted / flt(b.batch_qty)))
-        else:
-            allotted_cones = 0
         b["available_qty"] = available
-        b["allotted_qty"] = allotted
-        b["allotted_cones"] = allotted_cones
+        b["allotted_qty"] = available
+        b["allotted_cones"] = int(b.custom_cone or 0)
         result.append(b)
-        remaining -= allotted
+        total_weight += available
 
     return result
 
@@ -165,6 +187,25 @@ def _get_available_qty(batch_name, batch_qty):
         AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
     """, batch_name)[0][0])
     return flt(batch_qty) - already_booked
+
+
+@frappe.whitelist()
+def get_container_numbers(txt=""):
+    """Return distinct container_no values from submitted Containers for autocomplete."""
+    condition = ""
+    if txt:
+        condition = "AND container_no LIKE %(txt)s"
+
+    data = frappe.db.sql(
+        f"""SELECT DISTINCT container_no
+        FROM `tabContainer`
+        WHERE docstatus = 1 {condition}
+        ORDER BY container_no ASC
+        LIMIT 20""",
+        {"txt": f"%{txt}%"} if txt else {},
+        as_dict=True,
+    )
+    return [d.container_no for d in data if d.container_no]
 
 
 def _get_available_cones(batch_name, batch_cones):
