@@ -116,7 +116,7 @@ def get_data(filters=None):
 	total_row = {
 		"date": "",
 		"container_number": "",
-		"item": "<b>Total</b>",
+		"item": "Total",
 		"pulp": "",
 		"lusture": "",
 		"glue": "",
