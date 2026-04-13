@@ -872,6 +872,81 @@ def calculate_delivery_note_totals(doc, method=None):
         total_cone += cint(item.custom_cone or 0)
     doc.custom_total_cone = total_cone
     doc.custom_item_length = len(doc.items)
+    set_header_container_info_from_items(doc)
+
+
+def set_header_container_info_from_items(doc):
+    """Populate DN header container fields from item rows (and their Batch docs).
+
+    If rows share a single value, set it on the header; if rows span multiple
+    values, comma-join the distinct values. Only fills header fields that are
+    currently empty so manual edits aren't clobbered.
+    """
+    if not doc.get("items"):
+        return
+
+    # Pull batch attributes once per unique batch_no
+    batch_nos = list({i.batch_no for i in doc.items if i.get("batch_no")})
+    batch_cache = {}
+    if batch_nos:
+        for b in frappe.get_all(
+            "Batch",
+            filters={"name": ["in", batch_nos]},
+            fields=[
+                "name", "item", "custom_glue", "custom_pulp", "custom_lusture",
+                "custom_grade", "custom_fsc",
+            ],
+        ):
+            batch_cache[b.name] = b
+
+    def _distinct(values):
+        seen = []
+        for v in values:
+            if v in (None, ""):
+                continue
+            if v not in seen:
+                seen.append(v)
+        return seen
+
+    def _collapse(values):
+        vals = _distinct(values)
+        if not vals:
+            return ""
+        if len(vals) == 1:
+            return vals[0]
+        return ", ".join(str(v) for v in vals)
+
+    # Row-level fields already on Delivery Note Item
+    row_containers = [i.get("custom_container_no") for i in doc.items]
+    row_lots = [i.get("custom_lot_no") for i in doc.items]
+
+    # Batch-level fields — pull via batch_no
+    batch_glues, batch_pulps, batch_lustres, batch_grades, batch_fscs, batch_items = [], [], [], [], [], []
+    for i in doc.items:
+        b = batch_cache.get(i.get("batch_no"))
+        if not b:
+            continue
+        batch_glues.append(b.get("custom_glue"))
+        batch_pulps.append(b.get("custom_pulp"))
+        batch_lustres.append(b.get("custom_lusture"))
+        batch_grades.append(b.get("custom_grade"))
+        batch_fscs.append(b.get("custom_fsc"))
+        batch_items.append(b.get("item"))
+
+    mapping = {
+        "custom_container_no": _collapse(row_containers),
+        "custom_lot_no": _collapse(row_lots),
+        "custom_glue": _collapse(batch_glues),
+        "custom_pulp": _collapse(batch_pulps),
+        "custom_lusture": _collapse(batch_lustres),
+        "custom_grade": _collapse(batch_grades),
+        "custom_fsc": _collapse(batch_fscs),
+        "custom_denier": _collapse(batch_items),
+    }
+
+    for fieldname, value in mapping.items():
+        if value and not doc.get(fieldname):
+            doc.set(fieldname, value)
 
 
 @frappe.whitelist()
