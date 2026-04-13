@@ -16,7 +16,7 @@ def execute(filters=None):
 
 def get_columns():
 	return [
-		{"label": _("Date"), "fieldname": "date", "fieldtype": "Data", "width": 100},
+		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 100},
 		{"label": _("Container Number"), "fieldname": "container_number", "fieldtype": "Data", "width": 140},
 		{"label": _("Item"), "fieldname": "item", "fieldtype": "Data", "width": 120},
 		{"label": _("Pulp"), "fieldname": "pulp", "fieldtype": "Data", "width": 90},
@@ -41,7 +41,7 @@ def strip_prefix(val):
 def get_data(filters=None):
 	query = """
 		SELECT
-			DATE_FORMAT(b.manufacturing_date, '%%%%d/%%%%m/%%%%Y') AS `date`,
+			b.manufacturing_date AS `date`,
 			b.custom_container_no AS container_number,
 			b.item AS item,
 			b.custom_pulp AS pulp,
@@ -81,7 +81,7 @@ def get_data(filters=None):
 			GROUP BY sbe.batch_no
 		) AS outward ON b.name = outward.batch_no
 		GROUP BY
-			DATE_FORMAT(b.manufacturing_date, '%%%%d/%%%%m/%%%%Y'),
+			b.manufacturing_date,
 			b.custom_container_no,
 			b.custom_lot_no,
 			b.custom_cone,
