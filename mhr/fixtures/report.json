@@ -60,7 +60,7 @@
   "modified": "2026-03-25 18:00:00",
   "module": "Mhr",
   "name": "STOCK SHEET (BALANCE REPORT SIMPLE)",
-  "prepared_report": 0,
+  "prepared_report": 1,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
