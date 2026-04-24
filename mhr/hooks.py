@@ -250,4 +250,5 @@ fixtures = [
      {"doctype": "Client Script", "filters": [["module", "in", ("Mhr")]]},
      {"doctype": "Custom Field", "filters": [["module", "in", ("Mhr")]]},
      {"doctype": "Report", "filters": [["module", "in", ("Mhr")]]},
+     {"doctype": "Property Setter", "filters": [["module", "in", ("Mhr")]]},
     ]

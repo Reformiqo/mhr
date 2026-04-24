@@ -1,0 +1,26 @@
+[
+ {
+  "doctype": "Property Setter",
+  "name": "Stock Entry Detail-conversion_factor-in_list_view",
+  "doc_type": "Stock Entry Detail",
+  "field_name": "conversion_factor",
+  "property": "in_list_view",
+  "property_type": "Check",
+  "value": "1",
+  "doctype_or_field": "DocField",
+  "module": "Mhr",
+  "modified": "2026-04-24 11:00:00.000000"
+ },
+ {
+  "doctype": "Property Setter",
+  "name": "Stock Entry Detail-transfer_qty-in_list_view",
+  "doc_type": "Stock Entry Detail",
+  "field_name": "transfer_qty",
+  "property": "in_list_view",
+  "property_type": "Check",
+  "value": "1",
+  "doctype_or_field": "DocField",
+  "module": "Mhr",
+  "modified": "2026-04-24 11:00:00.000000"
+ }
+]
