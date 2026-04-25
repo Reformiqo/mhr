@@ -291,7 +291,12 @@ def _sync_batch_warehouse(doc, use_target=True):
             if parent_name in seen_containers:
                 continue
             seen_containers.add(parent_name)
-            frappe.db.set_value("Container", parent_name, "warehouse", wh, update_modified=False)
+            frappe.db.set_value(
+                "Container",
+                parent_name,
+                {"warehouse": wh, "set_warehouse": wh},
+                update_modified=False,
+            )
             frappe.db.sql(
                 "UPDATE `tabBatch Items` SET warehouse=%s WHERE parent=%s AND parenttype='Container'",
                 (wh, parent_name),
