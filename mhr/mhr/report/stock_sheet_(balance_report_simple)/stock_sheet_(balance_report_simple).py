@@ -130,6 +130,8 @@ def get_data(filters=None):
     ]
     if batch_meta.has_field("custom_location"):
         select_fields.append(Batch.custom_location.as_("location"))
+    elif batch_meta.has_field("custom_warehouse"):
+        select_fields.append(Batch.custom_warehouse.as_("location"))
 
     query = (
         frappe.qb.from_(Batch)
