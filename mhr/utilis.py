@@ -260,6 +260,45 @@ def update_item_batch(doc, method=None):
 
 
 @frappe.whitelist()
+def update_batch_warehouse_on_stock_entry(doc, method=None):
+    """Propagate target warehouse to Batch.custom_warehouse and parent
+    Container.warehouse when a Stock Entry is submitted (Material Transfer
+    or any move that sets t_warehouse on items)."""
+    _sync_batch_warehouse(doc, use_target=True)
+
+
+@frappe.whitelist()
+def revert_batch_warehouse_on_stock_entry(doc, method=None):
+    """On cancel of a Stock Entry, revert Batch + Container warehouse to source."""
+    _sync_batch_warehouse(doc, use_target=False)
+
+
+def _sync_batch_warehouse(doc, use_target=True):
+    seen_containers = set()
+    for item in doc.items:
+        batch_no = item.batch_no
+        wh = item.t_warehouse if use_target else item.s_warehouse
+        if not batch_no or not wh:
+            continue
+
+        frappe.db.set_value("Batch", batch_no, "custom_warehouse", wh, update_modified=False)
+
+        parents = frappe.db.sql(
+            "SELECT DISTINCT parent FROM `tabBatch Items` WHERE batch_id=%s AND parenttype='Container'",
+            batch_no,
+        )
+        for (parent_name,) in parents:
+            if parent_name in seen_containers:
+                continue
+            seen_containers.add(parent_name)
+            frappe.db.set_value("Container", parent_name, "warehouse", wh, update_modified=False)
+            frappe.db.sql(
+                "UPDATE `tabBatch Items` SET warehouse=%s WHERE parent=%s AND parenttype='Container'",
+                (wh, parent_name),
+            )
+
+
+@frappe.whitelist()
 def reverse_item_batch(doc, method=None):
     for item in doc.items:
         if not item.batch_no:

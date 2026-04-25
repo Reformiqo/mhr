@@ -140,6 +140,8 @@ doc_events = {
     },
     "Stock Entry": {
         "validate": "mhr.utilis.update_stock_entry",
+        "on_submit": "mhr.utilis.update_batch_warehouse_on_stock_entry",
+        "on_cancel": "mhr.utilis.revert_batch_warehouse_on_stock_entry",
     },
     "Sales Order": {
         "validate": "mhr.utilis.validate_so_available_qty",
