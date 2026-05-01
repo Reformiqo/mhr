@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+import time
 from frappe.model.document import Document
 from frappe.utils import cint, flt, now, getdate
 
@@ -454,36 +455,72 @@ class Container(Document):
                 )
 
         # Save and submit the Purchase Receipt
-        try:
-            # Check if no items were added
-            if not purchase_receipt.items:
-                if is_return:
-                    # For returns, just skip silently
-                    return None
-                else:
-                    # For regular submit, throw error
-                    frappe.throw(
-                        f"No valid items for Purchase Receipt from Container {self.name}. "
-                        "Please ensure all batches have valid Item and Batch ID."
-                    )
+        # Check if no items were added
+        if not purchase_receipt.items:
+            if is_return:
+                # For returns, just skip silently
+                return None
+            else:
+                # For regular submit, throw error
+                frappe.throw(
+                    f"No valid items for Purchase Receipt from Container {self.name}. "
+                    "Please ensure all batches have valid Item and Batch ID."
+                )
 
-            purchase_receipt.flags.ignore_mandatory = True
-            purchase_receipt.save()
-            purchase_receipt.submit()
-            frappe.db.commit()
+        purchase_receipt.flags.ignore_mandatory = True
 
-            # After Purchase Receipt submission, update_batch_qty() may have recalculated
-            # batch_qty incorrectly. Restore the correct batch_qty from container batches
-            self.correct_batch_qty_after_pr_submit(batch_qty_map)
+        # MI1-I25 — When several Containers submit concurrently they all
+        # write Stock Ledger Entries against the same item + warehouse,
+        # and InnoDB serialises those updates. The first one through
+        # holds the lock long enough that the others hit
+        # `pymysql.err.OperationalError: (1205, 'Lock wait timeout
+        # exceeded')`. Previously we caught the exception, msgprinted,
+        # and rolled back — leaving the Container submitted (Frappe
+        # commits the parent doc *before* on_submit fires) but with no
+        # PR. The Container then needed the manual "Resubmit" action.
+        #
+        # Retry the PR submit with backoff on lock timeouts. If we
+        # eventually fail, *re-raise* so on_submit aborts and Frappe's
+        # outer save flow rolls back the Container too — the user gets
+        # an actionable error and can simply retry the Container submit
+        # instead of having to use the Actions → Resubmit menu.
+        last_exc = None
+        for attempt in range(3):
+            try:
+                purchase_receipt.save()
+                purchase_receipt.submit()
+                frappe.db.commit()
+                last_exc = None
+                break
+            except Exception as e:
+                last_exc = e
+                msg = str(e).lower()
+                is_lock = "lock wait timeout" in msg or "deadlock" in msg
+                if not is_lock or attempt == 2:
+                    break
+                frappe.db.rollback()
+                # Reset doc state for the retry — name/etag may be stale.
+                purchase_receipt.flags.ignore_mandatory = True
+                if purchase_receipt.name:
+                    purchase_receipt.name = None
+                time.sleep(2 * (attempt + 1))
 
-            return purchase_receipt.name
-
-        except Exception as e:
+        if last_exc is not None:
             frappe.db.rollback()
             frappe.log_error(frappe.get_traceback(), "create_purchase_receipt")
-            frappe.msgprint(
-                {"message": "Failed to create Purchase Receipt", "error": str(e)}
+            # Re-raise so the Container submit fails atomically rather
+            # than leaving an orphan Container with no PR (MI1-I25).
+            frappe.throw(
+                f"Failed to create Purchase Receipt for Container "
+                f"{self.name}: {last_exc!s}. Retry the Container submit; "
+                f"the lock contention is usually transient."
             )
+
+        # After Purchase Receipt submission, update_batch_qty() may have recalculated
+        # batch_qty incorrectly. Restore the correct batch_qty from container batches
+        self.correct_batch_qty_after_pr_submit(batch_qty_map)
+
+        return purchase_receipt.name
 
     def correct_batch_qty_after_pr_submit(self, batch_qty_map):
         """Correct batch_qty after Purchase Receipt submission to prevent duplication"""
