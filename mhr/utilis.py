@@ -663,31 +663,40 @@ def generate_multi_pdf_url(batches, doc_name):
 
 @frappe.whitelist()
 def get_print_batch(lot_no, container_no, supplier_batch_no):
+    """MI1-I27: return ALL Batch rows matching the trio.
 
-    if frappe.db.exists(
+    Raj's report (MCJC-1522 / Lot 13112025): the same supplier_batch_no
+    can have multiple Batch records under one (container, lot), each
+    with a different item / denier. The previous implementation used
+    `frappe.get_doc(..., filters)` which only returns the first match,
+    so when the user added a "batch" to print, only one denier ever
+    landed in the list and the others silently disappeared.
+
+    Now returns a list of every matching Batch. The caller (JS in
+    print_batch.js `fetch_and_append_batch`) iterates and adds one row
+    per Batch. If the trio matches just one Batch — single-element
+    list — caller still works.
+    """
+    rows = frappe.get_all(
         "Batch",
-        {
+        filters={
             "custom_supplier_batch_no": supplier_batch_no,
             "custom_lot_no": lot_no,
             "custom_container_no": container_no,
         },
-    ):
-        batch = frappe.get_doc(
-            "Batch",
-            {
-                "custom_supplier_batch_no": supplier_batch_no,
-                "custom_lot_no": lot_no,
-                "custom_container_no": container_no,
-            },
-        )
-        data = {
-            "item": batch.item,
-            "batch": batch.name,
-            "cone": batch.custom_cone,
-            "lot_no": batch.custom_lot_no,
-            "batch_qty": batch.batch_qty,
+        fields=["name", "item", "custom_cone", "custom_lot_no", "batch_qty"],
+        order_by="creation asc",
+    )
+    return [
+        {
+            "item": r.item,
+            "batch": r.name,
+            "cone": r.custom_cone,
+            "lot_no": r.custom_lot_no,
+            "batch_qty": r.batch_qty,
         }
-        return data
+        for r in rows
+    ]
 
 
 @frappe.whitelist()
