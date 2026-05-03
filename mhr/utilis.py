@@ -1340,3 +1340,63 @@ def validate_batch_container_match(doc, method=None):
             ).format(doc.custom_container_no, error_details),
             title=_("Container Mismatch")
         )
+
+
+# ----------------------------------------------------------------------
+# MI1-I26 — Submit Stock Entry in background.
+#
+# A Material Transfer with 245 batches takes 60+ seconds for ERPNext to
+# create all SLEs / Bins, and gunicorn kills the HTTP request before
+# submit() returns. The user sees "Request Timeout".
+#
+# This endpoint enqueues the submit on a worker. Page returns
+# immediately; a realtime event fires when the submit lands so the
+# form reloads itself.
+# ----------------------------------------------------------------------
+@frappe.whitelist()
+def submit_stock_entry_in_background(name):
+    """Queue the Stock Entry submit on a background worker.
+
+    Returns immediately so the HTTP layer doesn't time out.
+    """
+    if not name:
+        frappe.throw("Stock Entry name is required.")
+    doc = frappe.get_doc("Stock Entry", name)
+    if doc.docstatus != 0:
+        frappe.throw(
+            f"Stock Entry {name} is not in Draft. "
+            f"Current docstatus={doc.docstatus}."
+        )
+    frappe.enqueue(
+        method="mhr.utilis._submit_stock_entry_worker",
+        queue="long",
+        timeout=900,
+        job_name=f"mhr-submit-stock-entry-{name}",
+        name=name,
+        notify_user=frappe.session.user,
+    )
+    return {"queued": True, "name": name}
+
+
+def _submit_stock_entry_worker(name, notify_user):
+    """Worker: load + submit. Publishes realtime when done."""
+    ok = False
+    error = ""
+    try:
+        doc = frappe.get_doc("Stock Entry", name)
+        if doc.docstatus == 0:
+            doc.submit()
+            frappe.db.commit()
+        ok = True
+    except Exception as exc:
+        frappe.db.rollback()
+        error = str(exc)
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"mhr submit_stock_entry_worker failed for {name}",
+        )
+    frappe.publish_realtime(
+        event="mhr_stock_entry_submitted",
+        message={"name": name, "ok": ok, "error": error},
+        user=notify_user,
+    )

@@ -28,7 +28,13 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Sales Order" : "public/js/sales_order.js"}
+doctype_js = {
+    "Sales Order": "public/js/sales_order.js",
+    # MI1-I26 — Submit in Background button on Stock Entry to avoid
+    # gunicorn HTTP request-timeouts on large transfers (e.g. 245
+    # batches in one Material Transfer).
+    "Stock Entry": "public/js/stock_entry.js",
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
