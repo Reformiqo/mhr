@@ -31,6 +31,31 @@ class Container(Document):
         self.create_batches()
         self.create_purchase_receipt()
 
+    def before_submit(self):
+        # MI1-I36: block duplicate (container_no, lot_no) submissions.
+        # Two Submitted Containers sharing container_no+lot_no end up pointing
+        # at the same batch_id set in tabBatch Items; the next cancel then wipes
+        # the shared Batch master rows and orphans the surviving Container.
+        if not (self.container_no and self.lot_no):
+            return
+        existing = frappe.db.get_value(
+            "Container",
+            {
+                "container_no": self.container_no,
+                "lot_no": self.lot_no,
+                "docstatus": 1,
+                "name": ("!=", self.name),
+            },
+            "name",
+        )
+        if existing:
+            frappe.throw(
+                f"A submitted Container with Container No '{self.container_no}' "
+                f"and Lot No '{self.lot_no}' already exists: "
+                f"<a href='/app/container/{existing}'>{existing}</a>. "
+                f"Cancel that Container first before submitting this one."
+            )
+
     def enqueue_create_batches(self):
         # frappe.msgprint("enqueue_create_batches")
         frappe.enqueue(
@@ -95,18 +120,52 @@ class Container(Document):
                 frappe.db.commit()
 
             except Exception as e:
+                # MI1-I36: pass long text via `message=` so the 140-char `title`
+                # field doesn't truncate-explode with CharacterLengthExceededError
+                # ("Value too big") and mask the real ValidationError.
                 frappe.log_error(
-                    f"Failed to cancel PR {pr.name} for container {self.name}: {str(e)}",
-                    "Container Cancel"
+                    message=f"Failed to cancel PR {pr.name} for container {self.name}: {str(e)}",
+                    title="Container Cancel",
                 )
                 frappe.throw(
                     f"Failed to cancel Purchase Receipt {pr.name}: {str(e)}"
                 )
 
-        # Delete all batches linked to this container
+        # Delete batches linked to this container.
+        # MI1-I36 guard: only delete if no OTHER non-cancelled Container (same
+        # container_no+lot_no, different docname) still references the batch_id.
+        # Otherwise a duplicate-then-cancel wipes batches the original owner
+        # needs, leaving orphan child-table references and blank batch forms.
         for batch in self.batches:
-            if batch.batch_id and frappe.db.exists("Batch", batch.batch_id):
-                frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+            if not batch.batch_id:
+                continue
+            if not frappe.db.exists(
+                "Batch",
+                {
+                    "name": batch.batch_id,
+                    "custom_container_no": self.container_no,
+                    "custom_lot_no": self.lot_no,
+                },
+            ):
+                continue
+            other_owner = frappe.db.sql(
+                """
+                SELECT bi.parent FROM `tabBatch Items` bi
+                JOIN `tabContainer` c ON c.name = bi.parent
+                WHERE bi.batch_id = %s
+                  AND bi.parenttype = 'Container'
+                  AND bi.parent != %s
+                  AND c.docstatus != 2
+                LIMIT 1
+                """,
+                (batch.batch_id, self.name),
+            )
+            if other_owner:
+                continue
+            frappe.db.sql(
+                "DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s",
+                (batch.batch_id, self.container_no, self.lot_no),
+            )
 
         frappe.db.commit()
 
