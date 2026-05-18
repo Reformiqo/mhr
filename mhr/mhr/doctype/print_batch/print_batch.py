@@ -41,7 +41,13 @@ class PrintBatch(Document):
         }
         
         try:
-            format = "NB"
+            # MI1-I39 Phase 2E: HTY-mode Print Batch runs use the HTML
+            # "HTY Batch Label" format which relabels Lustre/Glue/Pulp to
+            # Colour/Product/Type. Normal mode keeps the existing "NB"
+            # Print Designer format (untouched by HTY work — FRD's hard
+            # rule that Normal flow stays identical).
+            txn_type = (getattr(print_batch, "transaction_type", None) or "Normal")
+            format = "HTY Batch Label" if txn_type == "HTY" else "NB"
             download_multi_pdf(doctype, name, format)
             pdf_content = frappe.local.response.filecontent
 

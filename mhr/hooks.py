@@ -259,4 +259,7 @@ fixtures = [
      {"doctype": "Custom Field", "filters": [["module", "in", ("Mhr")]]},
      {"doctype": "Report", "filters": [["module", "in", ("Mhr")]]},
      {"doctype": "Property Setter", "filters": [["module", "in", ("Mhr")]]},
+     # MI1-I39 — HTY Batch Label print format ships via fixtures so the
+     # new HTY-mode Print Batch flow works on every bench after migrate.
+     {"doctype": "Print Format", "filters": [["module", "in", ("Mhr")]]},
     ]
