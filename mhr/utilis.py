@@ -1403,6 +1403,117 @@ def _submit_stock_entry_worker(name, notify_user):
 
 
 # ---------------------------------------------------------------------------
+# MI1-I39 P2-G — Server-side HTY hooks
+# ---------------------------------------------------------------------------
+# These run via doc_events wired in hooks.py. Each is gated on
+# transaction_type == 'HTY' so Normal-mode flow stays identical
+# (FRD's hard rule).
+#
+# Behaviors:
+#   - Stock Entry validate: if HTY and naming_series is non-HTY/missing,
+#     set the HTY series prefix. Belt-and-braces with the Client Script.
+#   - Delivery Trip validate: if all linked Delivery Notes are HTY-mode,
+#     auto-flip the Trip's transaction_type to HTY (and HTY naming series).
+#   - Delivery Note on_submit (HTY return only): mhr's reverse_item_batch
+#     already restores cones on the original Container's batches when a
+#     DN is CANCELLED. For HTY-mode Returns, we mirror that on SUBMIT —
+#     a fresh return DN re-credits the cone count to its source batches.
+
+
+def validate_hty_stock_entry(doc, method=None):
+    """Stock Entry validate hook (HTY-aware).
+    If transaction_type=HTY and the user hasn't picked an HTY naming
+    series, set the default one. Skip if already submitted."""
+    if getattr(doc, "docstatus", 0) != 0:
+        return
+    if (getattr(doc, "transaction_type", None) or "Normal") != "HTY":
+        return
+    series = getattr(doc, "naming_series", "") or ""
+    if not series.startswith("HTY-"):
+        # First HTY series option for Stock Entry — keep in sync with the
+        # Property Setter populated by the P2-F setup. If the option no
+        # longer exists, Frappe will validate-error on save (intentional).
+        doc.naming_series = "HTY-STE-.YYYY.-"
+
+
+def validate_hty_delivery_trip(doc, method=None):
+    """Delivery Trip validate hook (HTY-aware).
+    If every linked Delivery Note is HTY-mode, automatically flip the
+    Trip to HTY mode + HTY naming series. Mixed trips (some HTY, some
+    Normal) stay Normal — no surprise side effects."""
+    if getattr(doc, "docstatus", 0) != 0:
+        return
+    stops = getattr(doc, "delivery_stops", None) or []
+    dn_names = [s.delivery_note for s in stops if getattr(s, "delivery_note", None)]
+    if not dn_names:
+        return
+    placeholders = ", ".join(["%s"] * len(dn_names))
+    rows = frappe.db.sql(
+        f"""
+        SELECT name, IFNULL(transaction_type, 'Normal') AS tt
+        FROM `tabDelivery Note`
+        WHERE name IN ({placeholders})
+        """,
+        tuple(dn_names),
+        as_dict=True,
+    )
+    if not rows or any(r.tt != "HTY" for r in rows):
+        return
+    # All HTY → propagate.
+    if (getattr(doc, "transaction_type", None) or "Normal") != "HTY":
+        doc.transaction_type = "HTY"
+    series = getattr(doc, "naming_series", "") or ""
+    if not series.startswith("HTY-"):
+        doc.naming_series = "HTY-DT-.YYYY.-"
+
+
+def restore_cones_for_hty_return(doc, method=None):
+    """Delivery Note on_submit hook (HTY return only).
+    Mirrors `reverse_item_batch` for HTY-mode return DNs at submit time:
+    for each item row with a custom_cone value, add the cone count back
+    onto the original Container's Batch Items child row. The Batch
+    master's `batch_qty` is reconciled by ERPNext's standard return SLE,
+    so we only touch the mhr-specific cone tracking.
+
+    Why on submit (not cancel like the original Meher flow): an HTY
+    return represents physical cones coming back in. They should be
+    re-credited the moment the return is recorded — symmetric with how
+    a normal sale debits them at submit."""
+    if not getattr(doc, "is_return", 0):
+        return
+    if (getattr(doc, "transaction_type", None) or "Normal") != "HTY":
+        return
+
+    for item in (doc.items or []):
+        cone = cint(getattr(item, "custom_cone", 0))
+        batch_no = getattr(item, "batch_no", None)
+        container_no = getattr(item, "custom_container_no", None)
+        if not (cone and batch_no and container_no):
+            continue
+        # Find the Batch Items child row (parent=Container doc, batch_id=batch_no).
+        rows = frappe.db.sql(
+            """
+            SELECT bi.name AS row_name, bi.parent AS container, bi.cone AS cur_cone
+            FROM `tabBatch Items` bi
+            JOIN `tabContainer` c ON c.name = bi.parent
+            WHERE bi.batch_id = %s
+              AND c.container_no = %s
+              AND c.docstatus = 1
+              AND bi.parenttype = 'Container'
+            LIMIT 1
+            """,
+            (batch_no, container_no),
+            as_dict=True,
+        )
+        if not rows:
+            continue
+        row = rows[0]
+        new_cone = cint(row.cur_cone) + cone
+        frappe.db.set_value("Batch Items", row.row_name, "cone", new_cone)
+    frappe.db.commit()
+
+
+# ---------------------------------------------------------------------------
 # MI1-I39 — HTY transaction_type helpers shared across reports
 # ---------------------------------------------------------------------------
 # Each existing stock report queries `tabBatch` keyed by `custom_container_no`

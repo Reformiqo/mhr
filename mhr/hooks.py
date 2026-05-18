@@ -130,7 +130,12 @@ doctype_js = {
 
 doc_events = {
     "Delivery Note": {
-        "on_submit": "mhr.utilis.update_item_batch",
+        "on_submit": [
+            "mhr.utilis.update_item_batch",
+            # MI1-I39 P2-G: HTY-mode return DN re-credits cones on submit
+            # (symmetric with the Normal cancel-time reversal).
+            "mhr.utilis.restore_cones_for_hty_return",
+        ],
         "on_cancel": "mhr.utilis.reverse_item_batch",
         "validate": [
             # "mhr.utilis.validate_batch",
@@ -145,12 +150,21 @@ doc_events = {
         "validate": "mhr.batch_qr_code.set_si_qrcode",
     },
     "Stock Entry": {
-        "validate": "mhr.utilis.update_stock_entry",
+        "validate": [
+            "mhr.utilis.update_stock_entry",
+            # MI1-I39 P2-G: HTY mode → ensure HTY naming series before save.
+            "mhr.utilis.validate_hty_stock_entry",
+        ],
         "on_submit": "mhr.utilis.update_batch_warehouse_on_stock_entry",
         "on_cancel": "mhr.utilis.revert_batch_warehouse_on_stock_entry",
     },
     "Sales Order": {
         "validate": "mhr.utilis.validate_so_available_qty",
+    },
+    "Delivery Trip": {
+        # MI1-I39 P2-G: if all linked DNs are HTY, propagate HTY mode +
+        # series to the Trip. Mixed trips stay Normal.
+        "validate": "mhr.utilis.validate_hty_delivery_trip",
     },
 }
 
