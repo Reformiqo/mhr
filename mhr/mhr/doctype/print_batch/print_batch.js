@@ -16,27 +16,23 @@ frappe.ui.form.on('Print Batch', {
         }
     },
 
+    refresh: function(frm) {
+        // MI1-I27 reopen: when re-opening a saved Print Batch, the
+        // container_no change handler doesn't fire so the lot_no Select
+        // options stay empty — user can't pick a lot even though one
+        // is clearly available. Repopulate options on every refresh
+        // whenever container_no is set, preserving the existing lot_no
+        // selection.
+        if (frm.doc.container_no) {
+            mi1_i27_populate_lot_nos(frm, /* preserve_value */ true);
+        }
+    },
+
     container_no: function(frm) {
         // Clear lot_no when container_no changes
         frm.set_value('lot_no', '');
-
         if (frm.doc.container_no) {
-            // Fetch lot numbers for the selected container
-            frm.call({
-                method: "get_lot_nos",
-                args: {
-                    container_no: frm.doc.container_no
-                },
-                callback: function(response) {
-                    if (response.message) {
-                        var lot_nos = response.message;
-                        // Build options string with empty first option
-                        var options = [''].concat(lot_nos);
-                        frm.set_df_property('lot_no', 'options', options.join('\n'));
-                        frm.refresh_field('lot_no');
-                    }
-                }
-            });
+            mi1_i27_populate_lot_nos(frm, /* preserve_value */ false);
         } else {
             // Clear lot_no options if container_no is cleared
             frm.set_df_property('lot_no', 'options', '');
@@ -121,3 +117,28 @@ frappe.ui.form.on('List Batches', {
         }
     }
 });
+
+// MI1-I27 reopen: shared helper called from both `refresh` (preserve
+// existing lot_no) and `container_no` change (let the new options
+// drive selection).
+function mi1_i27_populate_lot_nos(frm, preserve_value) {
+    var prev = frm.doc.lot_no;
+    frm.call({
+        method: "get_lot_nos",
+        args: { container_no: frm.doc.container_no },
+        callback: function(response) {
+            var lot_nos = response.message || [];
+            var options = [''].concat(lot_nos);
+            frm.set_df_property('lot_no', 'options', options.join('\n'));
+            frm.refresh_field('lot_no');
+            if (preserve_value && prev) {
+                // refresh_field may have cleared the value if it's not
+                // in the new options list — restore it if still valid.
+                if (lot_nos.indexOf(prev) >= 0) {
+                    frm.set_value('lot_no', prev);
+                }
+            }
+        }
+    });
+}
+

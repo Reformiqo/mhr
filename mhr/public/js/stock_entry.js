@@ -10,10 +10,53 @@
 // For small Stock Entries (< 50 items) the standard button is fine;
 // for larger ones, the user clicks this one.
 
+// MI1-I26 reopen — Raj's screenshot shows the user still clicking the
+// standard Submit on a large Material Transfer and getting "Request
+// Timed Out". The Submit-in-Background button is there but easy to miss.
+// Threshold below: if items.length exceeds this, the standard Submit is
+// blocked and the user is redirected to the background path.
+const MI1_I26_LARGE_SE_THRESHOLD = 50;
+
 frappe.ui.form.on("Stock Entry", {
+    before_submit(frm) {
+        // Intercept the standard Submit on large transfers. Throwing here
+        // aborts the save_or_submit flow and surfaces a clear message
+        // pointing at the background button.
+        const n = (frm.doc.items || []).length;
+        if (n > MI1_I26_LARGE_SE_THRESHOLD) {
+            frappe.throw({
+                title: __("Use 'Submit in Background' for large transfers"),
+                message: __(
+                    "This Stock Entry has {0} items. The standard Submit will time " +
+                    "out on Frappe Cloud's gunicorn (request limit ~60s) for batches " +
+                    "this size.<br><br>" +
+                    "Click <b>Submit in Background</b> (next to the Submit button) " +
+                    "instead. The page returns immediately; you'll get a notification " +
+                    "when the worker finishes.",
+                    [n]
+                ),
+            });
+        }
+    },
+
     refresh(frm) {
         if (frm.doc.docstatus !== 0) return;
         if (!frm.doc.name || frm.is_new()) return;
+
+        // Banner at the top of large drafts so the user sees the hint
+        // before they even reach for the Submit button.
+        const n = (frm.doc.items || []).length;
+        if (n > MI1_I26_LARGE_SE_THRESHOLD) {
+            frm.dashboard.add_comment(
+                __(
+                    "Large transfer ({0} items) — please use the <b>Submit in Background</b> " +
+                    "button above. The standard Submit will time out.",
+                    [n]
+                ),
+                "orange",
+                true,
+            );
+        }
 
         frm.add_custom_button(__("Submit in Background"), function () {
             frappe.confirm(
