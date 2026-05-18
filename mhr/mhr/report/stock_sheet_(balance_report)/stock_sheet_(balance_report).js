@@ -35,6 +35,14 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 			"label": __("Company"),
 			"fieldtype": "Link",
 			"options": "Company"
+		},
+		// MI1-I39 P2-C: HTY transaction_type filter. Blank = all.
+		{
+			"fieldname": "transaction_type",
+			"label": __("Transaction Type"),
+			"fieldtype": "Select",
+			"options": "\nNormal\nHTY",
+			"default": ""
 		}
 	],
 	formatter: function(value, row, column, data, default_formatter) {

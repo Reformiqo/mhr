@@ -23,10 +23,59 @@ from frappe.tests.utils import FrappeTestCase
 
 from mhr.mhr.report.container_report import container_report as cr
 from mhr.mhr.report.delivery_challan import delivery_challan as dc
+from mhr import utilis as mhr_utilis
+
+
+class TestSharedHTYFilterHelper(FrappeTestCase):
+    """The shared helpers in mhr/utilis.py are reused by Container Report
+    and the 4 stock_sheet reports. A regression here would cascade across
+    every report."""
+
+    def test_helper_returns_none_for_blank(self):
+        # Blank input → None ("no filter") so callers can short-circuit.
+        self.assertIsNone(mhr_utilis.get_container_nos_by_transaction_type(""))
+        self.assertIsNone(mhr_utilis.get_container_nos_by_transaction_type(None))
+
+    def test_helper_uses_ifnull_normal_pattern(self):
+        src = inspect.getsource(mhr_utilis.get_container_nos_by_transaction_type)
+        self.assertIn(
+            "IFNULL(transaction_type, 'Normal')",
+            src,
+            "Shared helper must IFNULL(transaction_type, 'Normal') — otherwise legacy "
+            "Containers vanish from Normal-mode view of every report.",
+        )
+
+    def test_helper_only_submitted(self):
+        src = inspect.getsource(mhr_utilis.get_container_nos_by_transaction_type)
+        self.assertIn(
+            "docstatus = 1", src,
+            "Shared helper must only consider submitted Containers (docstatus=1).",
+        )
+
+    def test_filter_rows_pass_through_when_blank(self):
+        rows = [{"Container Number": "X", "qty": 1}, {"Container Number": "Y", "qty": 2}]
+        self.assertEqual(
+            mhr_utilis.filter_rows_by_transaction_type(rows, {}, "Container Number"),
+            rows,
+        )
+        self.assertEqual(
+            mhr_utilis.filter_rows_by_transaction_type(
+                rows, {"transaction_type": ""}, "Container Number"
+            ),
+            rows,
+        )
+
+    def test_filter_rows_uses_container_field_arg(self):
+        # Different reports use different row keys ("Container Number" vs
+        # "Container No"). The helper must consult the per-report key.
+        src = inspect.getsource(mhr_utilis.filter_rows_by_transaction_type)
+        self.assertIn("container_field", src,
+            "filter_rows_by_transaction_type must accept a `container_field` arg "
+            "because different reports key the Container value differently.")
 
 
 class TestContainerReportTransactionTypeFilter(FrappeTestCase):
-    """Container Report — post-aggregate Python filter."""
+    """Container Report — post-aggregate Python filter via shared helper."""
 
     def test_blank_filter_is_noop(self):
         """Blank transaction_type must NOT filter — full result set returned."""
@@ -35,36 +84,54 @@ class TestContainerReportTransactionTypeFilter(FrappeTestCase):
         self.assertEqual(len(rows_a), len(rows_b),
             "Empty transaction_type filter must behave the same as no filter at all.")
 
-    def test_filter_helper_treats_null_as_normal(self):
-        """Source-level check: legacy Containers (NULL transaction_type)
-        must appear under the Normal filter. The FRD's hard rule is that
-        Normal = unchanged behavior."""
-        src = inspect.getsource(cr._container_nos_for_transaction_type)
-        self.assertIn(
-            "IFNULL(transaction_type, 'Normal')",
-            src,
-            "Container Report's filter helper must IFNULL(transaction_type, 'Normal') — "
-            "otherwise legacy Containers vanish from Normal-mode view.",
-        )
-
-    def test_filter_helper_only_submitted(self):
-        src = inspect.getsource(cr._container_nos_for_transaction_type)
-        self.assertIn(
-            "docstatus = 1", src,
-            "Filter helper must only consider submitted Containers (docstatus=1) — "
-            "draft/cancelled don't represent active stock.",
-        )
-
-    def test_execute_invokes_filter_helper_only_when_set(self):
+    def test_execute_uses_shared_helper(self):
         src = inspect.getsource(cr.execute)
         self.assertIn(
-            "_container_nos_for_transaction_type",
+            "filter_rows_by_transaction_type",
             src,
-            "execute() must call the filter helper.",
+            "Container Report must use the shared helper "
+            "(mhr.utilis.filter_rows_by_transaction_type) — DRY across all 6 reports.",
         )
-        # The filter must be guarded by `if tt:` so blank stays a no-op.
-        self.assertIn("if tt:", src,
-            "execute() must guard the filter behind `if tt:` so blank is a no-op.")
+        self.assertIn(
+            'container_field="container_number"',
+            src,
+            "Container Report rows key the value under 'container_number'.",
+        )
+
+
+class TestStockSheetReportsTransactionTypeFilter(FrappeTestCase):
+    """The 4 stock_sheet reports must also use the shared helper with the
+    right per-report container_field key. Different reports use
+    'Container Number' vs 'Container No' — getting that key wrong
+    silently breaks the filter (returns 0 rows for HTY, all rows for
+    Normal)."""
+
+    # (module_path, expected_container_field)
+    WIRINGS = [
+        ("mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report)",         "Container Number"),
+        ("mhr.mhr.report.stock_sheet_(balance_report_simple).stock_sheet_(balance_report_simple)", "Container Number"),
+        ("mhr.mhr.report.stock_sheet_(inward_cone_wise).stock_sheet_(inward_cone_wise)",     "Container Number"),
+        ("mhr.mhr.report.stock_sheets_(inward_coneless_stock_).stock_sheets_(inward_coneless_stock_)", "Container No"),
+        ("mhr.mhr.report.stock_sheets_(inward_rest_stock_).stock_sheets_(inward_rest_stock_)",        "Container No"),
+    ]
+
+    def test_each_report_uses_shared_helper_with_correct_key(self):
+        import importlib
+        for modpath, expected_field in self.WIRINGS:
+            with self.subTest(module=modpath):
+                mod = importlib.import_module(modpath)
+                src = inspect.getsource(mod.execute)
+                self.assertIn(
+                    "filter_rows_by_transaction_type",
+                    src,
+                    f"{modpath} must call the shared helper from mhr.utilis.",
+                )
+                self.assertIn(
+                    f'container_field="{expected_field}"',
+                    src,
+                    f"{modpath} must pass container_field={expected_field!r} — "
+                    "the row dict uses this exact key.",
+                )
 
 
 class TestDeliveryChallanTransactionTypeFilter(FrappeTestCase):

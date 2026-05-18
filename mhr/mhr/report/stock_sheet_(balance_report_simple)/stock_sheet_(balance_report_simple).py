@@ -10,6 +10,9 @@ from collections import defaultdict
 def execute(filters=None):
     columns = get_columns()
     data = get_data(filters)
+    # MI1-I39 P2-C: HTY transaction_type filter via shared helper.
+    from mhr.utilis import filter_rows_by_transaction_type
+    data = filter_rows_by_transaction_type(data, filters, container_field="Container Number")
     return columns, data
 
 

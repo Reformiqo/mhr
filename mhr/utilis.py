@@ -1403,6 +1403,53 @@ def _submit_stock_entry_worker(name, notify_user):
 
 
 # ---------------------------------------------------------------------------
+# MI1-I39 — HTY transaction_type helpers shared across reports
+# ---------------------------------------------------------------------------
+# Each existing stock report queries `tabBatch` keyed by `custom_container_no`
+# (a Data field carrying the Container *number*, not the Container doc name).
+# To filter by HTY/Normal we need to consult the parent Container doc.
+#
+# IFNULL(transaction_type, 'Normal'): existing pre-HTY Containers have NULL
+# because the field was added later. Per FRD's hard rule "Normal = unchanged
+# starter behavior", NULL is treated as Normal so legacy data still appears
+# under the Normal-filter view (and disappears under HTY-filter).
+
+def get_container_nos_by_transaction_type(transaction_type):
+    """Return the set of distinct Container.container_no values whose
+    submitted parent Container has the given transaction_type. Used by
+    the existing stock reports to post-aggregate-filter rows."""
+    if not transaction_type:
+        return None  # caller treats None as "no filter"
+    rows = frappe.db.sql(
+        """
+        SELECT DISTINCT container_no
+        FROM `tabContainer`
+        WHERE docstatus = 1
+          AND IFNULL(transaction_type, 'Normal') = %s
+          AND IFNULL(container_no, '') != ''
+        """,
+        (transaction_type,),
+    )
+    return {r[0] for r in rows}
+
+
+def filter_rows_by_transaction_type(rows, filters, container_field):
+    """Apply an HTY transaction_type post-aggregate filter to a list of
+    report rows. `container_field` is the row dict key carrying the
+    Container.container_no value (varies per report — e.g. "Container
+    Number" vs "Container No"). Blank/missing filter = pass-through."""
+    if not rows:
+        return rows
+    tt = (filters or {}).get("transaction_type")
+    if not tt:
+        return rows
+    allowed = get_container_nos_by_transaction_type(tt)
+    if allowed is None:
+        return rows
+    return [r for r in rows if (r.get(container_field) or "") in allowed]
+
+
+# ---------------------------------------------------------------------------
 # MI1-I39 — HTY 4-step lot-based Delivery Note picker
 # ---------------------------------------------------------------------------
 # The HTY workflow (FRD §Delivery Note, "4-STEP LOT-BASED Delivery Note

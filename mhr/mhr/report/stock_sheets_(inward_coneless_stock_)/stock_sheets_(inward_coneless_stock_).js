@@ -28,6 +28,14 @@ frappe.query_reports["STOCK SHEETS (INWARD CONELESS STOCK )"] = {
 			"fieldtype": "Data",
 			"label": "Lot No",
 			"mandatory": 0,
+		},
+		// MI1-I39 P2-C: HTY transaction_type filter. Blank = all.
+		{
+			"fieldname": "transaction_type",
+			"label": __("Transaction Type"),
+			"fieldtype": "Select",
+			"options": "\nNormal\nHTY",
+			"default": "",
 		}
 	],
 	formatter: function(value, row, column, data, default_formatter) {
