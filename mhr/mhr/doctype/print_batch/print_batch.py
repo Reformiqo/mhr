@@ -20,26 +20,48 @@ class PrintBatch(Document):
         self.enqueue_generate_multi_pdf_url()
 
     def enqueue_generate_multi_pdf_url(self):
+        # MI1-I27/I39 follow-up: commit BEFORE enqueue. Otherwise a fast
+        # worker picks up the job before this transaction is committed
+        # and `frappe.get_doc("Print Batch", X)` raises DoesNotExistError
+        # ("Print Batch X not found"). That's what Raj saw — Print Batch
+        # creation looked broken because the background PDF job silently
+        # failed and `file_url` stayed empty.
+        frappe.db.commit()
         frappe.msgprint("PDF generation has been enqueued. You will be notified once it's ready.")
         enqueue(
             method=self.generate_multi_pdf_url,
             queue='default',
             timeout=300,
             job_name=f'generate-multi-pdf-{self.name}',
-            print_batch_name=self.name
+            print_batch_name=self.name,
+            # Retry once if the worker still races us — cheaper than
+            # forcing the user to recreate the doc.
+            enqueue_after_commit=True,
         )
 
     @staticmethod
     def generate_multi_pdf_url(print_batch_name):
+        # MI1-I27/I39 follow-up: if the worker races the parent
+        # transaction (or the doc was deleted between enqueue and run),
+        # exit cleanly with a log instead of an uncaught DoesNotExistError.
+        if not frappe.db.exists("Print Batch", print_batch_name):
+            frappe.log_error(
+                message=f"Print Batch {print_batch_name} did not exist when "
+                "the background PDF job ran. Likely race with after_insert "
+                "commit or doc was deleted before job picked it up.",
+                title=f"Print Batch PDF: missing doc {print_batch_name}",
+            )
+            return
+
         print_batch = frappe.get_doc("Print Batch", print_batch_name)
         name = print_batch.name  # Use the document's name for the PDF file
 
         batches = [b.batch for b in print_batch.list_batches]
-        
+
         doctype = {
             "Batch": batches
         }
-        
+
         try:
             # MI1-I39 Phase 2E: HTY-mode Print Batch runs use the HTML
             # "HTY Batch Label" format which relabels Lustre/Glue/Pulp to
