@@ -1400,3 +1400,119 @@ def _submit_stock_entry_worker(name, notify_user):
         message={"name": name, "ok": ok, "error": error},
         user=notify_user,
     )
+
+
+# ---------------------------------------------------------------------------
+# MI1-I39 — HTY 4-step lot-based Delivery Note picker
+# ---------------------------------------------------------------------------
+# The HTY workflow (FRD §Delivery Note, "4-STEP LOT-BASED Delivery Note
+# WORKFLOW") starts the user from Lot No, auto-displays Containers under that
+# lot, accepts a multi-select, then materialises DN items from the selected
+# Containers' Batch Items child rows. These three endpoints back the dialog.
+# Each is read-only — they return data only, never mutate.
+
+
+@frappe.whitelist()
+def get_hty_lots(company=None):
+    """List distinct lot_no across submitted Containers (optionally filtered
+    by company). Ordered by most-recent posting_date first so today's lots
+    appear at the top of the picker."""
+    conditions = ["c.docstatus = 1", "IFNULL(c.lot_no, '') != ''"]
+    params = {}
+    if company:
+        conditions.append("c.company = %(company)s")
+        params["company"] = company
+    where = " AND ".join(conditions)
+    rows = frappe.db.sql(
+        f"""
+        SELECT c.lot_no, COUNT(*) AS container_count, MAX(c.posting_date) AS last_posting
+        FROM `tabContainer` c
+        WHERE {where}
+        GROUP BY c.lot_no
+        ORDER BY last_posting DESC, c.lot_no
+        """,
+        params,
+        as_dict=True,
+    )
+    return rows
+
+
+@frappe.whitelist()
+def get_hty_containers_for_lot(lot_no, company=None):
+    """For a given lot, return every submitted Container plus a per-row
+    batch summary (count of batch rows + sum of net qty). The FRD says
+    "if container physically unavailable, still allow selection from stock
+    data" — so we DO NOT filter by remaining cones / stock balance here;
+    the caller decides what to pick."""
+    if not lot_no:
+        return []
+    conditions = ["c.docstatus = 1", "c.lot_no = %(lot_no)s"]
+    params = {"lot_no": lot_no}
+    if company:
+        conditions.append("c.company = %(company)s")
+        params["company"] = company
+    where = " AND ".join(conditions)
+    return frappe.db.sql(
+        f"""
+        SELECT c.name AS container, c.container_no, c.item AS item_code,
+               c.lot_no, c.posting_date, c.company, c.supplier,
+               c.lusture, c.glue, c.pulp, c.grade,
+               c.total_batches, c.total_cone, c.total_net_weight,
+               c.set_warehouse
+        FROM `tabContainer` c
+        WHERE {where}
+        ORDER BY c.posting_date DESC, c.name
+        """,
+        params,
+        as_dict=True,
+    )
+
+
+@frappe.whitelist()
+def get_hty_batches_for_containers(container_names):
+    """Return rows ready to drop into a Delivery Note items table.
+    `container_names` may arrive as JSON (the client sends an Array via
+    frappe.call) or as a list. Each row carries the fields the HTY DN row
+    needs: item_code, qty, batch_no, custom_container_no, custom_lot_no,
+    custom_cone, custom_sr_no, custom_gross_weight, custom_supplier_batch_no.
+    The DN-form-side code is what actually appends rows — we just hand
+    over the payload."""
+    if isinstance(container_names, str):
+        try:
+            container_names = json.loads(container_names)
+        except (ValueError, TypeError):
+            container_names = [container_names]
+    if not container_names:
+        return []
+    placeholders = ", ".join(["%s"] * len(container_names))
+    rows = frappe.db.sql(
+        f"""
+        SELECT
+            c.name AS container, c.container_no, c.lot_no,
+            c.item AS item_code, c.set_warehouse,
+            bi.batch_id, bi.qty AS net_weight, bi.cone,
+            bi.supplier_batch_no, bi.idx,
+            bi.custom_gross_weight, bi.custom_sr_no
+        FROM `tabContainer` c
+        INNER JOIN `tabBatch Items` bi ON bi.parent = c.name AND bi.parenttype = 'Container'
+        WHERE c.name IN ({placeholders}) AND c.docstatus = 1
+        ORDER BY c.name, bi.idx
+        """,
+        tuple(container_names),
+        as_dict=True,
+    )
+    payload = []
+    for r in rows:
+        payload.append({
+            "item_code": r.item_code,
+            "qty": flt(r.net_weight),
+            "batch_no": r.batch_id,
+            "warehouse": r.set_warehouse,
+            "custom_container_no": r.container_no,
+            "custom_lot_no": r.lot_no,
+            "custom_cone": cint(r.cone),
+            "custom_sr_no": r.custom_sr_no or "",
+            "custom_gross_weight": flt(r.custom_gross_weight),
+            "custom_supplier_batch_no": r.supplier_batch_no or "",
+        })
+    return payload

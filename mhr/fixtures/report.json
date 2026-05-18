@@ -6,6 +6,56 @@
   "disabled": 0,
   "docstatus": 0,
   "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2025-05-30 12:24:20.313243",
+  "module": "Mhr",
+  "name": "Updated Meher Creation",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Container",
+  "reference_report": null,
+  "report_name": "Updated Meher Creation",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "All"
+   },
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Purchase Manager"
+   },
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
   "filters": [
    {
     "default": "Today",
@@ -14,6 +64,9 @@
     "label": "From Date",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -23,6 +76,9 @@
     "label": "To Date",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -32,6 +88,9 @@
     "label": "Container",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -41,6 +100,9 @@
     "label": "Lot No",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -50,6 +112,9 @@
     "label": "Cone",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    }
   ],
@@ -60,7 +125,7 @@
   "modified": "2026-03-25 18:00:00",
   "module": "Mhr",
   "name": "STOCK SHEET (BALANCE REPORT SIMPLE)",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -69,15 +134,27 @@
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Guest"
    },
    {
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -107,18 +184,33 @@
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    },
    {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Delivery Manager"
    },
    {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Delivery User"
    },
    {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Fulfillment User"
    },
    {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Employee Self Service"
    }
   ],
@@ -139,6 +231,9 @@
     "label": "From Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -148,6 +243,9 @@
     "label": "To Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -157,6 +255,9 @@
     "label": "Container",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -166,6 +267,9 @@
     "label": "Lot No",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -175,6 +279,9 @@
     "label": "Cone",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    }
   ],
@@ -185,7 +292,7 @@
   "modified": "2025-12-27 01:49:01.386763",
   "module": "Mhr",
   "name": "STOCK SHEET (BALANCE REPORT)",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -194,15 +301,27 @@
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Guest"
    },
    {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -223,6 +342,9 @@
     "label": "From Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -232,6 +354,9 @@
     "label": "To Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -241,6 +366,9 @@
     "label": "Container",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -250,6 +378,9 @@
     "label": "Lot No",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -259,6 +390,9 @@
     "label": "Cone",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    }
   ],
@@ -269,7 +403,7 @@
   "modified": "2025-12-27 22:58:38.058471",
   "module": "Mhr",
   "name": "STOCK SHEETS (INWARD CONELESS STOCK )",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -278,15 +412,27 @@
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Guest"
    },
    {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -316,15 +462,27 @@
   "report_type": "Custom Report",
   "roles": [
    {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Purchase Manager"
    },
    {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "System Manager"
    },
    {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -345,6 +503,9 @@
     "label": "From Date",
     "mandatory": 1,
     "options": null,
+    "parent": "Meher Creation Updated",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -354,6 +515,9 @@
     "label": "To Date",
     "mandatory": 1,
     "options": null,
+    "parent": "Meher Creation Updated",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    }
   ],
@@ -373,15 +537,27 @@
   "report_type": "Query Report",
   "roles": [
    {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Purchase Manager"
    },
    {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "System Manager"
    },
    {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -402,7 +578,7 @@
   "modified": "2024-06-20 03:56:23.760267",
   "module": "Mhr",
   "name": "Meher Creation",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Container",
   "reference_report": null,
@@ -411,6 +587,9 @@
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "System Manager"
    }
   ],
@@ -431,6 +610,9 @@
     "label": "From Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -440,6 +622,9 @@
     "label": "To Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -449,6 +634,9 @@
     "label": "Container",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -458,6 +646,9 @@
     "label": "Lot No",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -467,6 +658,9 @@
     "label": "Cone",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    }
   ],
@@ -477,7 +671,7 @@
   "modified": "2025-12-16 05:00:52.808163",
   "module": "Mhr",
   "name": "STOCK SHEET (INWARD CONE WISE)",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -486,15 +680,27 @@
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Guest"
    },
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -515,6 +721,9 @@
     "label": "From Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -524,6 +733,9 @@
     "label": "To Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    }
   ],
@@ -543,15 +755,27 @@
   "report_type": "Query Report",
   "roles": [
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Guest"
    },
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -572,6 +796,9 @@
     "label": "From Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -581,6 +808,9 @@
     "label": "To Date",
     "mandatory": 1,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -590,6 +820,9 @@
     "label": "Container",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -599,6 +832,9 @@
     "label": "Lot No",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    },
    {
@@ -608,6 +844,9 @@
     "label": "Cone",
     "mandatory": 0,
     "options": null,
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "filters",
+    "parenttype": "Report",
     "wildcard_filter": 0
    }
   ],
@@ -618,7 +857,7 @@
   "modified": "2025-12-16 05:21:02.847175",
   "module": "Mhr",
   "name": "STOCK SHEETS (INWARD REST STOCK )",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -627,15 +866,27 @@
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Guest"
    },
    {
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    }
   ],
@@ -653,25 +904,40 @@
   "javascript": null,
   "json": null,
   "letter_head": null,
-  "modified": "2026-04-10 00:00:00",
+  "modified": "2026-05-18 15:32:28.294446",
   "module": "Mhr",
-  "name": "Container Report",
-  "prepared_report": 0,
+  "name": "HTY Master Report",
+  "prepared_report": 1,
   "query": null,
-  "ref_doctype": "Batch",
+  "ref_doctype": "Container",
   "reference_report": null,
-  "report_name": "Container Report",
+  "report_name": "HTY Master Report",
   "report_script": null,
   "report_type": "Script Report",
   "roles": [
    {
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    },
    {
-    "role": "All"
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
    },
    {
-    "role": "System Manager"
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock Manager"
+   },
+   {
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Accounts Manager"
    }
   ],
   "timeout": 0
