@@ -9,9 +9,38 @@ PRECISION = 3
 
 
 def execute(filters=None):
+	filters = filters or {}
 	columns = get_columns()
 	data = get_data(filters)
+	# MI1-I39 P2-C: transaction_type filter. Post-aggregate Python filter so
+	# the existing SQL stays untouched (no Normal-mode regression).
+	tt = (filters or {}).get("transaction_type")
+	if tt:
+		allowed = _container_nos_for_transaction_type(tt)
+		data = [r for r in data if r.get("container_number") in allowed]
 	return columns, data
+
+
+def _container_nos_for_transaction_type(transaction_type):
+	"""Return the set of Container.container_no whose parent doc has the
+	given transaction_type and is submitted. Used to filter aggregated
+	rows after the main batch-level query has run.
+
+	IFNULL(transaction_type, 'Normal'): existing pre-HTY Containers have
+	NULL because the field was added later. Per FRD's hard rule "Normal =
+	unchanged starter behavior", we treat NULL as Normal so legacy data
+	doesn't disappear from the Normal-filter view."""
+	rows = frappe.db.sql(
+		"""
+		SELECT DISTINCT container_no
+		FROM `tabContainer`
+		WHERE docstatus = 1
+		  AND IFNULL(transaction_type, 'Normal') = %s
+		  AND IFNULL(container_no, '') != ''
+		""",
+		(transaction_type,),
+	)
+	return {r[0] for r in rows}
 
 
 def get_columns():

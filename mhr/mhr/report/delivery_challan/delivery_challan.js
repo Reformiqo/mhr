@@ -21,6 +21,14 @@ frappe.query_reports["DELIVERY CHALLAN"] = {
 			"fieldname": "transporter",
 			"label": __("Transporter"),
 			"fieldtype": "Data"
+		},
+		// MI1-I39 P2-C: HTY transaction_type filter. Blank = all DNs.
+		{
+			"fieldname": "transaction_type",
+			"label": __("Transaction Type"),
+			"fieldtype": "Select",
+			"options": "\nNormal\nHTY",
+			"default": ""
 		}
 	]
 };

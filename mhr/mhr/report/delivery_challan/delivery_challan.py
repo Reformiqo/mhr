@@ -90,6 +90,7 @@ def get_data(filters=None):
     from_date = filters.get("from_date")
     to_date = filters.get("to_date")
     transporter = filters.get("transporter")
+    transaction_type = filters.get("transaction_type")
 
     if not from_date or not to_date:
         frappe.throw(_("Please select From Date and To Date"))
@@ -100,6 +101,13 @@ def get_data(filters=None):
 
     if transporter:
         conditions.append("dt.driver_name = %(transporter)s")
+
+    # MI1-I39 P2-C: HTY transaction_type filter. Blank = all (no condition).
+    # IFNULL(...,'Normal') so legacy DNs (created before the field existed,
+    # hence NULL) appear under "Normal" — matches the FRD's hard rule that
+    # Normal = unchanged starter behavior.
+    if transaction_type:
+        conditions.append("IFNULL(dn.transaction_type, 'Normal') = %(transaction_type)s")
 
     where_clause = " AND ".join(conditions)
 
@@ -135,6 +143,10 @@ def get_data(filters=None):
 
     if transporter:
         params["transporter"] = transporter
+
+    # MI1-I39 P2-C
+    if transaction_type:
+        params["transaction_type"] = transaction_type
 
     data = frappe.db.sql(query, params, as_dict=1)
     return data
