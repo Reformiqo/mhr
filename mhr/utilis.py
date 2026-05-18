@@ -1436,6 +1436,37 @@ def validate_hty_stock_entry(doc, method=None):
         doc.naming_series = "HTY-STE-.YYYY.-"
 
 
+def fill_default_addresses_on_delivery_trip(doc, method=None):
+    """MI1-I31 — Delivery Trip validate hook. For each Delivery Stop
+    with a customer set but no address, fall back to the customer's
+    primary address. Belt-and-braces alongside the Client Script in case
+    a Trip is created via API / import / server-script."""
+    from frappe.contacts.doctype.address.address import (
+        get_default_address,
+        get_address_display,
+    )
+    stops = getattr(doc, "delivery_stops", None) or []
+    for stop in stops:
+        if not getattr(stop, "customer", None):
+            continue
+        if getattr(stop, "address", None):
+            continue
+        addr = get_default_address("Customer", stop.customer)
+        if not addr:
+            continue
+        stop.address = addr
+        if not getattr(stop, "customer_address", None):
+            try:
+                stop.customer_address = get_address_display(addr)
+            except Exception:
+                # get_address_display can raise on missing Address rows;
+                # never block the save for a display string.
+                frappe.log_error(
+                    message=frappe.get_traceback(),
+                    title="MI1-I31: get_address_display failed",
+                )
+
+
 def validate_hty_delivery_trip(doc, method=None):
     """Delivery Trip validate hook (HTY-aware).
     If every linked Delivery Note is HTY-mode, automatically flip the

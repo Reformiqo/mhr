@@ -32,17 +32,25 @@ class Container(Document):
         self.create_purchase_receipt()
 
     def before_submit(self):
-        # MI1-I36: block duplicate (container_no, lot_no) submissions.
-        # Two Submitted Containers sharing container_no+lot_no end up pointing
-        # at the same batch_id set in tabBatch Items; the next cancel then wipes
-        # the shared Batch master rows and orphans the surviving Container.
-        if not (self.container_no and self.lot_no):
+        # MI1-I36: block duplicate Container submissions whose key set would
+        # share batch_ids with an existing submitted Container — the on_cancel
+        # DELETE path wipes Batch master rows by (container_no, lot_no), so
+        # two Containers with the same triple end up corrupting each other.
+        #
+        # MI1-I37 follow-up: the original check was on (container_no, lot_no)
+        # only. Raj reported that a single physical container legitimately
+        # carries multiple Container docs with the same lot but DIFFERENT
+        # items (different deniers). Those don't share batch_ids — each
+        # Container has its own cone-sequence per batch_id — so they're safe.
+        # The duplicate key is (container_no, lot_no, item).
+        if not (self.container_no and self.lot_no and self.item):
             return
         existing = frappe.db.get_value(
             "Container",
             {
                 "container_no": self.container_no,
                 "lot_no": self.lot_no,
+                "item": self.item,
                 "docstatus": 1,
                 "name": ("!=", self.name),
             },
@@ -50,8 +58,8 @@ class Container(Document):
         )
         if existing:
             frappe.throw(
-                f"A submitted Container with Container No '{self.container_no}' "
-                f"and Lot No '{self.lot_no}' already exists: "
+                f"A submitted Container with Container No '{self.container_no}', "
+                f"Lot No '{self.lot_no}', and Item '{self.item}' already exists: "
                 f"<a href='/app/container/{existing}'>{existing}</a>. "
                 f"Cancel that Container first before submitting this one."
             )

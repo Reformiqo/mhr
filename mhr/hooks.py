@@ -162,9 +162,15 @@ doc_events = {
         "validate": "mhr.utilis.validate_so_available_qty",
     },
     "Delivery Trip": {
-        # MI1-I39 P2-G: if all linked DNs are HTY, propagate HTY mode +
-        # series to the Trip. Mixed trips stay Normal.
-        "validate": "mhr.utilis.validate_hty_delivery_trip",
+        "validate": [
+            # MI1-I31: auto-fetch default customer address into each Stop
+            # if it's empty (mirrors ERPNext's standard Customer→Address
+            # default; covers programmatic Trip creation).
+            "mhr.utilis.fill_default_addresses_on_delivery_trip",
+            # MI1-I39 P2-G: if all linked DNs are HTY, propagate HTY mode +
+            # series to the Trip. Mixed trips stay Normal.
+            "mhr.utilis.validate_hty_delivery_trip",
+        ],
     },
 }
 

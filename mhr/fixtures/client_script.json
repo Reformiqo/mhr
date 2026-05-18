@@ -339,5 +339,16 @@
   "name": "MI1-I39 — Delivery Trip HTY Mode",
   "script": "// MI1-I39 P2-F — Delivery Trip HTY mode (naming series only for now).\n// MI1-I39 P2-F: auto-switch naming_series when transaction_type changes.\n// HTY-mode docs use the HTY-DT-prefixed naming series.\nfunction mi1_i39_apply_dt_naming_series(frm) {\n    if (frm.doc.docstatus !== 0) return;  // never change after submit\n    const ns_df = frm.fields_dict.naming_series && frm.fields_dict.naming_series.df;\n    if (!ns_df || !ns_df.options) return;\n    const opts = (ns_df.options || '').split('\\n').filter(Boolean);\n    const hty_opts = opts.filter(o => o.startsWith('HTY-'));\n    const non_hty_opts = opts.filter(o => !o.startsWith('HTY-'));\n    if (frm.doc.transaction_type === 'HTY' && hty_opts.length) {\n        // Prefer the first HTY option; only override if the user hasn't\n        // picked an HTY series already.\n        if (!String(frm.doc.naming_series || '').startsWith('HTY-')) {\n            frm.set_value('naming_series', hty_opts[0]);\n        }\n    } else if (frm.doc.transaction_type !== 'HTY' && non_hty_opts.length) {\n        // Flipping back to Normal: if naming_series is HTY-prefixed, swap\n        // to the first non-HTY option.\n        if (String(frm.doc.naming_series || '').startsWith('HTY-')) {\n            frm.set_value('naming_series', non_hty_opts[0]);\n        }\n    }\n}\nfrappe.ui.form.on('Delivery Trip', {\n    refresh: mi1_i39_apply_dt_naming_series,\n    transaction_type: mi1_i39_apply_dt_naming_series,\n});\n",
   "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Delivery Trip",
+  "enabled": 1,
+  "modified": "2026-05-18 17:45:49.398323",
+  "module": "Mhr",
+  "name": "MI1-I31 — Delivery Stop Address Auto-Fetch",
+  "script": "// MI1-I31 — auto-fetch the customer's primary Address Name + the\n// short-text display when a Delivery Stop's customer is set or changes.\n// Mirrors ERPNext's standard Customer → Address default lookup.\n\nfunction mi1_i31_fetch_default_address(frm, cdt, cdn) {\n    const row = locals[cdt][cdn];\n    if (!row || !row.customer) return;\n    if (row.address) return;  // user already chose one — don't clobber\n\n    frappe.call({\n        method: 'frappe.contacts.doctype.address.address.get_default_address',\n        args: { name: row.customer, doctype: 'Customer' },\n        callback: function (r) {\n            const addr = r && r.message;\n            if (!addr) return;\n            frappe.model.set_value(cdt, cdn, 'address', addr);\n            // Hydrate the display text via the helper Frappe uses on\n            // standard address-text fields.\n            frappe.call({\n                method: 'frappe.contacts.doctype.address.address.get_address_display',\n                args: { address_dict: addr },\n                callback: function (rr) {\n                    if (rr && rr.message) {\n                        frappe.model.set_value(cdt, cdn, 'customer_address', rr.message);\n                    }\n                },\n            });\n        },\n    });\n}\n\nfrappe.ui.form.on('Delivery Stop', {\n    customer: mi1_i31_fetch_default_address,\n});",
+  "view": "Form"
  }
 ]

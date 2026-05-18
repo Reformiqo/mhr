@@ -941,5 +941,67 @@
    }
   ],
   "timeout": 0
+ },
+ {
+  "add_total_row": 1,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2026-05-18 17:41:31.212369",
+  "module": "Mhr",
+  "name": "Delivery Trip Simplified",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Delivery Trip",
+  "reference_report": null,
+  "report_name": "Delivery Trip Simplified",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock Manager"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery Manager"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery User"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Fulfillment User"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   }
+  ],
+  "timeout": 0
  }
 ]

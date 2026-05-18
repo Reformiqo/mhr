@@ -153,6 +153,7 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
                 "name": "TEST-1361-A",
                 "container_no": "MCJC-1361",
                 "lot_no": "21112025",
+                "item": "75D/30f",
                 "batches": [],
             }
         )
@@ -173,6 +174,7 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
                 "name": "TEST-1361-B",
                 "container_no": "MCJC-1361",
                 "lot_no": "21112025",
+                "item": "75D/30f",
                 "batches": [],
             }
         )
@@ -181,7 +183,7 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
             c.before_submit()
 
     def test_before_submit_skips_when_keys_missing(self):
-        """If container_no or lot_no is missing, the duplicate check
+        """If container_no/lot_no/item is missing, the duplicate check
         is a no-op (no spurious throw, no DB hit)."""
         c = container_mod.Container(
             {
@@ -189,8 +191,41 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
                 "name": "TEST-MISSING",
                 "container_no": None,
                 "lot_no": None,
+                "item": None,
                 "batches": [],
             }
         )
         with patch.object(frappe.db, "get_value", side_effect=AssertionError("must not call DB")):
             c.before_submit()  # must not raise
+
+    def test_before_submit_allows_same_container_lot_different_item(self):
+        """MI1-I37 regression: a single physical container legitimately
+        carries multiple Container docs with the same lot but DIFFERENT
+        items (different deniers). These do NOT share batch_ids and must
+        not be blocked. Verify that the get_value filter includes `item`
+        so the same (container_no, lot_no) with a different item does
+        not match an existing doc."""
+        c = container_mod.Container(
+            {
+                "doctype": "Container",
+                "name": "MCJC-1593-NEW",
+                "container_no": "MCJC-1593",
+                "lot_no": "04042026",
+                "item": "75D/30f",
+                "batches": [],
+            }
+        )
+        captured_filters = {}
+
+        def fake_get_value(doctype, filters, fieldname):
+            captured_filters.update(filters)
+            return None
+
+        with patch.object(frappe.db, "get_value", side_effect=fake_get_value):
+            c.before_submit()
+
+        self.assertEqual(
+            captured_filters.get("item"), "75D/30f",
+            "MI1-I37: before_submit must filter by item — otherwise a different-denier "
+            "Container on the same container_no+lot_no gets blocked incorrectly.",
+        )
