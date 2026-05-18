@@ -1406,7 +1406,7 @@ def _submit_stock_entry_worker(name, notify_user):
 # MI1-I39 P2-G — Server-side HTY hooks
 # ---------------------------------------------------------------------------
 # These run via doc_events wired in hooks.py. Each is gated on
-# transaction_type == 'HTY' so Normal-mode flow stays identical
+# transaction_type == 'HTY' so VFY-mode flow stays identical
 # (FRD's hard rule).
 #
 # Behaviors:
@@ -1426,7 +1426,7 @@ def validate_hty_stock_entry(doc, method=None):
     series, set the default one. Skip if already submitted."""
     if getattr(doc, "docstatus", 0) != 0:
         return
-    if (getattr(doc, "transaction_type", None) or "Normal") != "HTY":
+    if (getattr(doc, "transaction_type", None) or "VFY") != "HTY":
         return
     series = getattr(doc, "naming_series", "") or ""
     if not series.startswith("HTY-"):
@@ -1471,7 +1471,7 @@ def validate_hty_delivery_trip(doc, method=None):
     """Delivery Trip validate hook (HTY-aware).
     If every linked Delivery Note is HTY-mode, automatically flip the
     Trip to HTY mode + HTY naming series. Mixed trips (some HTY, some
-    Normal) stay Normal — no surprise side effects."""
+    VFY) stay VFY — no surprise side effects."""
     if getattr(doc, "docstatus", 0) != 0:
         return
     stops = getattr(doc, "delivery_stops", None) or []
@@ -1481,7 +1481,7 @@ def validate_hty_delivery_trip(doc, method=None):
     placeholders = ", ".join(["%s"] * len(dn_names))
     rows = frappe.db.sql(
         f"""
-        SELECT name, IFNULL(transaction_type, 'Normal') AS tt
+        SELECT name, IFNULL(transaction_type, 'VFY') AS tt
         FROM `tabDelivery Note`
         WHERE name IN ({placeholders})
         """,
@@ -1491,7 +1491,7 @@ def validate_hty_delivery_trip(doc, method=None):
     if not rows or any(r.tt != "HTY" for r in rows):
         return
     # All HTY → propagate.
-    if (getattr(doc, "transaction_type", None) or "Normal") != "HTY":
+    if (getattr(doc, "transaction_type", None) or "VFY") != "HTY":
         doc.transaction_type = "HTY"
     series = getattr(doc, "naming_series", "") or ""
     if not series.startswith("HTY-"):
@@ -1512,7 +1512,7 @@ def restore_cones_for_hty_return(doc, method=None):
     a normal sale debits them at submit."""
     if not getattr(doc, "is_return", 0):
         return
-    if (getattr(doc, "transaction_type", None) or "Normal") != "HTY":
+    if (getattr(doc, "transaction_type", None) or "VFY") != "HTY":
         return
 
     for item in (doc.items or []):
@@ -1549,12 +1549,12 @@ def restore_cones_for_hty_return(doc, method=None):
 # ---------------------------------------------------------------------------
 # Each existing stock report queries `tabBatch` keyed by `custom_container_no`
 # (a Data field carrying the Container *number*, not the Container doc name).
-# To filter by HTY/Normal we need to consult the parent Container doc.
+# To filter by HTY/VFY we need to consult the parent Container doc.
 #
-# IFNULL(transaction_type, 'Normal'): existing pre-HTY Containers have NULL
-# because the field was added later. Per FRD's hard rule "Normal = unchanged
-# starter behavior", NULL is treated as Normal so legacy data still appears
-# under the Normal-filter view (and disappears under HTY-filter).
+# IFNULL(transaction_type, 'VFY'): existing pre-HTY Containers have NULL
+# because the field was added later. Per FRD's hard rule "VFY = unchanged
+# starter behavior", NULL is treated as VFY so legacy data still appears
+# under the VFY-filter view (and disappears under HTY-filter).
 
 def get_container_nos_by_transaction_type(transaction_type):
     """Return the set of distinct Container.container_no values whose
@@ -1567,7 +1567,7 @@ def get_container_nos_by_transaction_type(transaction_type):
         SELECT DISTINCT container_no
         FROM `tabContainer`
         WHERE docstatus = 1
-          AND IFNULL(transaction_type, 'Normal') = %s
+          AND IFNULL(transaction_type, 'VFY') = %s
           AND IFNULL(container_no, '') != ''
         """,
         (transaction_type,),

@@ -133,7 +133,7 @@ doc_events = {
         "on_submit": [
             "mhr.utilis.update_item_batch",
             # MI1-I39 P2-G: HTY-mode return DN re-credits cones on submit
-            # (symmetric with the Normal cancel-time reversal).
+            # (symmetric with the VFY cancel-time reversal).
             "mhr.utilis.restore_cones_for_hty_return",
         ],
         "on_cancel": "mhr.utilis.reverse_item_batch",
@@ -168,7 +168,7 @@ doc_events = {
             # default; covers programmatic Trip creation).
             "mhr.utilis.fill_default_addresses_on_delivery_trip",
             # MI1-I39 P2-G: if all linked DNs are HTY, propagate HTY mode +
-            # series to the Trip. Mixed trips stay Normal.
+            # series to the Trip. Mixed trips stay VFY.
             "mhr.utilis.validate_hty_delivery_trip",
         ],
     },

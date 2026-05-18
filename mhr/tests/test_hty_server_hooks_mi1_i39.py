@@ -24,12 +24,12 @@ class TestValidateHTYStockEntry(FrappeTestCase):
     def test_skips_when_not_hty(self):
         doc = MagicMock()
         doc.docstatus = 0
-        doc.transaction_type = "Normal"
+        doc.transaction_type = "VFY"
         doc.naming_series = "MAT-STE-.YYYY.-"
         mhr_utilis.validate_hty_stock_entry(doc)
         self.assertEqual(
             doc.naming_series, "MAT-STE-.YYYY.-",
-            "Normal-mode SE must not have naming_series rewritten.",
+            "VFY-mode SE must not have naming_series rewritten.",
         )
 
     def test_sets_hty_series_when_hty_and_non_hty_series(self):
@@ -68,7 +68,7 @@ class TestValidateHTYStockEntry(FrappeTestCase):
 
 class TestValidateHTYDeliveryTrip(FrappeTestCase):
 
-    def _doc_with_stops(self, dn_names, docstatus=0, transaction_type="Normal",
+    def _doc_with_stops(self, dn_names, docstatus=0, transaction_type="VFY",
                        naming_series="MAT-DT-.YYYY.-"):
         doc = MagicMock()
         doc.docstatus = docstatus
@@ -84,7 +84,7 @@ class TestValidateHTYDeliveryTrip(FrappeTestCase):
     def test_skips_when_no_stops(self):
         doc = self._doc_with_stops([])
         mhr_utilis.validate_hty_delivery_trip(doc)
-        self.assertEqual(doc.transaction_type, "Normal")
+        self.assertEqual(doc.transaction_type, "VFY")
 
     def test_all_hty_dns_propagates_hty(self):
         doc = self._doc_with_stops(["DN-A", "DN-B"])
@@ -105,19 +105,19 @@ class TestValidateHTYDeliveryTrip(FrappeTestCase):
             frappe.db, "sql",
             return_value=[
                 frappe._dict(name="DN-A", tt="HTY"),
-                frappe._dict(name="DN-B", tt="Normal"),
+                frappe._dict(name="DN-B", tt="VFY"),
             ],
         ):
             mhr_utilis.validate_hty_delivery_trip(doc)
         self.assertEqual(
-            doc.transaction_type, "Normal",
+            doc.transaction_type, "VFY",
             "A mixed-mode Trip must NOT auto-flip to HTY — surprise side effects.",
         )
 
     def test_skips_submitted_trips(self):
         doc = self._doc_with_stops(["DN-A"], docstatus=1)
         mhr_utilis.validate_hty_delivery_trip(doc)
-        self.assertEqual(doc.transaction_type, "Normal")
+        self.assertEqual(doc.transaction_type, "VFY")
 
 
 class TestRestoreConesForHTYReturn(FrappeTestCase):
@@ -134,7 +134,7 @@ class TestRestoreConesForHTYReturn(FrappeTestCase):
     def test_skips_when_not_hty(self):
         doc = MagicMock()
         doc.is_return = 1
-        doc.transaction_type = "Normal"
+        doc.transaction_type = "VFY"
         doc.items = []
         with patch.object(frappe.db, "sql", side_effect=AssertionError("must not query")):
             mhr_utilis.restore_cones_for_hty_return(doc)

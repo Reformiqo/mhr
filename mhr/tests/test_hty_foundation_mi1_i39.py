@@ -2,7 +2,7 @@
 
 Pins the Custom Fields + Client Scripts that the FRD's Phase 1
 ("Transaction Type" + HTY label-swap + Gross Wt + Sr.No.) requires.
-A regression here would silently break the Normal/HTY toggle for every
+A regression here would silently break the VFY/HTY toggle for every
 DocType the FRD touches.
 
 Scope: structural only — does the field exist on the right DocType with
@@ -46,7 +46,7 @@ HTY_CLIENT_SCRIPTS = [
 
 class TestHTYTransactionTypeField(FrappeTestCase):
     """Every DocType in the FRD must carry a `transaction_type` field
-    of type Select(Normal,HTY) defaulting to Normal."""
+    of type Select(VFY,HTY) defaulting to VFY."""
 
     def test_field_exists_on_every_doctype(self):
         for dt in TRANSACTION_TYPE_DOCTYPES:
@@ -65,12 +65,12 @@ class TestHTYTransactionTypeField(FrappeTestCase):
                 self.assertEqual(cf.fieldtype, "Select", f"{dt}.transaction_type must be Select")
                 self.assertEqual(
                     set(cf.options.splitlines()),
-                    {"Normal", "HTY"},
-                    f"{dt}.transaction_type options must be exactly Normal+HTY",
+                    {"VFY", "HTY"},
+                    f"{dt}.transaction_type options must be exactly VFY+HTY",
                 )
-                self.assertEqual(cf.default, "Normal",
-                    f"{dt}.transaction_type must default to Normal — the FRD's hard rule "
-                    f"is that Normal mode = unchanged starter behavior.")
+                self.assertEqual(cf.default, "VFY",
+                    f"{dt}.transaction_type must default to VFY — the FRD's hard rule "
+                    f"is that VFY mode = unchanged starter behavior.")
                 self.assertEqual(cf.reqd, 1, f"{dt}.transaction_type must be mandatory")
                 self.assertEqual(cf.module, "Mhr",
                     f"{dt}.transaction_type must be in module=Mhr so it ships via fixtures.")

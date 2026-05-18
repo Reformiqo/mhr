@@ -2,7 +2,7 @@
 
 In HTY mode, Print Batch generates labels using a new "HTY Batch Label"
 print format that relabels Lustre→Colour, Glue→Product, Pulp→Type.
-Normal mode keeps the existing "NB" Print Designer format untouched
+VFY mode keeps the existing "NB" Print Designer format untouched
 (FRD hard rule).
 """
 
@@ -69,7 +69,7 @@ class TestPrintBatchPicksHTYFormatInHTYMode(FrappeTestCase):
         )
         self.assertIn(
             '"NB"', src,
-            "Normal-mode runs must keep the existing NB format (FRD hard rule).",
+            "VFY-mode runs must keep the existing NB format (FRD hard rule).",
         )
 
     def test_default_is_normal_when_field_missing(self):
@@ -77,7 +77,7 @@ class TestPrintBatchPicksHTYFormatInHTYMode(FrappeTestCase):
         defaults to NB — never crashes."""
         src = inspect.getsource(pb_mod.PrintBatch.generate_multi_pdf_url)
         self.assertIn(
-            'or "Normal"', src,
-            "Missing/None transaction_type must default to 'Normal' so legacy "
+            'or "VFY"', src,
+            "Missing/None transaction_type must default to 'VFY' so legacy "
             "Print Batch docs continue to use NB.",
         )

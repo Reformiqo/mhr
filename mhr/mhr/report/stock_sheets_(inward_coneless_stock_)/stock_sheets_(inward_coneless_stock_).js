@@ -34,7 +34,7 @@ frappe.query_reports["STOCK SHEETS (INWARD CONELESS STOCK )"] = {
 			"fieldname": "transaction_type",
 			"label": __("Transaction Type"),
 			"fieldtype": "Select",
-			"options": "\nNormal\nHTY",
+			"options": "\nVFY\nHTY",
 			"default": "",
 		}
 	],

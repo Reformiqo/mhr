@@ -4,7 +4,7 @@ Scope of this slice: Container Report + Delivery Challan only. The 4
 stock_sheet reports (Balance, Balance Simple, Inward Cone Wise,
 Inward Coneless, Inward Rest) will get the filter in a follow-up — they
 have heavier data-loading internals and need careful edits to avoid
-regressing the Normal-mode (legacy) Meher flow, which the FRD pins as
+regressing the VFY-mode (legacy) Meher flow, which the FRD pins as
 "must stay identical to today".
 
 Tests pin:
@@ -12,8 +12,8 @@ Tests pin:
     post-aggregate filter that consults tabContainer.transaction_type.
   - Delivery Challan adds the JS filter + a SQL WHERE condition on
     dn.transaction_type.
-  - Both treat NULL as 'Normal' (IFNULL pattern) so legacy docs
-    created before the field existed don't disappear from Normal view.
+  - Both treat NULL as 'VFY' (IFNULL pattern) so legacy docs
+    created before the field existed don't disappear from VFY view.
   - Blank filter is a no-op (preserves backward compatibility).
 """
 
@@ -39,10 +39,10 @@ class TestSharedHTYFilterHelper(FrappeTestCase):
     def test_helper_uses_ifnull_normal_pattern(self):
         src = inspect.getsource(mhr_utilis.get_container_nos_by_transaction_type)
         self.assertIn(
-            "IFNULL(transaction_type, 'Normal')",
+            "IFNULL(transaction_type, 'VFY')",
             src,
-            "Shared helper must IFNULL(transaction_type, 'Normal') — otherwise legacy "
-            "Containers vanish from Normal-mode view of every report.",
+            "Shared helper must IFNULL(transaction_type, 'VFY') — otherwise legacy "
+            "Containers vanish from VFY-mode view of every report.",
         )
 
     def test_helper_only_submitted(self):
@@ -104,7 +104,7 @@ class TestStockSheetReportsTransactionTypeFilter(FrappeTestCase):
     right per-report container_field key. Different reports use
     'Container Number' vs 'Container No' — getting that key wrong
     silently breaks the filter (returns 0 rows for HTY, all rows for
-    Normal)."""
+    VFY)."""
 
     # (module_path, expected_container_field)
     WIRINGS = [
@@ -148,10 +148,10 @@ class TestDeliveryChallanTransactionTypeFilter(FrappeTestCase):
     def test_where_clause_present(self):
         src = inspect.getsource(dc.get_data)
         self.assertIn(
-            "IFNULL(dn.transaction_type, 'Normal')",
+            "IFNULL(dn.transaction_type, 'VFY')",
             src,
-            "Delivery Challan WHERE must IFNULL(dn.transaction_type, 'Normal') so legacy "
-            "DNs appear under Normal — matches FRD's 'Normal = unchanged' rule.",
+            "Delivery Challan WHERE must IFNULL(dn.transaction_type, 'VFY') so legacy "
+            "DNs appear under VFY — matches FRD's 'VFY = unchanged' rule.",
         )
 
     def test_filter_param_passed(self):

@@ -103,11 +103,11 @@ def get_data(filters=None):
         conditions.append("dt.driver_name = %(transporter)s")
 
     # MI1-I39 P2-C: HTY transaction_type filter. Blank = all (no condition).
-    # IFNULL(...,'Normal') so legacy DNs (created before the field existed,
-    # hence NULL) appear under "Normal" — matches the FRD's hard rule that
-    # Normal = unchanged starter behavior.
+    # IFNULL(...,'VFY') so legacy DNs (created before the field existed,
+    # hence NULL) appear under "VFY" — matches the FRD's hard rule that
+    # VFY = unchanged starter behavior.
     if transaction_type:
-        conditions.append("IFNULL(dn.transaction_type, 'Normal') = %(transaction_type)s")
+        conditions.append("IFNULL(dn.transaction_type, 'VFY') = %(transaction_type)s")
 
     where_clause = " AND ".join(conditions)
 

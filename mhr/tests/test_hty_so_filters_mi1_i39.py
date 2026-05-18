@@ -5,7 +5,7 @@ In HTY mode the SO Client Script enforces FRD §SO rules:
     are filtered by selected Company via set_query.
   - On Company change, default Price List + Cost Center are auto-fetched
     from the Company master.
-  - Normal mode is untouched (FRD's hard rule).
+  - VFY mode is untouched (FRD's hard rule).
 
 These tests pin the wiring in the Client Script source; behavior is
 exercised manually via the form (no Frappe server-side hook in Phase 2B).
@@ -59,7 +59,7 @@ class TestSalesOrderHTYClientScript(FrappeTestCase):
         )
 
     def test_gated_by_hty_mode(self):
-        # FRD's hard rule: Normal mode flow stays identical.
+        # FRD's hard rule: VFY mode flow stays identical.
         self.assertIn(
             "frm.doc.transaction_type === 'HTY'", self.script,
             "All P2-B handlers must be guarded by transaction_type === 'HTY'.",
