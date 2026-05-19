@@ -194,6 +194,14 @@ scheduler_events = {
     "cron" :{
         "*/5 * * * *": [
             "mhr.utilis.enqueue_cancel_receipts"
+        ],
+        # MI1 — drain the Email Queue every minute so bulk-DN emails
+        # don't pile up "Not Sent" while waiting for Frappe's default
+        # flush cadence. Wrapper logs SMTP errors as
+        # "MI1: flush_email_queue failed" so a stuck queue is visible
+        # in Error Log instead of silently growing.
+        "* * * * *": [
+            "mhr.email.flush_email_queue"
         ]
     }
 }

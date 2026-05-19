@@ -4,6 +4,31 @@ from io import BytesIO
 from pypdf import PdfWriter
 
 
+def flush_email_queue():
+    """Cron entry point — drains the Email Queue every minute.
+
+    Wraps Frappe's `frappe.email.queue.flush()` so a transient SMTP
+    blip (auth error, DNS, throttling) doesn't bubble out as a generic
+    "scheduler job failed" — instead it logs a clear titled Error Log
+    row that names this app and the original exception. The flush
+    itself is idempotent: rows already in 'Sent' status are skipped.
+
+    Why this exists: Meher's Email Queue was sitting at 1000+ Not Sent
+    because the default scheduled flush wasn't draining fast enough
+    (or at all). Running every minute keeps the backlog short without
+    forcing `now=True` on send sites — `now=True` blocks the HTTP
+    request and trips gunicorn timeouts on big bulk-PDF emails.
+    """
+    try:
+        from frappe.email.queue import flush
+        flush()
+    except Exception:
+        frappe.log_error(
+            message=frappe.get_traceback(),
+            title="MI1: flush_email_queue failed",
+        )
+
+
 @frappe.whitelist()
 def send_delivery_notes_email(delivery_notes, cc=None):
     """
