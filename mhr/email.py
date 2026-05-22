@@ -1,6 +1,7 @@
-import frappe
 import json
 from io import BytesIO
+
+import frappe
 from pypdf import PdfWriter
 
 
@@ -21,6 +22,7 @@ def flush_email_queue():
     """
     try:
         from frappe.email.queue import flush
+
         flush()
     except Exception:
         frappe.log_error(
@@ -78,9 +80,9 @@ def send_delivery_notes_email(delivery_notes, cc=None):
             pdf_writer = frappe.get_print(
                 doctype="Delivery Note",
                 name=str(dn_name),
-                print_format="Delivery note",
+                print_format="Delivery NOted 3",
                 as_pdf=True,
-                output=pdf_writer
+                output=pdf_writer,
             )
         except Exception:
             failed.append(dn_name)
@@ -101,10 +103,7 @@ def send_delivery_notes_email(delivery_notes, cc=None):
         pdf_content = merged_pdf.getvalue()
 
     # Create single attachment with all delivery notes
-    attachments = [{
-        "fname": "Delivery_Notes.pdf",
-        "fcontent": pdf_content
-    }]
+    attachments = [{"fname": "Delivery_Notes.pdf", "fcontent": pdf_content}]
 
     # Queue the email — Frappe's worker will deliver it asynchronously.
     # No `now=True` so the HTTP request returns immediately, avoiding
@@ -155,7 +154,7 @@ def get_merged_pdf(doctype, names, print_format=None, letterhead=None, no_letter
             as_pdf=True,
             output=pdf_writer,
             no_letterhead=no_letterhead,
-            letterhead=letterhead
+            letterhead=letterhead,
         )
 
     with BytesIO() as merged_pdf:
