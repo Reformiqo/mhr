@@ -87,29 +87,42 @@ class TestFillDefaultAddressesServerHook(FrappeTestCase):
 
     def test_no_stops_is_noop(self):
         doc = self._make_doc([])
-        # Must not call get_default_address.
+        # Must not call get_default_address (no stops) and must not touch DB.
         with patch("frappe.contacts.doctype.address.address.get_default_address",
-                   side_effect=AssertionError("must not call")):
+                   side_effect=AssertionError("must not call")), \
+             patch.object(frappe.db, "exists",
+                          side_effect=AssertionError("must not call DB")):
             mhr_utilis.fill_default_addresses_on_delivery_trip(doc)
 
     def test_stop_without_customer_skipped(self):
         doc = self._make_doc([{"customer": None}])
         with patch("frappe.contacts.doctype.address.address.get_default_address",
-                   side_effect=AssertionError("must not call for None customer")):
+                   side_effect=AssertionError("must not call for None customer")), \
+             patch.object(frappe.db, "exists",
+                          side_effect=AssertionError("must not call DB for None customer")):
             mhr_utilis.fill_default_addresses_on_delivery_trip(doc)
 
-    def test_stop_with_existing_address_skipped(self):
+    def test_existing_address_skips_fetch_but_still_runs_link_pass(self):
+        """MI1-I31 v2: when address is already set, the fetch pass skips
+        (good), BUT the auto-link pass still runs to ensure the
+        Dynamic Link exists."""
         doc = self._make_doc([{"customer": "ABC", "address": "ABC-Address"}])
         with patch("frappe.contacts.doctype.address.address.get_default_address",
-                   side_effect=AssertionError("must not call when address set")):
+                   side_effect=AssertionError("must not call when address set")), \
+             patch.object(frappe.db, "exists", return_value=True) as m_exists:
             mhr_utilis.fill_default_addresses_on_delivery_trip(doc)
+        # Pass 2 calls frappe.db.exists to check for existing Dynamic Link.
+        self.assertTrue(m_exists.called,
+            "Pass 2 must check tabDynamic Link for an existing Address↔Customer link.")
 
     def test_fills_when_customer_set_and_address_empty(self):
         doc = self._make_doc([{"customer": "ABC", "address": None, "customer_address": None}])
         with patch("frappe.contacts.doctype.address.address.get_default_address",
                    return_value="ABC-Billing"), \
              patch("frappe.contacts.doctype.address.address.get_address_display",
-                   return_value="ABC Address Line 1, City"):
+                   return_value="ABC Address Line 1, City"), \
+             patch.object(frappe.db, "exists", return_value=True):
+            # Dynamic Link already exists, so no extra save call.
             mhr_utilis.fill_default_addresses_on_delivery_trip(doc)
         self.assertEqual(doc.delivery_stops[0].address, "ABC-Billing")
         self.assertEqual(doc.delivery_stops[0].customer_address, "ABC Address Line 1, City")
@@ -121,13 +134,65 @@ class TestFillDefaultAddressesServerHook(FrappeTestCase):
         with patch("frappe.contacts.doctype.address.address.get_default_address",
                    return_value="ABC-Billing"), \
              patch("frappe.contacts.doctype.address.address.get_address_display",
-                   side_effect=Exception("broken")):
+                   side_effect=Exception("broken")), \
+             patch.object(frappe.db, "exists", return_value=True):
             try:
                 mhr_utilis.fill_default_addresses_on_delivery_trip(doc)
             except Exception as e:
                 self.fail(f"Hook must swallow get_address_display errors; raised {e!r}.")
         self.assertEqual(doc.delivery_stops[0].address, "ABC-Billing",
             "address must still be set even when display lookup fails.")
+
+
+class TestEnsureAddressCustomerLink(FrappeTestCase):
+    """MI1-I31 v2 — _ensure_address_customer_link tests."""
+
+    def test_skips_when_link_already_exists(self):
+        """Idempotency: if Dynamic Link row already exists, no doc load
+        and no save."""
+        with patch.object(frappe.db, "exists", return_value=True) as m_exists, \
+             patch.object(frappe, "get_doc",
+                          side_effect=AssertionError("must not load Address")):
+            mhr_utilis._ensure_address_customer_link("ABC-Address", "ABC")
+        m_exists.assert_called_once()
+
+    def test_creates_link_when_missing(self):
+        """When no Dynamic Link exists, load Address + append + save."""
+        addr_doc = MagicMock()
+        with patch.object(frappe.db, "exists", return_value=False), \
+             patch.object(frappe, "get_doc", return_value=addr_doc):
+            mhr_utilis._ensure_address_customer_link("ABC-Address", "ABC")
+        addr_doc.append.assert_called_once()
+        # Verify the appended row is the right shape.
+        args, _ = addr_doc.append.call_args
+        self.assertEqual(args[0], "links")
+        link_payload = args[1]
+        self.assertEqual(link_payload["link_doctype"], "Customer")
+        self.assertEqual(link_payload["link_name"], "ABC")
+        addr_doc.save.assert_called_once_with(ignore_permissions=True)
+
+    def test_skips_when_address_doesnt_exist(self):
+        """Stale stop.address pointing at a deleted Address — skip
+        without raising. The Trip save must not be blocked."""
+        with patch.object(frappe.db, "exists", return_value=False), \
+             patch.object(frappe, "get_doc",
+                          side_effect=frappe.DoesNotExistError):
+            # Must not raise.
+            mhr_utilis._ensure_address_customer_link("__nope__", "ABC")
+
+    def test_save_failure_is_logged_not_raised(self):
+        """If Address.save() fails (e.g. missing mandatory fields), log
+        but don't bubble up — the Trip save must succeed."""
+        addr_doc = MagicMock()
+        addr_doc.save.side_effect = Exception("missing pincode")
+        with patch.object(frappe.db, "exists", return_value=False), \
+             patch.object(frappe, "get_doc", return_value=addr_doc), \
+             patch.object(frappe, "log_error") as m_log:
+            try:
+                mhr_utilis._ensure_address_customer_link("ABC-Address", "ABC")
+            except Exception as e:
+                self.fail(f"Helper must swallow save errors; raised {e!r}.")
+        m_log.assert_called_once()
 
 
 class TestHookWiredInHooksPy(FrappeTestCase):

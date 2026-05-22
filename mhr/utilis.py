@@ -1437,10 +1437,24 @@ def validate_hty_stock_entry(doc, method=None):
 
 
 def fill_default_addresses_on_delivery_trip(doc, method=None):
-    """MI1-I31 — Delivery Trip validate hook. For each Delivery Stop
-    with a customer set but no address, fall back to the customer's
-    primary address. Belt-and-braces alongside the Client Script in case
-    a Trip is created via API / import / server-script."""
+    """MI1-I31 — Delivery Trip validate hook.
+
+    Two passes, both per Delivery Stop:
+
+      Pass 1 (auto-FETCH): For each Stop with a customer set but no
+      address, fall back to the customer's primary address (Frappe's
+      get_default_address).
+
+      Pass 2 (auto-LINK, MI1-I31 v2 per Raj's follow-up): For each Stop
+      with BOTH customer AND address set, ensure tabDynamic Link has a
+      row linking that Address back to the Customer. Without this row,
+      Frappe.contacts.get_default_address can't find the Address next
+      time — which is why Raj kept having to re-enter the same address.
+      Idempotent: skips when the link already exists.
+
+    Belt-and-braces alongside the Client Script — covers Trips created
+    via API / import / server-script that bypass the form-level handler.
+    """
     from frappe.contacts.doctype.address.address import (
         get_default_address,
         get_address_display,
@@ -1449,22 +1463,65 @@ def fill_default_addresses_on_delivery_trip(doc, method=None):
     for stop in stops:
         if not getattr(stop, "customer", None):
             continue
-        if getattr(stop, "address", None):
-            continue
-        addr = get_default_address("Customer", stop.customer)
-        if not addr:
-            continue
-        stop.address = addr
-        if not getattr(stop, "customer_address", None):
-            try:
-                stop.customer_address = get_address_display(addr)
-            except Exception:
-                # get_address_display can raise on missing Address rows;
-                # never block the save for a display string.
-                frappe.log_error(
-                    message=frappe.get_traceback(),
-                    title="MI1-I31: get_address_display failed",
-                )
+
+        # ---- Pass 1: auto-fetch default address ----
+        if not getattr(stop, "address", None):
+            addr = get_default_address("Customer", stop.customer)
+            if addr:
+                stop.address = addr
+                if not getattr(stop, "customer_address", None):
+                    try:
+                        stop.customer_address = get_address_display(addr)
+                    except Exception:
+                        # get_address_display can raise on missing Address
+                        # rows; never block the save for a display string.
+                        frappe.log_error(
+                            message=frappe.get_traceback(),
+                            title="MI1-I31: get_address_display failed",
+                        )
+
+        # ---- Pass 2: auto-link Address ↔ Customer ----
+        if getattr(stop, "address", None) and stop.customer:
+            _ensure_address_customer_link(stop.address, stop.customer)
+
+
+def _ensure_address_customer_link(address_name, customer):
+    """Ensure a tabDynamic Link row exists tying the given Address to
+    the given Customer. If it doesn't, append one to the Address doc
+    and save. Idempotent + safe — never overwrites existing links."""
+    # Cheap pre-check: avoid loading the Address doc if the link
+    # already exists.
+    if frappe.db.exists(
+        "Dynamic Link",
+        {
+            "parent": address_name,
+            "parenttype": "Address",
+            "parentfield": "links",
+            "link_doctype": "Customer",
+            "link_name": customer,
+        },
+    ):
+        return
+    try:
+        addr_doc = frappe.get_doc("Address", address_name)
+    except frappe.DoesNotExistError:
+        # Stale stop.address pointing at a deleted Address row; nothing
+        # to link. Skip silently — the Stop save can still succeed.
+        return
+    addr_doc.append("links", {
+        "link_doctype": "Customer",
+        "link_name": customer,
+    })
+    try:
+        addr_doc.save(ignore_permissions=True)
+    except Exception:
+        # Address.save() can fail on missing mandatory fields if the
+        # Address was created via a Delivery Stop's minimal picker.
+        # Log but don't block the Trip save.
+        frappe.log_error(
+            message=frappe.get_traceback(),
+            title=f"MI1-I31: failed to link Address {address_name} → Customer {customer}",
+        )
 
 
 def validate_hty_delivery_trip(doc, method=None):
