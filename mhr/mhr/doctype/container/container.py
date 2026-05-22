@@ -32,36 +32,58 @@ class Container(Document):
         self.create_purchase_receipt()
 
     def before_submit(self):
-        # MI1-I36: block duplicate Container submissions whose key set would
-        # share batch_ids with an existing submitted Container — the on_cancel
-        # DELETE path wipes Batch master rows by (container_no, lot_no), so
-        # two Containers with the same triple end up corrupting each other.
+        # MI1-I36 / MI1-I37: block submissions that would CORRUPT existing
+        # submitted Containers by sharing batch_ids. The MI1-I36 on_cancel
+        # F2 guard already protects against the wipe-on-cancel side; this
+        # is the symmetric guard at submit time.
         #
-        # MI1-I37 follow-up: the original check was on (container_no, lot_no)
-        # only. Raj reported that a single physical container legitimately
-        # carries multiple Container docs with the same lot but DIFFERENT
-        # items (different deniers). Those don't share batch_ids — each
-        # Container has its own cone-sequence per batch_id — so they're safe.
-        # The duplicate key is (container_no, lot_no, item).
+        # Iteration history:
+        #   MI1-I36 original: blocked on (container_no, lot_no) — too loose;
+        #     also blocked legitimate different-denier shipments.
+        #   MI1-I37 (231bef9): tightened to (container_no, lot_no, item) —
+        #     still too strict; Raj had to add a "." to lot_no to bypass
+        #     for a legitimate second shipment with disjoint cone seqs.
+        #   This iteration: check actual batch_id OVERLAP. Two Containers
+        #     sharing (container_no, lot_no, item) but with DISJOINT
+        #     batch_id ranges (e.g. cones 1-500 + cones 501-512) are
+        #     legitimate physical shipments and must be allowed.
         if not (self.container_no and self.lot_no and self.item):
             return
-        existing = frappe.db.get_value(
-            "Container",
-            {
-                "container_no": self.container_no,
-                "lot_no": self.lot_no,
-                "item": self.item,
-                "docstatus": 1,
-                "name": ("!=", self.name),
-            },
-            "name",
+        my_batch_ids = [b.batch_id for b in (self.batches or []) if b.batch_id]
+        if not my_batch_ids:
+            return
+        # Find any submitted Container with the same triple whose
+        # tabBatch Items rows include at least one of MY batch_ids.
+        # If yes → real corruption risk (the MI1-I36 scenario). Block.
+        # If no  → legitimate disjoint shipment. Allow.
+        placeholders = ", ".join(["%s"] * len(my_batch_ids))
+        rows = frappe.db.sql(
+            f"""
+            SELECT bi.parent, bi.batch_id
+            FROM `tabBatch Items` bi
+            JOIN `tabContainer` c ON c.name = bi.parent
+            WHERE c.container_no = %s
+              AND c.lot_no = %s
+              AND c.item = %s
+              AND c.docstatus = 1
+              AND c.name != %s
+              AND bi.parenttype = 'Container'
+              AND bi.batch_id IN ({placeholders})
+            LIMIT 1
+            """,
+            (self.container_no, self.lot_no, self.item, self.name, *my_batch_ids),
+            as_dict=True,
         )
-        if existing:
+        if rows:
+            r = rows[0]
             frappe.throw(
-                f"A submitted Container with Container No '{self.container_no}', "
-                f"Lot No '{self.lot_no}', and Item '{self.item}' already exists: "
-                f"<a href='/app/container/{existing}'>{existing}</a>. "
-                f"Cancel that Container first before submitting this one."
+                f"Cannot submit Container {self.name}: batch_id "
+                f"<strong>{r.batch_id}</strong> is already used by submitted "
+                f"Container <a href='/app/container/{r.parent}'>{r.parent}</a> "
+                f"(same Container No '{self.container_no}', Lot No "
+                f"'{self.lot_no}', Item '{self.item}'). Cancel that Container "
+                f"first, OR change the cone sequence on this Container's "
+                f"batch rows so the batch_ids don't overlap."
             )
 
     def enqueue_create_batches(self):

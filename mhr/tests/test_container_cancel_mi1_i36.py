@@ -133,7 +133,7 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
             "F3 regression: before_submit must check the lot_no field.",
         )
         self.assertIn(
-            '"docstatus": 1',
+            "c.docstatus = 1",
             src,
             "F3 regression: before_submit must filter on docstatus=1 "
             "(only Submitted Containers count as duplicates).",
@@ -144,9 +144,11 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
             "F3 regression: before_submit must call frappe.throw on duplicate.",
         )
 
-    def test_before_submit_throws_when_duplicate_exists(self):
-        """Behavioral: with frappe.db.get_value mocked to return a
-        duplicate, before_submit raises ValidationError."""
+    def test_before_submit_throws_when_batch_ids_overlap(self):
+        """MI1-I37 follow-up: F3 must throw when batch_ids overlap with
+        an existing submitted Container at the same (container_no,
+        lot_no, item). That's the real MI1-I36 corruption signature."""
+        # Build a container with 3 batch_ids.
         c = container_mod.Container(
             {
                 "doctype": "Container",
@@ -154,37 +156,51 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
                 "container_no": "MCJC-1361",
                 "lot_no": "21112025",
                 "item": "75D/30f",
-                "batches": [],
+                "batches": [
+                    {"batch_id": "MCJC-13612111202551"},
+                    {"batch_id": "MCJC-13612111202552"},
+                    {"batch_id": "MCJC-13612111202553"},
+                ],
             }
         )
-        with patch.object(frappe.db, "get_value", return_value="MCJC-1361-OTHER"):
+        # Mock frappe.db.sql so the overlap query returns a row.
+        fake_row = frappe._dict(parent="MCJC-1361-OTHER", batch_id="MCJC-13612111202551")
+        with patch.object(frappe.db, "sql", return_value=[fake_row]):
             with self.assertRaises(frappe.ValidationError) as ctx:
                 c.before_submit()
             msg = str(ctx.exception)
-            self.assertIn("MCJC-1361", msg)
-            self.assertIn("21112025", msg)
-            self.assertIn("MCJC-1361-OTHER", msg)
+            self.assertIn("MCJC-13612111202551", msg,
+                "Throw must name the overlapping batch_id so the user knows which.")
+            self.assertIn("MCJC-1361-OTHER", msg,
+                "Throw must name the other Container so the user can navigate to it.")
 
-    def test_before_submit_passes_when_no_duplicate(self):
-        """Behavioral: with no existing duplicate, before_submit returns
-        silently (no throw)."""
+    def test_before_submit_allows_when_batch_ids_disjoint(self):
+        """The whole point of this iteration: two Containers with the
+        same (container_no, lot_no, item) but DISJOINT batch_id ranges
+        (e.g. 1-500 + 501-512) MUST be allowed — legitimate two-shipment
+        scenario reported by Raj."""
         c = container_mod.Container(
             {
                 "doctype": "Container",
-                "name": "TEST-1361-B",
-                "container_no": "MCJC-1361",
-                "lot_no": "21112025",
-                "item": "75D/30f",
-                "batches": [],
+                "name": "MCJC-1593-429-1",
+                "container_no": "MCJC-1593",
+                "lot_no": "04042026",
+                "item": "58D/12F",
+                "batches": [
+                    # cones 1..500
+                    {"batch_id": f"MCJC-1593040420261"},
+                    {"batch_id": f"MCJC-159304042026500"},
+                ],
             }
         )
-        with patch.object(frappe.db, "get_value", return_value=None):
-            # Must not raise.
-            c.before_submit()
+        # Mock the overlap query to return 0 rows (no overlap with the
+        # existing -431-1 which uses suffixes 501-512).
+        with patch.object(frappe.db, "sql", return_value=[]):
+            c.before_submit()  # must NOT raise
 
     def test_before_submit_skips_when_keys_missing(self):
-        """If container_no/lot_no/item is missing, the duplicate check
-        is a no-op (no spurious throw, no DB hit)."""
+        """If container_no/lot_no/item is missing, the check is a no-op
+        (no spurious throw, no DB hit)."""
         c = container_mod.Container(
             {
                 "doctype": "Container",
@@ -195,37 +211,38 @@ class TestContainerBeforeSubmitDuplicateCheck(FrappeTestCase):
                 "batches": [],
             }
         )
-        with patch.object(frappe.db, "get_value", side_effect=AssertionError("must not call DB")):
+        with patch.object(frappe.db, "sql", side_effect=AssertionError("must not call DB")):
             c.before_submit()  # must not raise
 
-    def test_before_submit_allows_same_container_lot_different_item(self):
-        """MI1-I37 regression: a single physical container legitimately
-        carries multiple Container docs with the same lot but DIFFERENT
-        items (different deniers). These do NOT share batch_ids and must
-        not be blocked. Verify that the get_value filter includes `item`
-        so the same (container_no, lot_no) with a different item does
-        not match an existing doc."""
+    def test_before_submit_skips_when_no_batch_ids(self):
+        """If THIS Container has no batch_ids yet (empty child rows),
+        there's nothing to overlap on — skip cleanly."""
         c = container_mod.Container(
             {
                 "doctype": "Container",
-                "name": "MCJC-1593-NEW",
-                "container_no": "MCJC-1593",
-                "lot_no": "04042026",
+                "name": "TEST-EMPTY",
+                "container_no": "MCJC-X",
+                "lot_no": "L",
                 "item": "75D/30f",
                 "batches": [],
             }
         )
-        captured_filters = {}
+        with patch.object(frappe.db, "sql", side_effect=AssertionError("must not call DB")):
+            c.before_submit()  # must not raise
 
-        def fake_get_value(doctype, filters, fieldname):
-            captured_filters.update(filters)
-            return None
-
-        with patch.object(frappe.db, "get_value", side_effect=fake_get_value):
-            c.before_submit()
-
-        self.assertEqual(
-            captured_filters.get("item"), "75D/30f",
-            "MI1-I37: before_submit must filter by item — otherwise a different-denier "
-            "Container on the same container_no+lot_no gets blocked incorrectly.",
-        )
+    def test_before_submit_query_filters_by_triple_and_batch_ids(self):
+        """Source-level pin: the overlap query must filter on all four
+        constraints (container_no, lot_no, item, c.docstatus=1) AND
+        the batch_id IN (mine) — otherwise corrupt data slips through."""
+        import inspect
+        src = inspect.getsource(container_mod.Container.before_submit)
+        self.assertIn("c.container_no = %s", src,
+            "Query must filter on container_no.")
+        self.assertIn("c.lot_no = %s", src,
+            "Query must filter on lot_no.")
+        self.assertIn("c.item = %s", src,
+            "Query must filter on item — different denier ≠ duplicate.")
+        self.assertIn("c.docstatus = 1", src,
+            "Query must consider only Submitted (docstatus=1) containers.")
+        self.assertIn("bi.batch_id IN", src,
+            "Query must check batch_id overlap — the actual corruption signal.")
