@@ -80,7 +80,6 @@ def send_delivery_notes_email(delivery_notes, cc=None):
             pdf_writer = frappe.get_print(
                 doctype="Delivery Note",
                 name=str(dn_name),
-                print_format="Delivery NOted 3",
                 as_pdf=True,
                 output=pdf_writer,
             )
