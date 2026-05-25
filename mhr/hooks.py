@@ -149,6 +149,16 @@ doc_events = {
     "Batch": {
         "validate": "mhr.batch_qr_code.set_si_qrcode",
     },
+    # MI1: send outbound mail immediately instead of waiting on the
+    # scheduled flush. The standard Communication composer always
+    # queues (now=False), and Meher's scheduler/flush was lagging so
+    # mail sat "Not Sent". This kicks a flush on a background RQ worker
+    # the moment an Email Queue row is committed — workers run on FC
+    # even when the scheduler is disabled, so it's not blocked by the
+    # same failure as the cron drainers below.
+    "Email Queue": {
+        "after_insert": "mhr.email.flush_email_after_insert",
+    },
     "Stock Entry": {
         "validate": [
             "mhr.utilis.update_stock_entry",

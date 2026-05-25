@@ -1,8 +1,10 @@
 """MI1-I34 — Delivery Note email send hardening.
 
 `send_delivery_notes_email` improvements:
-  - Drops `now=True` so the email goes through Frappe's queue worker,
-    avoiding gunicorn timeouts on multi-DN batches.
+  - Sends with `now=True` so SMTP transmission happens inside the
+    request and the mail does not wait on the queue/flush. The PDF
+    render already runs synchronously, so the only added cost is the
+    SMTP send (seconds), safe within the 300s http_timeout.
   - Wraps per-DN PDF render in try/except so a single broken DN doesn't
     kill the whole batch.
   - Wraps sendmail in try/except + log_error so failures are visible.
@@ -15,17 +17,18 @@ from frappe.tests.utils import FrappeTestCase
 from mhr import email as mhr_email
 
 
-class TestEmailSendIsAsync(FrappeTestCase):
-    """The function must NOT pass now=True to frappe.sendmail —
-    synchronous send blocks the HTTP request and was the root cause of
-    'email not being sent' reports."""
+class TestEmailSendIsImmediate(FrappeTestCase):
+    """The function MUST pass now=True to frappe.sendmail — Meher wants
+    the mail to leave over SMTP inside the request, not wait on the
+    queue/flush. The PDF render already runs synchronously, so now=True
+    only adds the (seconds-long) SMTP send, safe within http_timeout."""
 
-    def test_now_true_is_not_passed(self):
+    def test_now_true_is_passed(self):
         src = inspect.getsource(mhr_email.send_delivery_notes_email)
         # Find the frappe.sendmail call site.
         sendmail_idx = src.find("frappe.sendmail(")
         self.assertGreater(sendmail_idx, 0, "frappe.sendmail must be called.")
-        # Within that call (until its closing paren), `now=True` must not appear.
+        # Within that call (until its closing paren), `now=True` must appear.
         # Find the matching close paren by counting depth.
         depth = 0
         i = sendmail_idx + len("frappe.sendmail")
@@ -40,10 +43,10 @@ class TestEmailSendIsAsync(FrappeTestCase):
                     call_end = j
                     break
         call_body = src[sendmail_idx:call_end + 1]
-        self.assertNotIn(
+        self.assertIn(
             "now=True", call_body,
-            "frappe.sendmail must NOT use now=True — that's synchronous "
-            "and blocks the HTTP request, causing gunicorn timeouts.",
+            "frappe.sendmail must use now=True — Meher wants the mail "
+            "sent immediately, not queued.",
         )
 
 

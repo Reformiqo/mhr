@@ -31,20 +31,63 @@ def flush_email_queue():
         )
 
 
+def flush_email_after_insert(doc, method=None):
+    """Email Queue `after_insert` hook — send the mail immediately.
+
+    Meher wants outbound email to "work straight", but the standard
+    Communication composer (the path their Delivery Note "Send Email"
+    button opens) always queues with now=False. Rather than block the
+    user's request with a synchronous SMTP send, we enqueue a flush on
+    a background RQ worker so the mail leaves within a second or two.
+
+    Key points:
+      - `enqueue_after_commit=True`: the job runs only after the current
+        transaction commits, so the freshly-inserted Email Queue row is
+        visible to the flush (no race).
+      - Background worker, not the scheduler: this fires even when the
+        scheduler is disabled/lagging — which is why the existing
+        `flush_email_queue` cron and `resend_email_queue` weren't
+        draining the queue.
+      - Idempotent: `flush()` skips rows already in 'Sent' status, so a
+        now=True send (which also inserts an Email Queue row) won't be
+        double-sent.
+      - Only acts on 'Not Sent' rows; respects `send_after` (flush
+        leaves future-dated rows alone).
+    """
+    if getattr(doc, "status", None) != "Not Sent":
+        return
+    try:
+        frappe.enqueue(
+            "frappe.email.queue.flush",
+            enqueue_after_commit=True,
+            queue="short",
+        )
+    except Exception:
+        frappe.log_error(
+            message=frappe.get_traceback(),
+            title="MI1: flush_email_after_insert failed",
+        )
+
+
 @frappe.whitelist()
 def send_delivery_notes_email(delivery_notes, cc=None):
     """
     Send delivery notes as a single merged PDF attachment via email.
 
     MI1-I34 changes:
-      - Drop `now=True` so PDF render + SMTP go through Frappe's email
-        queue worker. The old synchronous path blocked the HTTP request
-        and frequently tripped the gunicorn timeout — users saw "email
-        not being sent" because the request died before sendmail returned.
+      - Send with `now=True` so the mail leaves over SMTP inside the
+        request instead of sitting in the Email Queue. The earlier
+        queued version depended on the scheduled flush actually running
+        — when the scheduler/flush lagged, mail piled up "Not Sent" and
+        users reported "email not being sent". The heavy work (PDF
+        render) already happens synchronously in this request, so
+        `now=True` only adds the few seconds of SMTP transmission; with
+        `http_timeout` at 300s that is well within budget.
       - Wrap PDF generation in try/except. A single broken DN no longer
         kills the whole batch; it's logged and skipped.
       - Surface a clear error if Frappe.sendmail itself fails so the
-        user knows what went wrong.
+        user knows what went wrong (the failed row stays in the queue
+        with Error status for the 1-min flush to retry).
 
     Args:
         delivery_notes: JSON string or list of delivery note names
@@ -104,9 +147,8 @@ def send_delivery_notes_email(delivery_notes, cc=None):
     # Create single attachment with all delivery notes
     attachments = [{"fname": "Delivery_Notes.pdf", "fcontent": pdf_content}]
 
-    # Queue the email — Frappe's worker will deliver it asynchronously.
-    # No `now=True` so the HTTP request returns immediately, avoiding
-    # the gunicorn timeout that was causing the "email not sent" reports.
+    # Send the email immediately (now=True) — SMTP transmission happens
+    # in this request so the mail does not wait on the queue/flush.
     try:
         frappe.sendmail(
             recipients=[recipient],
@@ -114,15 +156,16 @@ def send_delivery_notes_email(delivery_notes, cc=None):
             subject=subject,
             message="Please find attached delivery notes.",
             attachments=attachments,
+            now=True,
         )
     except Exception:
         frappe.log_error(
             message=frappe.get_traceback(),
             title="MI1-I34: frappe.sendmail failed",
         )
-        frappe.throw("Email queue rejected the message — see Error Log for details.")
+        frappe.throw("Email could not be sent — see Error Log for details.")
 
-    note = f"Email queued for {len(delivery_notes) - len(failed)} delivery note(s)."
+    note = f"Email sent for {len(delivery_notes) - len(failed)} delivery note(s)."
     if failed:
         note += f" Skipped {len(failed)} that failed to render: {failed}"
     return note
