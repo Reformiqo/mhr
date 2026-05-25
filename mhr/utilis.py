@@ -662,8 +662,8 @@ def generate_multi_pdf_url(batches, doc_name):
 
 
 @frappe.whitelist()
-def get_print_batch(lot_no, container_no, supplier_batch_no):
-    """MI1-I27: return ALL Batch rows matching the trio.
+def get_print_batch(lot_no, container_no, supplier_batch_no, item=None):
+    """MI1-I27: return Batch rows matching the trio (+ optional item).
 
     Raj's report (MCJC-1522 / Lot 13112025): the same supplier_batch_no
     can have multiple Batch records under one (container, lot), each
@@ -676,14 +676,22 @@ def get_print_batch(lot_no, container_no, supplier_batch_no):
     print_batch.js `fetch_and_append_batch`) iterates and adds one row
     per Batch. If the trio matches just one Batch — single-element
     list — caller still works.
+
+    MI1-I27 (Item bifurcation): when `item` is supplied, restrict to
+    that one item so a Container + Lot holding two deniers can be
+    printed one item at a time instead of combined. Blank/None `item`
+    keeps the old behaviour (all items for the trio).
     """
+    filters = {
+        "custom_supplier_batch_no": supplier_batch_no,
+        "custom_lot_no": lot_no,
+        "custom_container_no": container_no,
+    }
+    if item:
+        filters["item"] = item
     rows = frappe.get_all(
         "Batch",
-        filters={
-            "custom_supplier_batch_no": supplier_batch_no,
-            "custom_lot_no": lot_no,
-            "custom_container_no": container_no,
-        },
+        filters=filters,
         fields=["name", "item", "custom_cone", "custom_lot_no", "batch_qty"],
         order_by="creation asc",
     )

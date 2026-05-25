@@ -24,7 +24,15 @@ class TestGetPrintBatchReturnsList(FrappeTestCase):
         sig = inspect.signature(get_print_batch)
         self.assertEqual(
             list(sig.parameters.keys()),
-            ["lot_no", "container_no", "supplier_batch_no"],
+            ["lot_no", "container_no", "supplier_batch_no", "item"],
+            "MI1-I27 (Item bifurcation): get_print_batch must accept an "
+            "optional `item` filter as the 4th param.",
+        )
+        # `item` must be optional (default None) so existing callers that
+        # don't pass it keep the all-items behaviour.
+        self.assertIsNone(
+            sig.parameters["item"].default,
+            "`item` must default to None (optional).",
         )
 
     def test_returns_list_for_no_match(self):
@@ -75,3 +83,81 @@ class TestGetPrintBatchReturnsList(FrappeTestCase):
             "the first match and silently drops other deniers/items "
             "(the original MI1-I27 bug).",
         )
+
+
+class TestItemBifurcation(FrappeTestCase):
+    """MI1-I27 (Item field): within one Container + Lot No that holds two
+    items, the user can pick an Item and print only that item's batches."""
+
+    CONTAINER = "TESTC-I27"
+    LOT = "I27LOT01"
+    SBN = "I27SB01"
+    ITEM_A = "_Test I27 Denier A"
+    ITEM_B = "_Test I27 Denier B"
+    BATCH_A = "I27-BATCH-A"
+    BATCH_B = "I27-BATCH-B"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        for it in (cls.ITEM_A, cls.ITEM_B):
+            if not frappe.db.exists("Item", it):
+                frappe.get_doc({
+                    "doctype": "Item", "item_code": it, "item_name": it,
+                    "item_group": "All Item Groups", "stock_uom": "Nos",
+                    "is_stock_item": 1, "has_batch_no": 1, "create_new_batch": 1,
+                }).insert(ignore_permissions=True)
+        for bid, it in ((cls.BATCH_A, cls.ITEM_A), (cls.BATCH_B, cls.ITEM_B)):
+            if not frappe.db.exists("Batch", bid):
+                frappe.get_doc({
+                    "doctype": "Batch", "batch_id": bid, "item": it,
+                    "custom_container_no": cls.CONTAINER,
+                    "custom_lot_no": cls.LOT,
+                    "custom_supplier_batch_no": cls.SBN,
+                    "custom_cone": 5, "batch_qty": 10,
+                }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for bid in (cls.BATCH_A, cls.BATCH_B):
+            frappe.db.delete("Batch", {"name": bid})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def test_get_items_lists_both(self):
+        from mhr.mhr.doctype.print_batch.print_batch import get_items
+        items = get_items(self.CONTAINER, self.LOT)
+        self.assertIn(self.ITEM_A, items)
+        self.assertIn(self.ITEM_B, items)
+
+    def test_get_items_blank_filter_returns_empty(self):
+        from mhr.mhr.doctype.print_batch.print_batch import get_items
+        self.assertEqual(get_items("", self.LOT), [])
+        self.assertEqual(get_items(self.CONTAINER, ""), [])
+
+    def test_print_batch_returns_all_items_when_item_blank(self):
+        """Backward compat: no item -> every item for the trio (old behaviour)."""
+        from mhr.utilis import get_print_batch
+        out = get_print_batch(self.LOT, self.CONTAINER, self.SBN)
+        self.assertEqual({r["item"] for r in out}, {self.ITEM_A, self.ITEM_B})
+
+    def test_print_batch_filters_to_selected_item(self):
+        from mhr.utilis import get_print_batch
+        out = get_print_batch(self.LOT, self.CONTAINER, self.SBN, item=self.ITEM_A)
+        self.assertTrue(out, "must return the selected item's batch(es)")
+        self.assertEqual({r["batch"] for r in out}, {self.BATCH_A})
+        self.assertTrue(all(r["item"] == self.ITEM_A for r in out))
+
+    def test_item_field_defined_in_doctype_json(self):
+        """Pin: the Item Select must exist + be ordered in the doctype JSON
+        (so it actually renders in the selection area)."""
+        import os, json
+        path = os.path.join(
+            frappe.get_app_path("mhr"), "mhr", "doctype", "print_batch", "print_batch.json"
+        )
+        d = json.load(open(path))
+        item = next((f for f in d["fields"] if f.get("fieldname") == "item"), None)
+        self.assertIsNotNone(item, "Print Batch JSON must define the `item` field (MI1-I27).")
+        self.assertEqual(item.get("fieldtype"), "Select")
+        self.assertIn("item", d["field_order"], "`item` must be in field_order to render.")

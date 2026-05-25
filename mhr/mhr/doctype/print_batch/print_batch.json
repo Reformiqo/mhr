@@ -10,6 +10,7 @@
   "container_no",
   "column_break_scvv",
   "lot_no",
+  "item",
   "column_break_kusq",
   "supplier_batch_no",
   "section_break_klqp",
@@ -41,6 +42,14 @@
    "fieldname": "lot_no",
    "fieldtype": "Select",
    "label": "Lot No"
+  },
+  {
+   "bold": 1,
+   "depends_on": "eval:doc.container_no && doc.lot_no",
+   "description": "Optional — pick one item to print only that item's batches within this Container + Lot. Leave blank for all items.",
+   "fieldname": "item",
+   "fieldtype": "Select",
+   "label": "Item"
   },
   {
    "fieldname": "section_break_klqp",

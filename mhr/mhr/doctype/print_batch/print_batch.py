@@ -119,3 +119,29 @@ def get_lot_nos(container_no):
     """, (container_no,), as_list=True)
 
     return [lot[0] for lot in lot_nos]
+
+
+@frappe.whitelist()
+def get_items(container_no, lot_no):
+    """MI1-I27: distinct Items present within one Container + Lot No.
+
+    A Container can carry the same Lot No across multiple Items (deniers)
+    — e.g. MCJC-1522 / Lot 13112025 holds two different deniers. The
+    Print Batch "Item" Select is populated from this so the user can
+    bifurcate and print one item at a time instead of getting a combined
+    print for both. Returns [] when either filter is missing.
+    """
+    if not (container_no and lot_no):
+        return []
+
+    items = frappe.db.sql("""
+        SELECT DISTINCT item
+        FROM `tabBatch`
+        WHERE custom_container_no = %s
+          AND custom_lot_no = %s
+          AND item IS NOT NULL
+          AND item != ''
+        ORDER BY item
+    """, (container_no, lot_no), as_list=True)
+
+    return [row[0] for row in items]

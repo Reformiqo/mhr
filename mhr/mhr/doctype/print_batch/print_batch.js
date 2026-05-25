@@ -26,11 +26,19 @@ frappe.ui.form.on('Print Batch', {
         if (frm.doc.container_no) {
             mi1_i27_populate_lot_nos(frm, /* preserve_value */ true);
         }
+        // MI1-I27 (Item bifurcation): also repopulate the Item Select on
+        // reopen so a saved Print Batch keeps a usable Item dropdown.
+        if (frm.doc.container_no && frm.doc.lot_no) {
+            mi1_i27_populate_items(frm, /* preserve_value */ true);
+        }
     },
 
     container_no: function(frm) {
-        // Clear lot_no when container_no changes
+        // Clear lot_no + item when container_no changes
         frm.set_value('lot_no', '');
+        frm.set_value('item', '');
+        frm.set_df_property('item', 'options', '');
+        frm.refresh_field('item');
         if (frm.doc.container_no) {
             mi1_i27_populate_lot_nos(frm, /* preserve_value */ false);
         } else {
@@ -45,6 +53,15 @@ frappe.ui.form.on('Print Batch', {
     },
 
     lot_no: function(frm) {
+        // MI1-I27 (Item bifurcation): a new lot may hold a different set
+        // of items — reset + repopulate the Item Select.
+        frm.set_value('item', '');
+        if (frm.doc.container_no && frm.doc.lot_no) {
+            mi1_i27_populate_items(frm, /* preserve_value */ false);
+        } else {
+            frm.set_df_property('item', 'options', '');
+            frm.refresh_field('item');
+        }
         fetch_and_append_batch(frm);
     }
 });
@@ -58,6 +75,9 @@ function fetch_and_append_batch(frm) {
             lot_no: frm.doc.lot_no,
             container_no: frm.doc.container_no,
             supplier_batch_no: frm.doc.supplier_batch_no,
+            // MI1-I27 (Item bifurcation): when set, only this item's
+            // batches are returned; blank = all items (old behaviour).
+            item: frm.doc.item || "",
         },
         callback: function(response) {
             // MI1-I27: server now returns an ARRAY of Batches matching
@@ -137,6 +157,26 @@ function mi1_i27_populate_lot_nos(frm, preserve_value) {
                 if (lot_nos.indexOf(prev) >= 0) {
                     frm.set_value('lot_no', prev);
                 }
+            }
+        }
+    });
+}
+
+// MI1-I27 (Item bifurcation): populate the Item Select with the distinct
+// items present for the current Container + Lot No. Mirrors the lot_no
+// helper above — first option is blank ("all items").
+function mi1_i27_populate_items(frm, preserve_value) {
+    var prev = frm.doc.item;
+    frm.call({
+        method: "get_items",
+        args: { container_no: frm.doc.container_no, lot_no: frm.doc.lot_no },
+        callback: function(response) {
+            var items = response.message || [];
+            var options = [''].concat(items);
+            frm.set_df_property('item', 'options', options.join('\n'));
+            frm.refresh_field('item');
+            if (preserve_value && prev && items.indexOf(prev) >= 0) {
+                frm.set_value('item', prev);
             }
         }
     });
