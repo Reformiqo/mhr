@@ -125,7 +125,7 @@
   "modified": "2026-03-25 18:00:00",
   "module": "Mhr",
   "name": "STOCK SHEET (BALANCE REPORT SIMPLE)",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -292,7 +292,7 @@
   "modified": "2025-12-27 01:49:01.386763",
   "module": "Mhr",
   "name": "STOCK SHEET (BALANCE REPORT)",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -403,7 +403,7 @@
   "modified": "2025-12-27 22:58:38.058471",
   "module": "Mhr",
   "name": "STOCK SHEETS (INWARD CONELESS STOCK )",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -578,7 +578,7 @@
   "modified": "2024-06-20 03:56:23.760267",
   "module": "Mhr",
   "name": "Meher Creation",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Container",
   "reference_report": null,
@@ -671,7 +671,7 @@
   "modified": "2025-12-16 05:00:52.808163",
   "module": "Mhr",
   "name": "STOCK SHEET (INWARD CONE WISE)",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -857,7 +857,7 @@
   "modified": "2025-12-16 05:21:02.847175",
   "module": "Mhr",
   "name": "STOCK SHEETS (INWARD REST STOCK )",
-  "prepared_report": 1,
+  "prepared_report": 0,
   "query": null,
   "ref_doctype": "Batch",
   "reference_report": null,
@@ -904,31 +904,161 @@
   "javascript": null,
   "json": null,
   "letter_head": null,
-  "modified": "2026-04-10 00:00:00",
+  "modified": "2026-05-18 15:32:28.294446",
   "module": "Mhr",
-  "name": "Container Report",
-  "prepared_report": 0,
+  "name": "HTY Master Report",
+  "prepared_report": 1,
   "query": null,
-  "ref_doctype": "Batch",
+  "ref_doctype": "Container",
   "reference_report": null,
-  "report_name": "Container Report",
+  "report_name": "HTY Master Report",
   "report_script": null,
   "report_type": "Script Report",
   "roles": [
    {
-    "parent": "Container Report",
+    "parent": "HTY Master Report",
     "parentfield": "roles",
     "parenttype": "Report",
     "role": "Stock User"
    },
    {
-    "parent": "Container Report",
+    "parent": "HTY Master Report",
     "parentfield": "roles",
     "parenttype": "Report",
-    "role": "All"
+    "role": "System Manager"
    },
    {
-    "parent": "Container Report",
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock Manager"
+   },
+   {
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Accounts Manager"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 1,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2026-05-18 17:41:31.212369",
+  "module": "Mhr",
+  "name": "Delivery Trip Simplified",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Delivery Trip",
+  "reference_report": null,
+  "report_name": "Delivery Trip Simplified",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock Manager"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery Manager"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery User"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Fulfillment User"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   }
+  ],
+  "timeout": 0
+ },
+ {
+  "add_total_row": 1,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2026-05-18 17:56:49.830270",
+  "module": "Mhr",
+  "name": "Delivery Note Lot-Wise",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Delivery Note",
+  "reference_report": null,
+  "report_name": "Delivery Note Lot-Wise",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Delivery Note Lot-Wise",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock Manager"
+   },
+   {
+    "parent": "Delivery Note Lot-Wise",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   },
+   {
+    "parent": "Delivery Note Lot-Wise",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery Manager"
+   },
+   {
+    "parent": "Delivery Note Lot-Wise",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Delivery User"
+   },
+   {
+    "parent": "Delivery Note Lot-Wise",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Sales User"
+   },
+   {
+    "parent": "Delivery Note Lot-Wise",
     "parentfield": "roles",
     "parenttype": "Report",
     "role": "System Manager"
