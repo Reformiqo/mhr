@@ -219,7 +219,7 @@ scheduler_events = {
 # Testing
 # -------
 
-# before_tests = "mhr.install.before_tests"
+before_tests = "mhr.tests.bootstrap.before_tests"
 
 # Overriding Methods
 # ------------------------------
