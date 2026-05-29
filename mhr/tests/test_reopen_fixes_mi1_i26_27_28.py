@@ -33,7 +33,7 @@ class TestStockEntryLargeSubmitGuard(FrappeTestCase):
 
     def setUp(self):
         from pathlib import Path
-        js_path = Path("/home/frappe/frappe-bench/apps/mhr/mhr/public/js/stock_entry.js")
+        js_path = Path(frappe.get_app_path("mhr", "public", "js", "stock_entry.js"))
         self.script = js_path.read_text()
 
     def test_threshold_constant_present(self):
@@ -73,7 +73,7 @@ class TestPrintBatchRefreshRepopulatesLotNos(FrappeTestCase):
     def setUp(self):
         from pathlib import Path
         js_path = Path(
-            "/home/frappe/frappe-bench/apps/mhr/mhr/mhr/doctype/print_batch/print_batch.js"
+            frappe.get_app_path("mhr", "mhr", "doctype", "print_batch", "print_batch.js")
         )
         self.script = js_path.read_text()
 
