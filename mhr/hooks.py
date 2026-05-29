@@ -74,7 +74,8 @@ doctype_js = {
 # ------------
 
 # before_install = "mhr.install.before_install"
-# after_install = "mhr.install.after_install"
+after_install = "mhr.install.after_install"
+after_migrate = "mhr.install.after_migrate"
 
 # Uninstallation
 # ------------

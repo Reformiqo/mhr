@@ -10,14 +10,15 @@ from mhr.utilis import calculate_delivery_note_totals
 class TestCalculateDeliveryNoteTotals(FrappeTestCase):
 
     def _make_doc(self, items):
-        """Build a minimal mock Delivery Note doc with given items."""
+        """Build a minimal mock Delivery Note doc with given items.
+
+        Item rows are frappe._dict (not MagicMock) so unset fields like
+        batch_no return None rather than a truthy Mock — otherwise
+        set_header_container_info_from_items() would feed Mock objects into a
+        real `frappe.get_all("Batch", ...)` query and raise a SQL error.
+        """
         doc = MagicMock()
-        doc.items = []
-        for cone, qty in items:
-            row = MagicMock()
-            row.custom_cone = cone
-            row.qty = qty
-            doc.items.append(row)
+        doc.items = [frappe._dict(custom_cone=cone, qty=qty) for cone, qty in items]
         return doc
 
     def test_totals_calculated_correctly(self):
