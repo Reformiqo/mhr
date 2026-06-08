@@ -49,7 +49,17 @@ frappe.ui.form.on('Print Batch', {
     },
 
     supplier_batch_no: function(frm) {
-        fetch_and_append_batch(frm);
+        // The Data field's change event fires while the user is still
+        // typing the supplier batch no (e.g. "4" -> "48" -> "480" ->
+        // "4804"). Each partial value hit the server and popped the
+        // "No batches found" message. Debounce so we only fetch once the
+        // user has paused typing (or moved on). The full value still
+        // works exactly as before — it just no longer fires mid-type.
+        if (frm._sbn_debounce) clearTimeout(frm._sbn_debounce);
+        frm._sbn_debounce = setTimeout(function() {
+            frm._sbn_debounce = null;
+            fetch_and_append_batch(frm);
+        }, 2000);
     },
 
     lot_no: function(frm) {
@@ -91,14 +101,20 @@ function fetch_and_append_batch(frm) {
                 return;
             }
 
+            // Build the dedup lookup once (O(n)) instead of re-scanning the
+            // whole child table for every returned row (O(n*m)). list_batches
+            // can hold up to 1000 rows, so this matters. Adding to the Set as
+            // we go also dedups duplicates within the same payload.
+            var existing = new Set((frm.doc.list_batches || []).map(function(row) {
+                return row.batch;
+            }));
+
             var added = 0;
             var skipped = 0;
             rows.forEach(function(data) {
                 if (!data || !data.batch) return;
-                var exists = frm.doc.list_batches.some(function(row) {
-                    return row.batch === data.batch;
-                });
-                if (exists) { skipped++; return; }
+                if (existing.has(data.batch)) { skipped++; return; }
+                existing.add(data.batch);
                 var childTable = frm.add_child("list_batches");
                 childTable.batch = data.batch;
                 childTable.cone = data.cone;
