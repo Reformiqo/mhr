@@ -48,9 +48,9 @@ frappe.ui.form.on('Print Batch', {
         }
     },
 
-    // supplier_batch_no: function(frm) {
-    //     fetch_and_append_batch(frm);
-    // },
+    supplier_batch_no: function(frm) {
+        fetch_and_append_batch(frm);
+    },
 
     lot_no: function(frm) {
         // MI1-I27 (Item bifurcation): a new lot may hold a different set
@@ -62,22 +62,14 @@ frappe.ui.form.on('Print Batch', {
             frm.set_df_property('item', 'options', '');
             frm.refresh_field('item');
         }
-        // fetch_and_append_batch(frm);
-    },
-
-    validate: function(frm) {
-        // MUST return the Promise so Frappe awaits the server lookup before saving. Without this, 'validate' returns immediately,
-        // the doc saves, 'after_insert' enqueues the PDF — and only THEN does the async callback run. By that point the save is 
-        // done, so the "No batches found" guard can't stop anything.
-        return fetch_and_append_batch(frm);
+        fetch_and_append_batch(frm);
     }
 });
 
 function fetch_and_append_batch(frm) {
     if (!frm.doc.supplier_batch_no) return;
 
-    // Return the frappe.call Promise so the caller (validate) can await it.
-    return frappe.call({
+    frappe.call({
         method: "mhr.utilis.get_print_batch",
         args: {
             lot_no: frm.doc.lot_no,
@@ -95,9 +87,6 @@ function fetch_and_append_batch(frm) {
             var rows = response.message || [];
             if (!Array.isArray(rows)) rows = [rows]; // back-compat for older payloads
             if (rows.length === 0) {
-                // Abort the save. 'frappe.validated = false' is the only way to stop a save from inside validate — a plain
-                // 'return' just exits this callback.
-                frappe.validated = false;
                 frappe.msgprint(__('No batches found for that container / lot / supplier batch.'));
                 return;
             }
