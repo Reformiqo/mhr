@@ -55,12 +55,76 @@ frappe.ui.form.on("Container", {
                 });
             }, __('Actions'));
         }
+
+        // "Download" is a core GRID BUTTON (.grid-download), not a docfield —
+        // there is no `download` form event. Frappe core (grid.js
+        // setup_download) dumps EVERY value-type field of the child doctype
+        // into the CSV with no way to exclude columns. So we rebind the
+        // button's click here, on every refresh once the grid is rendered.
+        mhr_trim_batches_download(frm);
     },
     qty: function(frm, cdt, cdn) {
         console.log("qty");
         var d = locals[cdt][cdn];
     }
 });
+
+// Mirrors frappe.ui.form.Grid.setup_download (grid.js) for the `batches`
+// grid, but excludes the columns Meher doesn't want in the Bulk Edit CSV.
+// Kept faithful to core so the template format / Upload round-trip stays
+// compatible — the ONLY difference is the EXCLUDE filter.
+function mhr_trim_batches_download(frm) {
+    const EXCLUDE = ['custom_sr_no', 'uom', 'warehouse']; // Sr. No, Batch Uom, Warehouse
+
+    const grid = frm.fields_dict.batches && frm.fields_dict.batches.grid;
+    if (!grid || !grid.wrapper) return;
+
+    const df = grid.df;
+    const title = df.label || frappe.model.unscrub(df.fieldname);
+
+    $(grid.wrapper).find('.grid-download')
+        .off('click')                     // drop core's download handler
+        .on('click', function() {
+            const data = [];
+            const docfields = [];
+            data.push([__('Bulk Edit {0}', [title])]);
+            data.push([]);
+            data.push([]);
+            data.push([]);
+            data.push([__('The CSV format is case sensitive')]);
+            data.push([__('Do not edit headers which are preset in the template')]);
+            data.push(['------']);
+
+            $.each(frappe.get_meta(df.options).fields, function(i, f) {
+                if (EXCLUDE.includes(f.fieldname)) return;        // <-- only change vs core
+                if (frappe.model.is_value_type(f.fieldtype)) {
+                    data[1].push(f.label);
+                    data[2].push(f.fieldname);
+                    let description = (f.description || '') + ' ';
+                    if (f.fieldtype === 'Date') {
+                        description += frappe.boot.sysdefaults.date_format;
+                    }
+                    data[3].push(description);
+                    docfields.push(f);
+                }
+            });
+
+            $.each(frm.doc[df.fieldname] || [], function(i, d) {
+                const row = [];
+                $.each(data[2], function(j, fieldname) {
+                    let value = d[fieldname];
+                    if (docfields[j].fieldtype === 'Date' && value) {
+                        value = frappe.datetime.str_to_user(value);
+                    }
+                    row.push(value || '');
+                });
+                data.push(row);
+            });
+
+            frappe.tools.downloadify(data, null, title);
+            return false;
+        });
+}
 
 function show_debug_dialog(frm, debug_info) {
     let html = build_debug_html(debug_info);
