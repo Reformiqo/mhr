@@ -210,6 +210,11 @@ class Container(Document):
             )
             if other_owner:
                 continue
+            # Defensive: on_cancel cancels the PR above (reversing inward
+            # stock), so this is normally 0. If a batch still shows stock,
+            # skip the delete rather than orphan live inventory.
+            if self.get_batch_stock_qty(batch.batch_id) > 0:
+                continue
             frappe.db.sql(
                 "DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s",
                 (batch.batch_id, self.container_no, self.lot_no),
@@ -243,6 +248,39 @@ class Container(Document):
 
         return consumed
 
+    def get_batch_stock_qty(self, batch_id):
+        """Net live stock of a single batch = inward - outward across
+        submitted, non-cancelled Serial and Batch Bundles. >0 means the
+        batch still holds inventory and must NOT be hard-deleted — doing so
+        orphans the stock and drops it from the stock reports (this is how
+        MCJC-1614-997 / lot 07042026 lost 240 batches x 26.4 = 6336 qty)."""
+        if not batch_id:
+            return 0
+        rows = frappe.db.sql(
+            """
+            SELECT
+                SUM(CASE WHEN sbb.type_of_transaction = 'Inward'  THEN ABS(sbe.qty) ELSE 0 END)
+              - SUM(CASE WHEN sbb.type_of_transaction = 'Outward' THEN ABS(sbe.qty) ELSE 0 END) AS balance
+            FROM `tabSerial and Batch Entry` sbe
+            JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+            WHERE sbe.batch_no = %s AND sbb.docstatus = 1 AND sbb.is_cancelled = 0
+            """,
+            (batch_id,),
+            as_dict=True,
+        )
+        return flt(rows[0].balance) if rows and rows[0].balance is not None else 0
+
+    def get_batches_with_stock(self):
+        """Batch ids from this container that still hold stock (>0)."""
+        in_stock = []
+        for batch in self.batches:
+            if not batch.batch_id:
+                continue
+            bal = self.get_batch_stock_qty(batch.batch_id)
+            if flt(bal) > 0:
+                in_stock.append((batch.batch_id, flt(bal)))
+        return in_stock
+
     def get_delivery_notes_for_batches(self, batch_names):
         """Get Delivery Notes that consumed stock from the given batches"""
         if not batch_names:
@@ -267,6 +305,20 @@ class Container(Document):
         return [dn.voucher_no for dn in delivery_notes if dn.voucher_no]
 
     def on_trash(self):
+        # Never trash a Container whose batches still hold stock — deleting
+        # the Batch masters would orphan live inventory (exactly how
+        # MCJC-1614-997 / lot 07042026 lost its 240 in-stock batches).
+        in_stock = self.get_batches_with_stock()
+        if in_stock:
+            preview = ", ".join(f"{b} ({q})" for b, q in in_stock[:5])
+            if len(in_stock) > 5:
+                preview += f" and {len(in_stock) - 5} more"
+            frappe.throw(
+                f"Cannot delete Container {self.name}: {len(in_stock)} batch(es) "
+                f"still hold stock — {preview}. Cancel the Container first "
+                f"(which reverses the Purchase Receipt) before deleting."
+            )
+
         for batch in self.batches:
             if frappe.db.exists(
                 "Batch",
@@ -726,10 +778,21 @@ class Container(Document):
                 )
                 frappe.throw(f"Failed to cleanup Purchase Receipt {pr.name}: {str(e)}")
 
-        # Step 2: Delete all existing batches for this container
+        # Step 2: Delete all existing batches for this container.
+        # Match on (name, container_no, lot_no) so a name collision can't
+        # nuke another container's batch, and skip any batch that still has
+        # stock. Step 1 already tore down THIS container's bundles, so its
+        # balance is 0; a non-zero balance means the stock belongs to a
+        # different live bundle and must be preserved.
         for batch in self.batches:
-            if batch.batch_id and frappe.db.exists("Batch", batch.batch_id):
-                frappe.db.sql("DELETE FROM `tabBatch` WHERE name = %s", batch.batch_id)
+            if not batch.batch_id:
+                continue
+            if self.get_batch_stock_qty(batch.batch_id) > 0:
+                continue
+            frappe.db.sql(
+                "DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s",
+                (batch.batch_id, self.container_no, self.lot_no),
+            )
 
         frappe.db.commit()
 
