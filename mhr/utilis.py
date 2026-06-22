@@ -57,8 +57,9 @@ HTY_6UP_STYLE = """
 <style>
   /* Absolute positioning — wkhtmltopdf cannot misinterpret fixed mm
      coordinates. Each `.page` is exactly A4 (210x297mm) with 6 cells
-     hard-pinned at predetermined (top,left) offsets. page-break-after
-     forces a new page after every 6 cells. Earlier table-based attempts
+     hard-pinned at predetermined (top,left) offsets. Pages are broken
+     via `page-break-before: always` on every .page except :first-of-type
+     (canonical multi-page HTML pattern). Earlier table-based attempts
      left wkhtmltopdf room to decide row-3-doesn't-fit; this leaves no
      such room. */
   html, body { margin: 0; padding: 0; }
