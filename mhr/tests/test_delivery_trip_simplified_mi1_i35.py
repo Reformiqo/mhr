@@ -11,7 +11,7 @@ from mhr.mhr.report.delivery_trip_simplified import delivery_trip_simplified as 
 
 
 EXPECTED_COLUMNS = [
-    ("departure_time", "Datetime"),
+    ("departure_time", "Date"),
     ("delivery_note",  "Link"),
     ("total_qty",      "Float"),
     ("customer",       "Link"),

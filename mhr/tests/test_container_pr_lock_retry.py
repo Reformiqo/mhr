@@ -141,11 +141,13 @@ class TestContainerPRLockRetry(FrappeTestCase):
             posting_date = "2026-05-01"
             name = "TEST-CONT-1"
             lot_no = "TESTLOT"
+            transaction_type = ""
             lusture = ""
             glue = ""
             grade = ""
             pulp = ""
             fsc = ""
+            warehouse = ""
             merge_no = ""
             notes = ""
             set_warehouse = ""
@@ -154,6 +156,10 @@ class TestContainerPRLockRetry(FrappeTestCase):
                 return [{"item": "ITM-1", "batch_qty": 1, "stock_uom": "Nos"}]
             def create_serial_and_batch_bundle(self, item, direction):
                 return "SBB-FAKE"
+            # create_purchase_receipt now folds HTY specs into the canonical
+            # columns via resolved_specs(); bind the real method (non-HTY
+            # branch returns the empty glue/lusture/pulp/warehouse above).
+            resolved_specs = Container.resolved_specs
             correct_batch_qty_after_pr_submit = (
                 Container.correct_batch_qty_after_pr_submit
             )
