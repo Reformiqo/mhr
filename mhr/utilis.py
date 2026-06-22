@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
-from frappe.utils.print_format import download_pdf, download_multi_pdf
+from frappe.utils.print_format import download_multi_pdf
 import json
 
 
@@ -70,7 +70,7 @@ def set_total_cone(doc, method=None):
 @frappe.whitelist()
 def same_container():
     containers = frappe.get_all("Container", fields=["*"])
-    data = []
+    # data = []
     same_container = []
     for container in containers:
         # //check if container_no is the same
@@ -174,7 +174,7 @@ def get_delivery_note_batch(
     grade=None,
     cone=None,
     denier=None,
-    is_return = False,
+    is_return=False,
 ):
 
     filters = {}
@@ -259,20 +259,30 @@ def update_item_batch(doc, method=None):
             # Always use cone from the original DN item (authoritative source)
             cone_value = 0
             if item.dn_detail:
-                cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
+                cone_value = cint(
+                    frappe.db.get_value(
+                        "Delivery Note Item", item.dn_detail, "custom_cone"
+                    )
+                )
             if not cone_value:
                 cone_value = cint(item.custom_cone)
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 UPDATE `tabBatch`
                 SET custom_cone = custom_cone + %s
                 WHERE name = %s
-            """, (cone_value, item.batch_no))
+            """,
+                (cone_value, item.batch_no),
+            )
         else:
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 UPDATE `tabBatch`
                 SET custom_cone = custom_cone - %s
                 WHERE name = %s
-            """, (cint(item.custom_cone), item.batch_no))
+            """,
+                (cint(item.custom_cone), item.batch_no),
+            )
 
 
 @frappe.whitelist()
@@ -297,7 +307,9 @@ def _sync_batch_warehouse(doc, use_target=True):
         if not batch_no or not wh:
             continue
 
-        frappe.db.set_value("Batch", batch_no, "custom_warehouse", wh, update_modified=False)
+        frappe.db.set_value(
+            "Batch", batch_no, "custom_warehouse", wh, update_modified=False
+        )
 
         parents = frappe.db.sql(
             "SELECT DISTINCT parent FROM `tabBatch Items` WHERE batch_id=%s AND parenttype='Container'",
@@ -327,20 +339,30 @@ def reverse_item_batch(doc, method=None):
         if doc.is_return:
             cone_value = 0
             if item.dn_detail:
-                cone_value = cint(frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone"))
+                cone_value = cint(
+                    frappe.db.get_value(
+                        "Delivery Note Item", item.dn_detail, "custom_cone"
+                    )
+                )
             if not cone_value:
                 cone_value = cint(item.custom_cone)
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 UPDATE `tabBatch`
                 SET custom_cone = custom_cone - %s
                 WHERE name = %s
-            """, (cone_value, item.batch_no))
+            """,
+                (cone_value, item.batch_no),
+            )
         else:
-            frappe.db.sql("""
+            frappe.db.sql(
+                """
                 UPDATE `tabBatch`
                 SET custom_cone = custom_cone + %s
                 WHERE name = %s
-            """, (cint(item.custom_cone), item.batch_no))
+            """,
+                (cint(item.custom_cone), item.batch_no),
+            )
 
 
 @frappe.whitelist()
@@ -379,8 +401,6 @@ def get_lot_nos(container_no):
 def get_total_batches(container_no, lot_no):
     batches = get_batches(container_no, lot_no)
     return len(batches)
-
-
 
 
 # def create_purchase_receipt(items, supplier):
@@ -461,7 +481,7 @@ def delete_batches():
 def update_batch_stock():
     # Fetch the last 10  batches with their quantities
     batches = frappe.get_all("Update Batch", fields=["batch_id", "batch_quantity"])
-    data = []
+    # data = []
 
     for batch in batches:
         if frappe.db.exists("Batch", batch.get("batch_id")):
@@ -616,7 +636,10 @@ def update_container():
 
 
 @frappe.whitelist()
-def update_container_batch_qty():
+def update_all_containers_batch_qty():
+    # Bulk variant: sync batch_qty for EVERY Container's batches. (Renamed
+    # from update_container_batch_qty to resolve a duplicate-definition clash
+    # with the single-container variant below, which silently shadowed this.)
     message = []
     containers = frappe.get_all("Container", fields=["name"])
     for container in containers:
@@ -657,6 +680,22 @@ def create_batches(container):
     )
     container_doc = frappe.get_doc("Container", container)
 
+    # HTY captures specs under colour/product/type; fold them back into the
+    # canonical glue/lusture/pulp columns so Batches read the same fields as
+    # VFY (mirror of Container.resolved_specs()).
+    if container_doc.transaction_type == "HTY":
+        specs = {
+            "glue": container_doc.product,
+            "lusture": container_doc.colour,
+            "pulp": container_doc.type,
+        }
+    else:
+        specs = {
+            "glue": container_doc.glue,
+            "lusture": container_doc.lusture,
+            "pulp": container_doc.pulp,
+        }
+
     for batch in container_doc.batches:
         if frappe.db.exists("Batch", batch.batch_id):
             continue
@@ -669,10 +708,10 @@ def create_batches(container):
             batch_doc.custom_supplier_batch_no = batch.supplier_batch_no
             batch_doc.custom_container_no = container_doc.container_no
             batch_doc.custom_cone = batch.cone
-            batch_doc.custom_glue = container_doc.glue
-            batch_doc.custom_lusture = container_doc.lusture
+            batch_doc.custom_glue = specs["glue"]
+            batch_doc.custom_lusture = specs["lusture"]
             batch_doc.custom_grade = container_doc.grade
-            batch_doc.custom_pulp = container_doc.pulp
+            batch_doc.custom_pulp = specs["pulp"]
             batch_doc.custom_fsc = container_doc.fsc
             batch_doc.custom_lot_no = container_doc.lot_no
             batch_doc.save(ignore_permissions=True)
@@ -807,9 +846,9 @@ def set_return_cone_from_original(doc, method=None):
         return
     for item in doc.items:
         if item.dn_detail and not cint(item.custom_cone):
-            original_cone = cint(frappe.db.get_value(
-                "Delivery Note Item", item.dn_detail, "custom_cone"
-            ))
+            original_cone = cint(
+                frappe.db.get_value("Delivery Note Item", item.dn_detail, "custom_cone")
+            )
             if original_cone:
                 item.custom_cone = original_cone
 
@@ -846,8 +885,13 @@ def set_header_container_info_from_items(doc):
             "Batch",
             filters={"name": ["in", batch_nos]},
             fields=[
-                "name", "item", "custom_glue", "custom_pulp", "custom_lusture",
-                "custom_grade", "custom_fsc",
+                "name",
+                "item",
+                "custom_glue",
+                "custom_pulp",
+                "custom_lusture",
+                "custom_grade",
+                "custom_fsc",
             ],
         ):
             batch_cache[b.name] = b
@@ -874,7 +918,14 @@ def set_header_container_info_from_items(doc):
     row_lots = [i.get("custom_lot_no") for i in doc.items]
 
     # Batch-level fields — pull via batch_no
-    batch_glues, batch_pulps, batch_lustres, batch_grades, batch_fscs, batch_items = [], [], [], [], [], []
+    batch_glues, batch_pulps, batch_lustres, batch_grades, batch_fscs, batch_items = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     for i in doc.items:
         b = batch_cache.get(i.get("batch_no"))
         if not b:
@@ -1073,7 +1124,7 @@ def submit_docs(doctype):
     for doc in docs:
         try:
             d = frappe.get_doc(doctype, doc.name)
-            
+
             d.submit()
             frappe.db.commit()
             successful.append(doc.name)
@@ -1138,10 +1189,13 @@ def validate_so_available_qty(doc, method=None):
             continue
 
         # Get current stock balance for this batch
-        batch_balance = flt(frappe.db.get_value("Batch", item.custom_batch_no, "batch_qty"))
+        batch_balance = flt(
+            frappe.db.get_value("Batch", item.custom_batch_no, "batch_qty")
+        )
 
         # Get total already-booked qty from other submitted SOs (excluding this one)
-        already_booked = frappe.db.sql("""
+        already_booked = frappe.db.sql(
+            """
             SELECT COALESCE(SUM(soi.qty - soi.delivered_qty), 0)
             FROM `tabSales Order Item` soi
             JOIN `tabSales Order` so ON so.name = soi.parent
@@ -1149,18 +1203,25 @@ def validate_so_available_qty(doc, method=None):
             AND so.docstatus = 1
             AND so.name != %s
             AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
-        """, (item.custom_batch_no, doc.name))[0][0]
+        """,
+            (item.custom_batch_no, doc.name),
+        )[0][0]
 
         available = flt(batch_balance) - flt(already_booked)
         requested = flt(item.qty)
 
         if requested > available:
             frappe.throw(
-                _("Row {0}: Batch {1} has only {2} kg available ({3} kg in stock, {4} kg already booked). "
-                  "You are trying to book {5} kg.").format(
-                    item.idx, item.custom_batch_no,
-                    round(available, 2), round(batch_balance, 2),
-                    round(flt(already_booked), 2), round(requested, 2)
+                _(
+                    "Row {0}: Batch {1} has only {2} kg available ({3} kg in stock, {4} kg already booked). "
+                    "You are trying to book {5} kg."
+                ).format(
+                    item.idx,
+                    item.custom_batch_no,
+                    round(available, 2),
+                    round(batch_balance, 2),
+                    round(flt(already_booked), 2),
+                    round(requested, 2),
                 )
             )
 
@@ -1190,7 +1251,7 @@ def validate_batch_container_match(doc, method=None):
             bundle_entries = frappe.get_all(
                 "Serial and Batch Entry",
                 filters={"parent": item.serial_and_batch_bundle},
-                fields=["batch_no"]
+                fields=["batch_no"],
             )
 
             for entry in bundle_entries:
@@ -1202,12 +1263,17 @@ def validate_batch_container_match(doc, method=None):
 
                     # Check if it matches the items container no
                     if batch_container:
-                        if batch_container and batch_container != item.custom_container_no:
-                            mismatched_batches.append({
-                                "batch": entry.batch_no,
-                                "batch_container": batch_container,
-                                "dn_container": item.custom_container_no
-                        })
+                        if (
+                            batch_container
+                            and batch_container != item.custom_container_no
+                        ):
+                            mismatched_batches.append(
+                                {
+                                    "batch": entry.batch_no,
+                                    "batch_container": batch_container,
+                                    "dn_container": item.custom_container_no,
+                                }
+                            )
 
         # Also check direct batch_no field if populated
         if item.batch_no:
@@ -1216,18 +1282,22 @@ def validate_batch_container_match(doc, method=None):
             )
 
             if batch_container and batch_container != doc.custom_container_no:
-                mismatched_batches.append({
-                    "batch": item.batch_no,
-                    "batch_container": batch_container,
-                    "dn_container": item.custom_container_no
-                })
+                mismatched_batches.append(
+                    {
+                        "batch": item.batch_no,
+                        "batch_container": batch_container,
+                        "dn_container": item.custom_container_no,
+                    }
+                )
 
     # If there are mismatched batches, throw an error
     if mismatched_batches:
-        error_details = "<br>".join([
-            f"Batch <b>{m['batch']}</b> belongs to Container <b>{m['batch_container']}</b>"
-            for m in mismatched_batches[:5]  # Show first 5
-        ])
+        error_details = "<br>".join(
+            [
+                f"Batch <b>{m['batch']}</b> belongs to Container <b>{m['batch_container']}</b>"
+                for m in mismatched_batches[:5]  # Show first 5
+            ]
+        )
 
         if len(mismatched_batches) > 5:
             error_details += f"<br>... and {len(mismatched_batches) - 5} more"
@@ -1238,7 +1308,7 @@ def validate_batch_container_match(doc, method=None):
                 "Container <b>{0}</b>:<br><br>{1}<br><br>"
                 "Please select batches from the correct container."
             ).format(doc.custom_container_no, error_details),
-            title=_("Container Mismatch")
+            title=_("Container Mismatch"),
         )
 
 
@@ -1264,8 +1334,7 @@ def submit_stock_entry_in_background(name):
     doc = frappe.get_doc("Stock Entry", name)
     if doc.docstatus != 0:
         frappe.throw(
-            f"Stock Entry {name} is not in Draft. "
-            f"Current docstatus={doc.docstatus}."
+            f"Stock Entry {name} is not in Draft. Current docstatus={doc.docstatus}."
         )
     frappe.enqueue(
         method="mhr.utilis._submit_stock_entry_worker",
@@ -1359,6 +1428,7 @@ def fill_default_addresses_on_delivery_trip(doc, method=None):
         get_default_address,
         get_address_display,
     )
+
     stops = getattr(doc, "delivery_stops", None) or []
     for stop in stops:
         if not getattr(stop, "customer", None):
@@ -1408,10 +1478,13 @@ def _ensure_address_customer_link(address_name, customer):
         # Stale stop.address pointing at a deleted Address row; nothing
         # to link. Skip silently — the Stop save can still succeed.
         return
-    addr_doc.append("links", {
-        "link_doctype": "Customer",
-        "link_name": customer,
-    })
+    addr_doc.append(
+        "links",
+        {
+            "link_doctype": "Customer",
+            "link_name": customer,
+        },
+    )
     try:
         addr_doc.save(ignore_permissions=True)
     except Exception:
@@ -1472,7 +1545,7 @@ def restore_cones_for_hty_return(doc, method=None):
     if (getattr(doc, "transaction_type", None) or "VFY") != "HTY":
         return
 
-    for item in (doc.items or []):
+    for item in doc.items or []:
         cone = cint(getattr(item, "custom_cone", 0))
         batch_no = getattr(item, "batch_no", None)
         container_no = getattr(item, "custom_container_no", None)
@@ -1512,6 +1585,7 @@ def restore_cones_for_hty_return(doc, method=None):
 # because the field was added later. Per FRD's hard rule "VFY = unchanged
 # starter behavior", NULL is treated as VFY so legacy data still appears
 # under the VFY-filter view (and disappears under HTY-filter).
+
 
 def get_container_nos_by_transaction_type(transaction_type):
     """Return the set of distinct Container.container_no values whose
@@ -1649,16 +1723,18 @@ def get_hty_batches_for_containers(container_names):
     )
     payload = []
     for r in rows:
-        payload.append({
-            "item_code": r.item_code,
-            "qty": flt(r.net_weight),
-            "batch_no": r.batch_id,
-            "warehouse": r.set_warehouse,
-            "custom_container_no": r.container_no,
-            "custom_lot_no": r.lot_no,
-            "custom_cone": cint(r.cone),
-            "custom_sr_no": r.custom_sr_no or "",
-            "custom_gross_weight": flt(r.custom_gross_weight),
-            "custom_supplier_batch_no": r.supplier_batch_no or "",
-        })
+        payload.append(
+            {
+                "item_code": r.item_code,
+                "qty": flt(r.net_weight),
+                "batch_no": r.batch_id,
+                "warehouse": r.set_warehouse,
+                "custom_container_no": r.container_no,
+                "custom_lot_no": r.lot_no,
+                "custom_cone": cint(r.cone),
+                "custom_sr_no": r.custom_sr_no or "",
+                "custom_gross_weight": flt(r.custom_gross_weight),
+                "custom_supplier_batch_no": r.supplier_batch_no or "",
+            }
+        )
     return payload

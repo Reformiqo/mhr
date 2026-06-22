@@ -384,6 +384,29 @@ class Container(Document):
         self.total_net_weight = qty
         self.total_cone = cone
 
+    def resolved_specs(self):
+        """Map the spec values into the canonical columns regardless of mode.
+
+        HTY captures the same specs under the relabeled fields
+        colour/product/type/location; VFY uses lusture/glue/pulp/warehouse.
+        Both draw from the same Item Specification pools, so we fold HTY back
+        into the canonical columns — that way Batches, the Purchase Receipt,
+        all stock reports and the print formats keep reading
+        lusture/glue/pulp/warehouse with no per-report HTY branching."""
+        if self.transaction_type == "HTY":
+            return {
+                "glue": self.product,
+                "lusture": self.colour,
+                "pulp": self.type,
+                "warehouse": self.location,
+            }
+        return {
+            "glue": self.glue,
+            "lusture": self.lusture,
+            "pulp": self.pulp,
+            "warehouse": self.warehouse,
+        }
+
     def create_batches(self):
         # frappe.msgprint("create_batches")
         # Validate all batches first
@@ -405,6 +428,7 @@ class Container(Document):
                 )
 
         # Create batches after validation passes
+        specs = self.resolved_specs()
         for batch in self.batches:
             batch_doc = frappe.new_doc("Batch")
             batch_doc.item = batch.item
@@ -413,10 +437,10 @@ class Container(Document):
             batch_doc.custom_supplier_batch_no = batch.supplier_batch_no
             batch_doc.custom_container_no = self.container_no
             batch_doc.custom_cone = batch.cone
-            batch_doc.custom_glue = self.glue
-            batch_doc.custom_lusture = self.lusture
+            batch_doc.custom_glue = specs["glue"]
+            batch_doc.custom_lusture = specs["lusture"]
             batch_doc.custom_grade = self.grade
-            batch_doc.custom_pulp = self.pulp
+            batch_doc.custom_pulp = specs["pulp"]
             batch_doc.custom_fsc = self.fsc
             batch_doc.custom_cross_section = self.cross_section
             batch_doc.custom_notes = self.notes
@@ -424,7 +448,7 @@ class Container(Document):
                 getdate(self.production_date) if self.production_date else None
             )
             batch_doc.custom_merge_no = self.merge_no
-            batch_doc.custom_warehouse = self.warehouse
+            batch_doc.custom_warehouse = specs["warehouse"]
             # batch.custom_net_weight = batch.qty
             batch_doc.custom_lot_no = self.lot_no
             batch_doc.save(ignore_permissions=True)
@@ -561,6 +585,7 @@ class Container(Document):
                 batch_qty_map[batch.batch_id] = flt(batch.qty)
 
         # Create a new Purchase Receipt document
+        specs = self.resolved_specs()
         purchase_receipt = frappe.new_doc("Purchase Receipt")
         purchase_receipt.company = self.company
         purchase_receipt.supplier = self.supplier
@@ -568,10 +593,10 @@ class Container(Document):
         purchase_receipt.custom_container_no = self.name
         purchase_receipt.custom_total_batches = len(self.batches)
         purchase_receipt.custom_lot_number = self.lot_no
-        purchase_receipt.custom_lusture = self.lusture
-        purchase_receipt.custom_glue = self.glue
+        purchase_receipt.custom_lusture = specs["lusture"]
+        purchase_receipt.custom_glue = specs["glue"]
         purchase_receipt.custom_grade = self.grade
-        purchase_receipt.custom_pulp = self.pulp
+        purchase_receipt.custom_pulp = specs["pulp"]
         purchase_receipt.custom_fsc = self.fsc
         purchase_receipt.custom_merge_no = self.merge_no
         purchase_receipt.custom_notes = self.notes
