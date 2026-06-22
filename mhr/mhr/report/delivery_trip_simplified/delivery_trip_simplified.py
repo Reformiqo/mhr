@@ -29,8 +29,9 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": _("Departure Time"), "fieldname": "departure_time",
-         "fieldtype": "Datetime", "width": 150},
+        # MI1-I68: show Date only, drop the time portion.
+        {"label": _("Departure Date"), "fieldname": "departure_time",
+         "fieldtype": "Date", "width": 110},
         {"label": _("Delivery Note"), "fieldname": "delivery_note",
          "fieldtype": "Link", "options": "Delivery Note", "width": 160},
         {"label": _("Total Quantity"), "fieldname": "total_qty",

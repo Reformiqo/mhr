@@ -28,9 +28,12 @@ def get_columns():
         {"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 70},
         {"label": _("Merge No"), "fieldname": "Merge No", "fieldtype": "Data", "width": 100},
         # --- Specifications ---
-        {"label": _("Pulp"), "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
+        # MI1-I64: HTY-friendly labels (Pulp -> Type, Glue -> Product).
+        # Fieldnames stay the same (capitalised "Pulp"/"Glue") so the
+        # data dicts at lines 483/485 still resolve correctly.
+        {"label": _("Type"), "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
         {"label": _("Lusture"), "fieldname": "Lusture", "fieldtype": "Data", "width": 90},
-        {"label": _("Glue"), "fieldname": "Glue", "fieldtype": "Data", "width": 90},
+        {"label": _("Product"), "fieldname": "Glue", "fieldtype": "Data", "width": 90},
         # --- Stock ---
         {"label": _("Balance Qty"), "fieldname": "Balance", "fieldtype": "Data", "width": 110},
         {"label": _("Booked Qty"), "fieldname": "Buyer Qty", "fieldtype": "Data", "width": 100},
