@@ -18,6 +18,8 @@ Tests pin:
 
 import inspect
 import re
+import shutil
+import unittest
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -77,6 +79,10 @@ class TestRenderer(FrappeTestCase):
         self.assertEqual(out, b"",
             "All-missing input returns empty bytes (no labels to render).")
 
+    @unittest.skipUnless(
+        shutil.which("wkhtmltopdf"),
+        "wkhtmltopdf not installed — skip real PDF rendering (CI has no binary).",
+    )
     def test_real_batches_produce_pdf_bytes(self):
         from mhr.utilis import render_hty_6up_pdf
         pdf = render_hty_6up_pdf(self.BATCHES)

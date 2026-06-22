@@ -64,8 +64,9 @@ class TestPrintBatchPicksHTYFormatInHTYMode(FrappeTestCase):
             "Print Batch's PDF generator must consult transaction_type.",
         )
         self.assertIn(
-            '"HTY Batch Label"', src,
-            "HTY-mode runs must use the HTY Batch Label format.",
+            "render_hty_6up_pdf", src,
+            "HTY-mode runs must render the 6-up HTY label PDF (MI1-I62) "
+            "instead of the old HTY Batch Label download format.",
         )
         self.assertIn(
             '"NB"', src,
