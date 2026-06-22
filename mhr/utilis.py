@@ -70,12 +70,16 @@ HTY_6UP_STYLE = """
     position: relative;
     width: 210mm; height: 297mm;
     overflow: hidden;
-    /* page-break-BEFORE (not after). When a 297mm-tall block exactly
-       fills A4, page-break-after: always adds an extra blank page;
-       page-break-before on all-except-first gives N pages for N blocks. */
-    page-break-before: always;
+    /* No page-break-before/after declarations.
+       height:297mm = full A4 -> each .page naturally fills one PDF page,
+       the next .page naturally starts on the next.
+       page-break-inside: avoid stops wkhtmltopdf from splitting a
+       single .page across two PDF pages.
+       page-break-after: always made one blank page after each real one;
+       page-break-before: always did the same. The cleanest fix is to
+       let the height drive pagination — no explicit break rules at all. */
+    page-break-inside: avoid;
   }
-  .page:first-of-type { page-break-before: auto; }
 
   /* 3 rows x 2 cols on A4. With 5mm outer margin + 92mm tall cells:
      row 1 at top 5mm, row 2 at 99mm, row 3 at 193mm — last cell ends
