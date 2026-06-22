@@ -126,12 +126,20 @@ class TestSixUpLayout(FrappeTestCase):
         self.assertIn(".cell.c1", HTY_6UP_STYLE)
         self.assertIn(".cell.c2", HTY_6UP_STYLE)
 
-    def test_page_self_page_breaks(self):
-        """Each .page page-break-after: always; the last suppresses the
-        trailing blank page."""
+    def test_page_break_before_not_after(self):
+        """Use page-break-BEFORE: always on all pages except :first-of-type
+        — not page-break-after. Reason: when a 297mm block exactly fills
+        A4, page-break-after: always adds an *extra* blank page after each
+        real page (the 'every other page is blank' bug from the prior cut)."""
         from mhr.utilis import HTY_6UP_STYLE
-        self.assertIn("page-break-after: always", HTY_6UP_STYLE)
-        self.assertIn("last-of-type", HTY_6UP_STYLE)
+        self.assertIn("page-break-before: always", HTY_6UP_STYLE,
+            "Must use page-break-before: always (not after).")
+        self.assertIn("first-of-type", HTY_6UP_STYLE,
+            "First .page must suppress its page-break-before.")
+        # Catch the regression: no `page-break-after: always` on .page.
+        self.assertNotIn("page-break-after: always", HTY_6UP_STYLE,
+            "Don't use page-break-after: always — produces a blank page "
+            "after every real page when the block exactly fills A4.")
 
     def test_renderer_emits_6_cells_per_page(self):
         """Source-level pin on the renderer's HTML emission."""

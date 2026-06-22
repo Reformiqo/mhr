@@ -68,10 +68,13 @@ HTY_6UP_STYLE = """
   .page {
     position: relative;
     width: 210mm; height: 297mm;
-    page-break-after: always;
     overflow: hidden;
+    /* page-break-BEFORE (not after). When a 297mm-tall block exactly
+       fills A4, page-break-after: always adds an extra blank page;
+       page-break-before on all-except-first gives N pages for N blocks. */
+    page-break-before: always;
   }
-  .page:last-of-type { page-break-after: auto; }
+  .page:first-of-type { page-break-before: auto; }
 
   /* 3 rows x 2 cols on A4. With 5mm outer margin + 92mm tall cells:
      row 1 at top 5mm, row 2 at 99mm, row 3 at 193mm — last cell ends
