@@ -42,13 +42,13 @@
         "column_break_ntki",
         "total_cone",
         "column_break_nqua",
-        "total_net_weight",
+        "total_net_weight"
     ],
     "fields": [
         {
             "fieldname": "section_break_lvus",
             "fieldtype": "Section Break",
-            "label": "Container Info",
+            "label": "Container Info"
         },
         {"fieldname": "container_no", "fieldtype": "Data", "label": "Container No"},
         {
@@ -56,22 +56,22 @@
             "fieldname": "glue",
             "fieldtype": "Link",
             "label": "Glue",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Glue"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "Glue"]],
+            "options": "Item Specification"
         },
         {
             "depends_on": "eval:doc.transaction_type=='HTY'",
             "fieldname": "product",
             "fieldtype": "Link",
             "label": "Product",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Glue"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "Glue"]],
+            "options": "Item Specification"
         },
         {
             "allow_on_submit": 1,
             "fieldname": "merge_no",
             "fieldtype": "Data",
-            "label": "Merge No",
+            "label": "Merge No"
         },
         {"fieldname": "column_break_jnpb", "fieldtype": "Column Break"},
         {
@@ -79,93 +79,93 @@
             "fieldname": "lusture",
             "fieldtype": "Link",
             "label": "Lusture",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Lusture"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "Lusture"]],
+            "options": "Item Specification"
         },
         {
             "depends_on": "eval:doc.transaction_type=='HTY'",
             "fieldname": "colour",
             "fieldtype": "Link",
             "label": "Colour",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Lusture"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "Lusture"]],
+            "options": "Item Specification"
         },
         {
             "depends_on": "eval:doc.transaction_type!='HTY'",
             "fieldname": "pulp",
             "fieldtype": "Link",
             "label": "Pulp",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Pulp"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "Pulp"]],
+            "options": "Item Specification"
         },
         {
             "depends_on": "eval:doc.transaction_type=='HTY'",
             "fieldname": "type",
             "fieldtype": "Link",
             "label": "Type",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Pulp"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "Pulp"]],
+            "options": "Item Specification"
         },
         {
             "fieldname": "lot_no",
             "fieldtype": "Data",
             "in_list_view": 1,
             "in_standard_filter": 1,
-            "label": "Lot No",
+            "label": "Lot No"
         },
         {"fieldname": "column_break_hzgt", "fieldtype": "Column Break"},
         {
             "fieldname": "grade",
             "fieldtype": "Link",
             "label": "Grade",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Grade"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "Grade"]],
+            "options": "Item Specification"
         },
         {
             "fieldname": "fsc",
             "fieldtype": "Link",
             "label": "FSC",
-            "link_filters": '[["Item Specification", "specification_type", "=", "FSC"]]',
-            "options": "Item Specification",
+            "link_filters": [["Item Specification", "specification_type", "=", "FSC"]],
+            "options": "Item Specification"
         },
         {
             "fieldname": "purchase_receipt_info_section",
             "fieldtype": "Section Break",
-            "label": "Purchase Receipt Info",
+            "label": "Purchase Receipt Info"
         },
         {
             "allow_on_submit": 1,
             "fieldname": "company",
             "fieldtype": "Link",
             "label": "Company",
-            "options": "Company",
+            "options": "Company"
         },
         {
             "fieldname": "supplier",
             "fieldtype": "Link",
             "label": "Supplier",
-            "options": "Supplier",
+            "options": "Supplier"
         },
         {
             "fieldname": "posting_date",
             "fieldtype": "Date",
             "in_list_view": 1,
             "label": "Posting Date",
-            "reqd": 1,
+            "reqd": 1
         },
         {"fieldname": "column_break_tfsi", "fieldtype": "Column Break"},
         {"fieldname": "posting_time", "fieldtype": "Time", "label": "Posting Time"},
         {
             "fieldname": "batches_section",
             "fieldtype": "Section Break",
-            "label": "Batches",
+            "label": "Batches"
         },
         {
             "allow_bulk_edit": 1,
             "fieldname": "batches",
             "fieldtype": "Table",
             "label": "Batches",
-            "options": "Batch Items",
+            "options": "Batch Items"
         },
         {
             "fieldname": "amended_from",
@@ -175,14 +175,14 @@
             "options": "Container",
             "print_hide": 1,
             "read_only": 1,
-            "search_index": 1,
+            "search_index": 1
         },
         {
             "allow_on_submit": 1,
             "fieldname": "set_warehouse",
             "fieldtype": "Link",
             "label": "Accepted Warehouse",
-            "options": "Warehouse",
+            "options": "Warehouse"
         },
         {"fieldname": "item", "fieldtype": "Link", "label": "Item", "options": "Item"},
         {"fieldname": "section_break_rolf", "fieldtype": "Section Break"},
@@ -190,14 +190,14 @@
             "fieldname": "total_batches",
             "fieldtype": "Int",
             "label": "Total Batches",
-            "read_only": 1,
+            "read_only": 1
         },
         {"fieldname": "column_break_ntki", "fieldtype": "Column Break"},
         {
             "fieldname": "total_cone",
             "fieldtype": "Int",
             "label": "Total Cone",
-            "read_only": 1,
+            "read_only": 1
         },
         {"fieldname": "column_break_nqua", "fieldtype": "Column Break"},
         {
@@ -205,41 +205,41 @@
             "fieldtype": "Int",
             "label": "Total Net Weight",
             "precision": "2",
-            "read_only": 1,
+            "read_only": 1
         },
         {
             "allow_on_submit": 1,
             "depends_on": "eval:doc.transaction_type!='HTY'",
             "fieldname": "warehouse",
             "fieldtype": "Small Text",
-            "label": "Warehouse",
+            "label": "Warehouse"
         },
         {
             "allow_on_submit": 1,
             "depends_on": "eval:doc.transaction_type=='HTY'",
             "fieldname": "location",
             "fieldtype": "Small Text",
-            "label": "Location",
+            "label": "Location"
         },
         {
             "allow_on_submit": 1,
             "fieldname": "cross_section",
             "fieldtype": "Data",
             "label": "Cross Section",
-            "link_filters": '[["Item Specification", "specification_type", "=", "Cross Section"]]',
+            "link_filters": [["Item Specification", "specification_type", "=", "Cross Section"]]
         },
         {
             "allow_on_submit": 1,
             "fieldname": "notes",
             "fieldtype": "Data",
-            "label": "Notes",
+            "label": "Notes"
         },
         {
             "allow_on_submit": 1,
             "fieldname": "production_date",
             "fieldtype": "Data",
-            "label": "Production Date",
-        },
+            "label": "Production Date"
+        }
     ],
     "index_web_pages_for_search": 1,
     "is_submittable": 1,
@@ -263,7 +263,7 @@
             "role": "System Manager",
             "share": 1,
             "submit": 1,
-            "write": 1,
+            "write": 1
         },
         {
             "amend": 1,
@@ -278,7 +278,7 @@
             "role": "All",
             "share": 1,
             "submit": 1,
-            "write": 1,
+            "write": 1
         },
         {
             "amend": 1,
@@ -293,8 +293,8 @@
             "role": "Purchase Manager",
             "share": 1,
             "submit": 1,
-            "write": 1,
-        },
+            "write": 1
+        }
     ],
     "row_format": "Dynamic",
     "rows_threshold_for_grid_search": 20,
@@ -302,5 +302,5 @@
     "sort_field": "modified",
     "sort_order": "DESC",
     "states": [],
-    "title_field": "container_no",
+    "title_field": "container_no"
 }
