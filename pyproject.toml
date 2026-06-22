@@ -9,7 +9,7 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
-    "segno>=1.6.0"
+    "segno",  # QR generation for HTY batch labels (mhr.utilis.hty_qr_data_url)
 ]
 
 [build-system]

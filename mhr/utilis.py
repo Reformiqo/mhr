@@ -21,6 +21,183 @@ def hty_qr_data_url(text):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+# MI1-I62: per-label HTML used by both the single-batch print format
+# (preview) and the 6-up A4 bulk PDF (Print Batch). Centralised here so
+# the layout doesn't drift between the two paths.
+HTY_LABEL_HTML = """
+<div class="hty-label">
+  <table class="outer"><tbody>
+    <tr>
+      <td class="fields-col">
+        <table class="fields"><tbody>
+          <tr class="b"><td class="k">Container No.</td><td class="v">{{ doc.custom_container_no or "" }}</td></tr>
+          <tr><td class="k">Pallet No.</td><td class="v">{{ doc.custom_cone or "" }}</td></tr>
+          <tr><td class="k">Den/Fil</td><td class="v">{{ item_code }}</td></tr>
+          <tr><td class="k">Cone</td><td class="v">{{ cone_val }}</td></tr>
+          <tr class="b"><td class="k">Net Wt</td><td class="v">{{ net_wt_str }}</td></tr>
+          <tr><td class="k">Gross Wt</td><td class="v">{{ gross_wt_str }}</td></tr>
+          <tr><td class="k">Grade</td><td class="v">{{ grade_val }}</td></tr>
+          <tr><td class="k">Luster</td><td class="v">{{ luster_val }}</td></tr>
+          <tr><td class="k">Type</td><td class="v">PALLET</td></tr>
+          <tr><td class="k">Lot No.</td><td class="v">{{ doc.custom_lot_no or "" }}</td></tr>
+        </tbody></table>
+      </td>
+      <td class="right-col">
+        <div class="serial">{{ serial }}</div>
+        <img class="qr" src="{{ qr_url }}" alt="QR" />
+      </td>
+    </tr>
+  </tbody></table>
+  <div class="caption">{{ qr_payload }}.</div>
+</div>
+""".strip()
+
+
+HTY_6UP_STYLE = """
+<style>
+  /* Absolute positioning — wkhtmltopdf cannot misinterpret fixed mm
+     coordinates. Each `.page` is exactly A4 (210x297mm) with 6 cells
+     hard-pinned at predetermined (top,left) offsets. Pages are broken
+     via `page-break-before: always` on every .page except :first-of-type
+     (canonical multi-page HTML pattern). Earlier table-based attempts
+     left wkhtmltopdf room to decide row-3-doesn't-fit; this leaves no
+     such room. */
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt; }
+  @page { size: A4 portrait; margin: 0; }
+
+  .page {
+    position: relative;
+    width: 210mm; height: 280mm;          /* less than A4 (297mm) */
+    overflow: hidden;
+    page-break-after: always;
+    page-break-inside: avoid;
+  }
+  .page:last-of-type { page-break-after: auto; }
+  /* Height: 280mm gives 17mm of slack vs the 297mm A4 page. Without
+     this slack, wkhtmltopdf accumulates rounding drift between blocks
+     and by the 3rd .page the bottom row gets pushed onto the next
+     PDF page (the '6+6+4' pattern we hit at exact 297mm). The page-
+     break-after: always with slack also avoids the blank-page bug
+     that exact-A4-height + page-break-after produced. */
+
+  /* 3 rows x 2 cols. Cells 90mm tall fit comfortably inside 280mm
+     (3 * 90 = 270mm + 10mm slack). Two 96mm columns + 2mm centre
+     gutter at left positions 5mm and 107mm. */
+  .cell {
+    position: absolute;
+    width: 96mm; height: 90mm;
+    padding: 3mm 4mm;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .cell.r1 { top: 0mm; }
+  .cell.r2 { top: 93mm; }
+  .cell.r3 { top: 186mm; }
+  .cell.c1 { left: 5mm; }
+  .cell.c2 { left: 107mm; }
+
+  .hty-label { padding: 0; box-sizing: border-box; }
+  table.outer { width: 100%; border-collapse: collapse; }
+  table.outer > tbody > tr > td { vertical-align: top; padding: 0; }
+  table.outer > tbody > tr > td.fields-col { width: 65%; padding-right: 2mm; }
+  table.outer > tbody > tr > td.right-col { width: 35%; text-align: right; }
+  table.fields { width: 100%; border-collapse: collapse; }
+  table.fields td { padding: 0.3mm 1mm; vertical-align: top; line-height: 1.1; }
+  table.fields td.k { font-weight: bold; width: 42%; white-space: nowrap; }
+  table.fields td.v { width: 58%; }
+  table.fields tr.b td { font-weight: bold; }
+  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 1mm; }
+  .right-col img.qr { width: 22mm; height: 22mm; }
+  .caption { font-size: 7pt; text-align: center; margin-top: 0.5mm; }
+</style>
+""".strip()
+
+
+def render_hty_6up_pdf(batch_names):
+    """MI1-I62 (final): render N HTY Batch Labels into ONE A4 PDF — 6 labels
+    per page, 2 cols × 3 rows, matching Raj's reference PDF.
+
+    Returns the PDF bytes. Skips (and logs) any batch name that no longer
+    exists in `tabBatch`. Pads the final page with empty cells so the
+    grid stays clean when N is not a multiple of 6.
+    """
+    if not batch_names:
+        return b""
+
+    labels = []
+    for name in batch_names:
+        if not frappe.db.exists("Batch", name):
+            frappe.log_error(f"HTY 6up render: Batch {name} not found", "HTY 6up render")
+            continue
+        doc = frappe.get_doc("Batch", name)
+        qr_payload = "{}_{}_{}".format(
+            doc.custom_cone or "",
+            doc.custom_container_no or "",
+            doc.custom_lot_no or "",
+        )
+        ctx = {
+            "doc": doc,
+            "item_code": doc.item or "",
+            "cone_val": hty_parse_filament_count(doc.item or ""),
+            "net_wt_str": ("%.3f" % float(doc.batch_qty)) if doc.batch_qty is not None else "",
+            "gross_wt_str": ("%.3f" % float(doc.get("custom_gross_weight")))
+                if doc.get("custom_gross_weight") else "",
+            "grade_val": strip_prefix(doc.custom_grade),
+            "luster_val": strip_prefix(doc.custom_lusture),
+            "serial": doc.custom_supplier_batch_no or doc.name,
+            "qr_payload": qr_payload,
+            "qr_url": hty_qr_data_url(qr_payload),
+        }
+        labels.append(frappe.render_template(HTY_LABEL_HTML, ctx))
+
+    if not labels:
+        return b""
+
+    # Pad to next multiple of 6 so the last sheet has 6 cells.
+    while len(labels) % 6 != 0:
+        labels.append("")
+
+    # Six cells per page at absolute (row, col) coordinates. row indices
+    # map to top: 5mm / 99mm / 193mm; col indices to left: 5mm / 107mm.
+    # The order is left-to-right, top-to-bottom (reading order).
+    positions = [
+        ("r1", "c1"), ("r1", "c2"),
+        ("r2", "c1"), ("r2", "c2"),
+        ("r3", "c1"), ("r3", "c2"),
+    ]
+    pages = []
+    for i in range(0, len(labels), 6):
+        chunk = labels[i:i + 6]
+        cells = "".join(
+            f'<div class="cell {row} {col}">{chunk[k]}</div>'
+            for k, (row, col) in enumerate(positions)
+        )
+        pages.append(f'<div class="page">{cells}</div>')
+
+    # Each .page self-page-breaks via CSS, and `:last-of-type
+    # { page-break-after: auto }` prevents a trailing blank page.
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        + HTY_6UP_STYLE
+        + "</head><body>"
+        + "".join(pages)
+        + "</body></html>"
+    )
+
+    from frappe.utils.pdf import get_pdf
+    # Margins = 0 because the @page CSS rule and .page width/height are
+    # set explicitly. Letting wkhtmltopdf add margins on top would push
+    # row 3 off the page.
+    return get_pdf(html, options={
+        "page-size": "A4",
+        "margin-top": "0",
+        "margin-bottom": "0",
+        "margin-left": "0",
+        "margin-right": "0",
+    })
+
+
 def strip_prefix(val):
     """MI1-I62: strip the prefix from values stored as 'Prefix-Value' so
     labels and reports show only the meaningful tail.

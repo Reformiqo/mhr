@@ -63,15 +63,23 @@ class PrintBatch(Document):
         }
 
         try:
-            # MI1-I39 Phase 2E: HTY-mode Print Batch runs use the HTML
-            # "HTY Batch Label" format which relabels Lustre/Glue/Pulp to
-            # Colour/Product/Type. VFY mode keeps the existing "NB"
-            # Print Designer format (untouched by HTY work — FRD's hard
-            # rule that VFY flow stays identical).
+            # MI1-I39 Phase 2E: HTY-mode Print Batch runs use the HTY label
+            # layout (Container/Pallet/Den-Fil/Cone/Net Wt/Gross Wt/Grade/
+            # Luster/Type/Lot + serial + QR). VFY mode keeps the existing
+            # "NB" Print Designer format (FRD's hard rule that the VFY flow
+            # stays identical).
+            #
+            # MI1-I62 (6-up final): HTY mode renders 6 labels per A4 page
+            # via a custom multi-PDF builder (download_multi_pdf produces
+            # 1-per-page, which doesn't match Raj's reference PDF). VFY
+            # path is untouched.
             txn_type = (getattr(print_batch, "transaction_type", None) or "VFY")
-            format = "HTY Batch Label" if txn_type == "HTY" else "NB"
-            download_multi_pdf(doctype, name, format)
-            pdf_content = frappe.local.response.filecontent
+            if txn_type == "HTY":
+                from mhr.utilis import render_hty_6up_pdf
+                pdf_content = render_hty_6up_pdf(batches)
+            else:
+                download_multi_pdf(doctype, name, "NB")
+                pdf_content = frappe.local.response.filecontent
 
             if not pdf_content:
                 raise ValueError("PDF content is empty or not generated correctly.")

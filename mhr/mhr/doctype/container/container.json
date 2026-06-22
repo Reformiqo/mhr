@@ -1,306 +1,337 @@
 {
-    "actions": [],
-    "allow_import": 1,
-    "allow_rename": 1,
-    "autoname": "format:{container_no}-{#}",
-    "creation": "2024-05-30 10:43:51.344406",
-    "doctype": "DocType",
-    "engine": "InnoDB",
-    "field_order": [
-        "section_break_lvus",
-        "container_no",
-        "glue",
-        "product",
-        "merge_no",
-        "production_date",
-        "column_break_jnpb",
-        "lusture",
-        "colour",
-        "pulp",
-        "type",
-        "lot_no",
-        "notes",
-        "column_break_hzgt",
-        "grade",
-        "fsc",
-        "cross_section",
-        "warehouse",
-        "location",
-        "purchase_receipt_info_section",
-        "company",
-        "supplier",
-        "posting_date",
-        "column_break_tfsi",
-        "set_warehouse",
-        "item",
-        "posting_time",
-        "batches_section",
-        "batches",
-        "amended_from",
-        "section_break_rolf",
-        "total_batches",
-        "column_break_ntki",
-        "total_cone",
-        "column_break_nqua",
-        "total_net_weight"
-    ],
-    "fields": [
-        {
-            "fieldname": "section_break_lvus",
-            "fieldtype": "Section Break",
-            "label": "Container Info"
-        },
-        {"fieldname": "container_no", "fieldtype": "Data", "label": "Container No"},
-        {
-            "depends_on": "eval:doc.transaction_type!='HTY'",
-            "fieldname": "glue",
-            "fieldtype": "Link",
-            "label": "Glue",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Glue\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "depends_on": "eval:doc.transaction_type=='HTY'",
-            "fieldname": "product",
-            "fieldtype": "Link",
-            "label": "Product",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Glue\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "allow_on_submit": 1,
-            "fieldname": "merge_no",
-            "fieldtype": "Data",
-            "label": "Merge No"
-        },
-        {"fieldname": "column_break_jnpb", "fieldtype": "Column Break"},
-        {
-            "depends_on": "eval:doc.transaction_type!='HTY'",
-            "fieldname": "lusture",
-            "fieldtype": "Link",
-            "label": "Lusture",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Lusture\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "depends_on": "eval:doc.transaction_type=='HTY'",
-            "fieldname": "colour",
-            "fieldtype": "Link",
-            "label": "Colour",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Lusture\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "depends_on": "eval:doc.transaction_type!='HTY'",
-            "fieldname": "pulp",
-            "fieldtype": "Link",
-            "label": "Pulp",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Pulp\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "depends_on": "eval:doc.transaction_type=='HTY'",
-            "fieldname": "type",
-            "fieldtype": "Link",
-            "label": "Type",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Pulp\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "fieldname": "lot_no",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Lot No"
-        },
-        {"fieldname": "column_break_hzgt", "fieldtype": "Column Break"},
-        {
-            "fieldname": "grade",
-            "fieldtype": "Link",
-            "label": "Grade",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Grade\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "fieldname": "fsc",
-            "fieldtype": "Link",
-            "label": "FSC",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"FSC\"]]",
-            "options": "Item Specification"
-        },
-        {
-            "fieldname": "purchase_receipt_info_section",
-            "fieldtype": "Section Break",
-            "label": "Purchase Receipt Info"
-        },
-        {
-            "allow_on_submit": 1,
-            "fieldname": "company",
-            "fieldtype": "Link",
-            "label": "Company",
-            "options": "Company"
-        },
-        {
-            "fieldname": "supplier",
-            "fieldtype": "Link",
-            "label": "Supplier",
-            "options": "Supplier"
-        },
-        {
-            "fieldname": "posting_date",
-            "fieldtype": "Date",
-            "in_list_view": 1,
-            "label": "Posting Date",
-            "reqd": 1
-        },
-        {"fieldname": "column_break_tfsi", "fieldtype": "Column Break"},
-        {"fieldname": "posting_time", "fieldtype": "Time", "label": "Posting Time"},
-        {
-            "fieldname": "batches_section",
-            "fieldtype": "Section Break",
-            "label": "Batches"
-        },
-        {
-            "allow_bulk_edit": 1,
-            "fieldname": "batches",
-            "fieldtype": "Table",
-            "label": "Batches",
-            "options": "Batch Items"
-        },
-        {
-            "fieldname": "amended_from",
-            "fieldtype": "Link",
-            "label": "Amended From",
-            "no_copy": 1,
-            "options": "Container",
-            "print_hide": 1,
-            "read_only": 1,
-            "search_index": 1
-        },
-        {
-            "allow_on_submit": 1,
-            "fieldname": "set_warehouse",
-            "fieldtype": "Link",
-            "label": "Accepted Warehouse",
-            "options": "Warehouse"
-        },
-        {"fieldname": "item", "fieldtype": "Link", "label": "Item", "options": "Item"},
-        {"fieldname": "section_break_rolf", "fieldtype": "Section Break"},
-        {
-            "fieldname": "total_batches",
-            "fieldtype": "Int",
-            "label": "Total Batches",
-            "read_only": 1
-        },
-        {"fieldname": "column_break_ntki", "fieldtype": "Column Break"},
-        {
-            "fieldname": "total_cone",
-            "fieldtype": "Int",
-            "label": "Total Cone",
-            "read_only": 1
-        },
-        {"fieldname": "column_break_nqua", "fieldtype": "Column Break"},
-        {
-            "fieldname": "total_net_weight",
-            "fieldtype": "Int",
-            "label": "Total Net Weight",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "allow_on_submit": 1,
-            "depends_on": "eval:doc.transaction_type!='HTY'",
-            "fieldname": "warehouse",
-            "fieldtype": "Small Text",
-            "label": "Warehouse"
-        },
-        {
-            "allow_on_submit": 1,
-            "depends_on": "eval:doc.transaction_type=='HTY'",
-            "fieldname": "location",
-            "fieldtype": "Small Text",
-            "label": "Location"
-        },
-        {
-            "allow_on_submit": 1,
-            "fieldname": "cross_section",
-            "fieldtype": "Data",
-            "label": "Cross Section",
-            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Cross Section\"]]"
-        },
-        {
-            "allow_on_submit": 1,
-            "fieldname": "notes",
-            "fieldtype": "Data",
-            "label": "Notes"
-        },
-        {
-            "allow_on_submit": 1,
-            "fieldname": "production_date",
-            "fieldtype": "Data",
-            "label": "Production Date"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "is_submittable": 1,
-    "links": [],
-    "modified": "2026-04-10 14:53:50.431313",
-    "modified_by": "Administrator",
-    "module": "Mhr",
-    "name": "Container",
-    "naming_rule": "Expression (old style)",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "cancel": 1,
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "submit": 1,
-            "write": 1
-        },
-        {
-            "amend": 1,
-            "cancel": 1,
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "All",
-            "share": 1,
-            "submit": 1,
-            "write": 1
-        },
-        {
-            "amend": 1,
-            "cancel": 1,
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Purchase Manager",
-            "share": 1,
-            "submit": 1,
-            "write": 1
-        }
-    ],
-    "row_format": "Dynamic",
-    "rows_threshold_for_grid_search": 20,
-    "show_title_field_in_link": 1,
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [],
-    "title_field": "container_no"
+	"actions": [],
+	"allow_import": 1,
+	"allow_rename": 1,
+	"autoname": "format:{container_no}-{#}",
+	"creation": "2024-05-30 10:43:51.344406",
+	"doctype": "DocType",
+	"engine": "InnoDB",
+	"field_order": [
+		"section_break_lvus",
+		"container_no",
+		"glue",
+		"product",
+		"merge_no",
+		"production_date",
+		"column_break_jnpb",
+		"lusture",
+		"colour",
+		"pulp",
+		"type",
+		"lot_no",
+		"notes",
+		"column_break_hzgt",
+		"grade",
+		"fsc",
+		"cross_section",
+		"warehouse",
+		"location",
+		"purchase_receipt_info_section",
+		"company",
+		"supplier",
+		"posting_date",
+		"column_break_tfsi",
+		"set_warehouse",
+		"item",
+		"posting_time",
+		"batches_section",
+		"batches",
+		"amended_from",
+		"section_break_rolf",
+		"total_batches",
+		"column_break_ntki",
+		"total_cone",
+		"column_break_nqua",
+		"total_net_weight"
+	],
+	"fields": [
+		{
+			"fieldname": "section_break_lvus",
+			"fieldtype": "Section Break",
+			"label": "Container Info"
+		},
+		{
+			"fieldname": "container_no",
+			"fieldtype": "Data",
+			"label": "Container No"
+		},
+		{
+			"depends_on": "eval:doc.transaction_type!='HTY'",
+			"fieldname": "glue",
+			"fieldtype": "Link",
+			"label": "Glue",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Glue\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"depends_on": "eval:doc.transaction_type=='HTY'",
+			"fieldname": "product",
+			"fieldtype": "Link",
+			"label": "Product",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Glue\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"allow_on_submit": 1,
+			"fieldname": "merge_no",
+			"fieldtype": "Data",
+			"label": "Merge No"
+		},
+		{
+			"fieldname": "column_break_jnpb",
+			"fieldtype": "Column Break"
+		},
+		{
+			"depends_on": "eval:doc.transaction_type!='HTY'",
+			"fieldname": "lusture",
+			"fieldtype": "Link",
+			"label": "Lusture",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Lusture\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"depends_on": "eval:doc.transaction_type=='HTY'",
+			"fieldname": "colour",
+			"fieldtype": "Link",
+			"label": "Colour",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Lusture\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"depends_on": "eval:doc.transaction_type!='HTY'",
+			"fieldname": "pulp",
+			"fieldtype": "Link",
+			"label": "Pulp",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Pulp\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"depends_on": "eval:doc.transaction_type=='HTY'",
+			"fieldname": "type",
+			"fieldtype": "Link",
+			"label": "Type",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Pulp\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"fieldname": "lot_no",
+			"fieldtype": "Data",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"label": "Lot No"
+		},
+		{
+			"fieldname": "column_break_hzgt",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "grade",
+			"fieldtype": "Link",
+			"label": "Grade",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Grade\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"fieldname": "fsc",
+			"fieldtype": "Link",
+			"label": "FSC",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"FSC\"]]",
+			"options": "Item Specification"
+		},
+		{
+			"fieldname": "purchase_receipt_info_section",
+			"fieldtype": "Section Break",
+			"label": "Purchase Receipt Info"
+		},
+		{
+			"allow_on_submit": 1,
+			"fieldname": "company",
+			"fieldtype": "Link",
+			"label": "Company",
+			"options": "Company"
+		},
+		{
+			"fieldname": "supplier",
+			"fieldtype": "Link",
+			"label": "Supplier",
+			"options": "Supplier"
+		},
+		{
+			"fieldname": "posting_date",
+			"fieldtype": "Date",
+			"in_list_view": 1,
+			"label": "Posting Date",
+			"reqd": 1
+		},
+		{
+			"fieldname": "column_break_tfsi",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "posting_time",
+			"fieldtype": "Time",
+			"label": "Posting Time"
+		},
+		{
+			"fieldname": "batches_section",
+			"fieldtype": "Section Break",
+			"label": "Batches"
+		},
+		{
+			"allow_bulk_edit": 1,
+			"fieldname": "batches",
+			"fieldtype": "Table",
+			"label": "Batches",
+			"options": "Batch Items"
+		},
+		{
+			"fieldname": "amended_from",
+			"fieldtype": "Link",
+			"label": "Amended From",
+			"no_copy": 1,
+			"options": "Container",
+			"print_hide": 1,
+			"read_only": 1,
+			"search_index": 1
+		},
+		{
+			"allow_on_submit": 1,
+			"fieldname": "set_warehouse",
+			"fieldtype": "Link",
+			"label": "Accepted Warehouse",
+			"options": "Warehouse"
+		},
+		{
+			"fieldname": "item",
+			"fieldtype": "Link",
+			"label": "Item",
+			"options": "Item"
+		},
+		{
+			"fieldname": "section_break_rolf",
+			"fieldtype": "Section Break"
+		},
+		{
+			"fieldname": "total_batches",
+			"fieldtype": "Int",
+			"label": "Total Batches",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_ntki",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "total_cone",
+			"fieldtype": "Int",
+			"label": "Total Cone",
+			"read_only": 1
+		},
+		{
+			"fieldname": "column_break_nqua",
+			"fieldtype": "Column Break"
+		},
+		{
+			"fieldname": "total_net_weight",
+			"fieldtype": "Int",
+			"label": "Total Net Weight",
+			"precision": "2",
+			"read_only": 1
+		},
+		{
+			"allow_on_submit": 1,
+			"depends_on": "eval:doc.transaction_type!='HTY'",
+			"fieldname": "warehouse",
+			"fieldtype": "Small Text",
+			"label": "Warehouse"
+		},
+		{
+			"allow_on_submit": 1,
+			"depends_on": "eval:doc.transaction_type=='HTY'",
+			"fieldname": "location",
+			"fieldtype": "Small Text",
+			"label": "Location"
+		},
+		{
+			"allow_on_submit": 1,
+			"fieldname": "cross_section",
+			"fieldtype": "Data",
+			"label": "Cross Section",
+			"link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Cross Section\"]]"
+		},
+		{
+			"allow_on_submit": 1,
+			"fieldname": "notes",
+			"fieldtype": "Data",
+			"label": "Notes"
+		},
+		{
+			"allow_on_submit": 1,
+			"fieldname": "production_date",
+			"fieldtype": "Data",
+			"label": "Production Date"
+		}
+	],
+	"index_web_pages_for_search": 1,
+	"is_submittable": 1,
+	"links": [],
+	"modified": "2026-04-10 14:53:50.431313",
+	"modified_by": "Administrator",
+	"module": "Mhr",
+	"name": "Container",
+	"naming_rule": "Expression (old style)",
+	"owner": "Administrator",
+	"permissions": [
+		{
+			"cancel": 1,
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "System Manager",
+			"share": 1,
+			"submit": 1,
+			"write": 1
+		},
+		{
+			"amend": 1,
+			"cancel": 1,
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "All",
+			"share": 1,
+			"submit": 1,
+			"write": 1
+		},
+		{
+			"amend": 1,
+			"cancel": 1,
+			"create": 1,
+			"delete": 1,
+			"email": 1,
+			"export": 1,
+			"print": 1,
+			"read": 1,
+			"report": 1,
+			"role": "Purchase Manager",
+			"share": 1,
+			"submit": 1,
+			"write": 1
+		}
+	],
+	"row_format": "Dynamic",
+	"rows_threshold_for_grid_search": 20,
+	"show_title_field_in_link": 1,
+	"sort_field": "modified",
+	"sort_order": "DESC",
+	"states": [],
+	"title_field": "container_no"
 }

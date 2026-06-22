@@ -23,9 +23,11 @@ def get_columns():
 		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 100},
 		{"label": _("Container Number"), "fieldname": "container_number", "fieldtype": "Data", "width": 140},
 		{"label": _("Item"), "fieldname": "item", "fieldtype": "Data", "width": 120},
-		{"label": _("Pulp"), "fieldname": "pulp", "fieldtype": "Data", "width": 90},
+		# MI1-I64: HTY-friendly labels (Pulp -> Type, Glue -> Product).
+		# Fieldnames stay the same so the data dicts continue to work.
+		{"label": _("Type"), "fieldname": "pulp", "fieldtype": "Data", "width": 90},
 		{"label": _("Lusture"), "fieldname": "lusture", "fieldtype": "Data", "width": 90},
-		{"label": _("Glue"), "fieldname": "glue", "fieldtype": "Data", "width": 90},
+		{"label": _("Product"), "fieldname": "glue", "fieldtype": "Data", "width": 90},
 		{"label": _("Grade"), "fieldname": "grade", "fieldtype": "Data", "width": 90},
 		{"label": _("IN Qty"), "fieldname": "in_qty", "fieldtype": "Float", "width": 110, "precision": PRECISION},
 		{"label": _("OUT Qty"), "fieldname": "out_qty", "fieldtype": "Float", "width": 110, "precision": PRECISION},
