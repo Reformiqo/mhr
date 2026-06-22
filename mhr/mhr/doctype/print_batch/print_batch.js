@@ -77,14 +77,22 @@ frappe.ui.form.on('Print Batch', {
 });
 
 function fetch_and_append_batch(frm) {
-    if (!frm.doc.supplier_batch_no) return;
+    // MI1-I62: drop the early bail on empty supplier_batch_no — the
+    // user can now pick Container + Lot alone and the system fetches
+    // EVERY matching Batch into list_batches. Supplier Batch No still
+    // works as an optional narrowing filter when present. Need at least
+    // Container + Lot before firing, otherwise the server query is too
+    // broad.
+    if (!frm.doc.container_no || !frm.doc.lot_no) return;
 
     frappe.call({
         method: "mhr.utilis.get_print_batch",
         args: {
             lot_no: frm.doc.lot_no,
             container_no: frm.doc.container_no,
-            supplier_batch_no: frm.doc.supplier_batch_no,
+            // MI1-I62: blank/empty supplier_batch_no => fetch all batches
+            // for the (container, lot) pair. Backend treats it as optional.
+            supplier_batch_no: frm.doc.supplier_batch_no || "",
             // MI1-I27 (Item bifurcation): when set, only this item's
             // batches are returned; blank = all items (old behaviour).
             item: frm.doc.item || "",

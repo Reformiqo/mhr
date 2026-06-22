@@ -34,6 +34,14 @@ class TestGetPrintBatchReturnsList(FrappeTestCase):
             sig.parameters["item"].default,
             "`item` must default to None (optional).",
         )
+        # MI1-I62: `supplier_batch_no` must ALSO be optional (default None) so
+        # the JS can fetch every Batch for a (container, lot) pair without
+        # forcing the user to type a Supplier Batch No first.
+        self.assertIsNone(
+            sig.parameters["supplier_batch_no"].default,
+            "MI1-I62: `supplier_batch_no` must default to None — required by "
+            "the auto-fetch-by-(Container+Lot) flow.",
+        )
 
     def test_returns_list_for_no_match(self):
         from mhr.utilis import get_print_batch
@@ -148,6 +156,32 @@ class TestItemBifurcation(FrappeTestCase):
         self.assertTrue(out, "must return the selected item's batch(es)")
         self.assertEqual({r["batch"] for r in out}, {self.BATCH_A})
         self.assertTrue(all(r["item"] == self.ITEM_A for r in out))
+
+    def test_fetch_all_by_container_and_lot_only(self):
+        """MI1-I62: with supplier_batch_no omitted (None), every Batch for
+        the (container, lot) pair must come back — that's how the JS
+        auto-fetch-on-lot-change behaviour works."""
+        from mhr.utilis import get_print_batch
+        out = get_print_batch(self.LOT, self.CONTAINER)  # no supplier_batch_no
+        self.assertEqual({r["batch"] for r in out}, {self.BATCH_A, self.BATCH_B},
+            "MI1-I62: omitting supplier_batch_no must return ALL batches "
+            "for that (container, lot).")
+
+    def test_fetch_all_with_empty_string_supplier_batch_no(self):
+        """The JS passes an empty string when the user hasn't filled
+        Supplier Batch No — must behave identically to omitting it."""
+        from mhr.utilis import get_print_batch
+        out = get_print_batch(self.LOT, self.CONTAINER, "")  # falsy supplier
+        self.assertEqual({r["batch"] for r in out}, {self.BATCH_A, self.BATCH_B})
+
+    def test_supplier_batch_no_still_narrows_when_provided(self):
+        """Backward compat: when supplier_batch_no IS provided, it still
+        filters as before. The fetch-all path is purely additive."""
+        from mhr.utilis import get_print_batch
+        # Both test batches share the same supplier_batch_no (SBN), so
+        # filtering by it returns both. Just confirms the filter still applies.
+        out = get_print_batch(self.LOT, self.CONTAINER, self.SBN)
+        self.assertEqual({r["batch"] for r in out}, {self.BATCH_A, self.BATCH_B})
 
     def test_item_field_defined_in_doctype_json(self):
         """Pin: the Item Select must exist + be ordered in the doctype JSON

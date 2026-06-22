@@ -530,8 +530,8 @@ def generate_multi_pdf_url(batches, doc_name):
 
 
 @frappe.whitelist()
-def get_print_batch(lot_no, container_no, supplier_batch_no, item=None):
-    """MI1-I27: return Batch rows matching the trio (+ optional item).
+def get_print_batch(lot_no, container_no, supplier_batch_no=None, item=None):
+    """MI1-I27 / MI1-I62: return Batch rows matching (container, lot) + optional filters.
 
     Raj's report (MCJC-1522 / Lot 13112025): the same supplier_batch_no
     can have multiple Batch records under one (container, lot), each
@@ -549,12 +549,20 @@ def get_print_batch(lot_no, container_no, supplier_batch_no, item=None):
     that one item so a Container + Lot holding two deniers can be
     printed one item at a time instead of combined. Blank/None `item`
     keeps the old behaviour (all items for the trio).
+
+    MI1-I62 (Fetch by Container+Lot): `supplier_batch_no` is now
+    OPTIONAL. With blank/None supplier_batch_no, every Batch under the
+    given (container, lot) is returned — that's what the JS uses when
+    the user picks just Container + Lot and wants ALL batches pre-loaded
+    into list_batches, irrespective of supplier batch. Passing a value
+    still narrows to that supplier batch (existing behaviour preserved).
     """
     filters = {
-        "custom_supplier_batch_no": supplier_batch_no,
         "custom_lot_no": lot_no,
         "custom_container_no": container_no,
     }
+    if supplier_batch_no:
+        filters["custom_supplier_batch_no"] = supplier_batch_no
     if item:
         filters["item"] = item
     rows = frappe.get_all(
