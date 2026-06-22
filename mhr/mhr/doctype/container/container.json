@@ -56,7 +56,7 @@
             "fieldname": "glue",
             "fieldtype": "Link",
             "label": "Glue",
-            "link_filters": [["Item Specification", "specification_type", "=", "Glue"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Glue\"]]",
             "options": "Item Specification"
         },
         {
@@ -64,7 +64,7 @@
             "fieldname": "product",
             "fieldtype": "Link",
             "label": "Product",
-            "link_filters": [["Item Specification", "specification_type", "=", "Glue"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Glue\"]]",
             "options": "Item Specification"
         },
         {
@@ -79,7 +79,7 @@
             "fieldname": "lusture",
             "fieldtype": "Link",
             "label": "Lusture",
-            "link_filters": [["Item Specification", "specification_type", "=", "Lusture"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Lusture\"]]",
             "options": "Item Specification"
         },
         {
@@ -87,7 +87,7 @@
             "fieldname": "colour",
             "fieldtype": "Link",
             "label": "Colour",
-            "link_filters": [["Item Specification", "specification_type", "=", "Lusture"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Lusture\"]]",
             "options": "Item Specification"
         },
         {
@@ -95,7 +95,7 @@
             "fieldname": "pulp",
             "fieldtype": "Link",
             "label": "Pulp",
-            "link_filters": [["Item Specification", "specification_type", "=", "Pulp"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Pulp\"]]",
             "options": "Item Specification"
         },
         {
@@ -103,7 +103,7 @@
             "fieldname": "type",
             "fieldtype": "Link",
             "label": "Type",
-            "link_filters": [["Item Specification", "specification_type", "=", "Pulp"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Pulp\"]]",
             "options": "Item Specification"
         },
         {
@@ -118,14 +118,14 @@
             "fieldname": "grade",
             "fieldtype": "Link",
             "label": "Grade",
-            "link_filters": [["Item Specification", "specification_type", "=", "Grade"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Grade\"]]",
             "options": "Item Specification"
         },
         {
             "fieldname": "fsc",
             "fieldtype": "Link",
             "label": "FSC",
-            "link_filters": [["Item Specification", "specification_type", "=", "FSC"]],
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"FSC\"]]",
             "options": "Item Specification"
         },
         {
@@ -226,7 +226,7 @@
             "fieldname": "cross_section",
             "fieldtype": "Data",
             "label": "Cross Section",
-            "link_filters": [["Item Specification", "specification_type", "=", "Cross Section"]]
+            "link_filters": "[[\"Item Specification\", \"specification_type\", \"=\", \"Cross Section\"]]"
         },
         {
             "allow_on_submit": 1,
