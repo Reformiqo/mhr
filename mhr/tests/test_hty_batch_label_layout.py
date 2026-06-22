@@ -162,6 +162,37 @@ class TestHtyBatchLabelFormat(FrappeTestCase):
             self.assertRegex(self.html, pattern,
                 f"Label {label!r} must be backed by doc.{fieldname}.")
 
+    def test_gross_wt_reads_custom_gross_weight(self):
+        """Gross Wt must read doc.custom_gross_weight (the new field on
+        Batch, added per Raj). Previous render used a defensive doc.get
+        because the field didn't exist and the literal text 'None' showed
+        on the label — that's the regression this guards against."""
+        self.assertIn("doc.custom_gross_weight", self.html,
+            "Gross Wt row must reference doc.custom_gross_weight.")
+        # Make sure the old `doc.get('custom_gross_weight', ...)` pattern
+        # (which rendered 'None') doesn't sneak back in.
+        self.assertNotIn('doc.get("custom_gross_weight"', self.html,
+            "Don't use doc.get() now that custom_gross_weight is a real field.")
+
+    def test_custom_gross_weight_field_in_fixture(self):
+        """The custom_field.json fixture must include the Batch.custom_gross_weight
+        Float field, so prod migrate creates it automatically."""
+        import json, os
+        path = os.path.join(
+            frappe.get_app_path("mhr"), "fixtures", "custom_field.json"
+        )
+        fields = json.load(open(path))
+        gw = next(
+            (f for f in fields if f.get("name") == "Batch-custom_gross_weight"),
+            None,
+        )
+        self.assertIsNotNone(gw,
+            "Batch-custom_gross_weight must be in mhr/fixtures/custom_field.json "
+            "so migrate creates the field on prod.")
+        self.assertEqual(gw.get("dt"), "Batch")
+        self.assertEqual(gw.get("fieldtype"), "Float")
+        self.assertEqual(gw.get("fieldname"), "custom_gross_weight")
+
     def test_grade_and_luster_use_strip_prefix(self):
         """Grade + Luster come out of the DB prefixed ('Grade-AA',
         'Lusture-Bright'). The template must wrap them in strip_prefix(...)
