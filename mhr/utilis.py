@@ -55,25 +55,40 @@ HTY_LABEL_HTML = """
 
 HTY_6UP_STYLE = """
 <style>
+  /* A4 - 5mm margin each side = 200x287mm content area.
+     3 rows x 2 cols at exactly 33.33% row height keeps wkhtmltopdf
+     from page-breaking mid-sheet. border-collapse=collapse + no
+     border-spacing avoids the cumulative-spacing overflow that put
+     row 3 on the next page in the first cut. */
   html, body { margin: 0; padding: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #000; }
-  @page { size: A4 portrait; margin: 0; }
-  table.sheet { width: 100%; border-collapse: separate; border-spacing: 4mm; table-layout: fixed; }
-  table.sheet > tbody > tr > td.cell { width: 50%; vertical-align: top; padding: 0; height: 88mm; border: 0; }
-  .hty-label { padding: 2mm 3mm; font-size: 9pt; box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt; }
+  @page { size: A4 portrait; }
+
+  table.sheet {
+    width: 100%; height: 287mm;
+    border-collapse: collapse; table-layout: fixed;
+    page-break-after: always;
+  }
+  table.sheet:last-of-type { page-break-after: auto; }
+  table.sheet > tbody > tr { height: 33.33%; }
+  table.sheet > tbody > tr > td.cell {
+    width: 50%; vertical-align: top; padding: 2mm 3mm;
+    border: 0; box-sizing: border-box; overflow: hidden;
+  }
+
+  .hty-label { padding: 0; box-sizing: border-box; }
   table.outer { width: 100%; border-collapse: collapse; }
   table.outer > tbody > tr > td { vertical-align: top; padding: 0; }
-  table.outer > tbody > tr > td.fields-col { width: 65%; padding-right: 3mm; }
+  table.outer > tbody > tr > td.fields-col { width: 65%; padding-right: 2mm; }
   table.outer > tbody > tr > td.right-col { width: 35%; text-align: right; }
   table.fields { width: 100%; border-collapse: collapse; }
-  table.fields td { padding: 0.8mm 1.5mm; vertical-align: top; line-height: 1.15; }
+  table.fields td { padding: 0.4mm 1mm; vertical-align: top; line-height: 1.1; }
   table.fields td.k { font-weight: bold; width: 42%; white-space: nowrap; }
   table.fields td.v { width: 58%; }
   table.fields tr.b td { font-weight: bold; }
-  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 2mm; }
-  .right-col img.qr { width: 26mm; height: 26mm; }
-  .caption { font-size: 7.5pt; text-align: center; margin-top: 1mm; letter-spacing: 0.3pt; }
-  .page-break { page-break-after: always; }
+  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 1.5mm; }
+  .right-col img.qr { width: 22mm; height: 22mm; }
+  .caption { font-size: 7pt; text-align: center; margin-top: 1mm; }
 </style>
 """.strip()
 
@@ -136,21 +151,24 @@ def render_hty_6up_pdf(batch_names):
         sheet += '</tbody></table>'
         pages.append(sheet)
 
+    # Each <table class="sheet"> self-page-breaks via CSS, so just
+    # concatenate — no inter-sheet divider needed (and no extra blank
+    # page at the end thanks to `:last-of-type { page-break-after: auto }`).
     html = (
         "<!doctype html><html><head><meta charset='utf-8'>"
         + HTY_6UP_STYLE
         + "</head><body>"
-        + '<div class="page-break"></div>'.join(pages)
+        + "".join(pages)
         + "</body></html>"
     )
 
     from frappe.utils.pdf import get_pdf
     return get_pdf(html, options={
         "page-size": "A4",
-        "margin-top": "8mm",
-        "margin-bottom": "8mm",
-        "margin-left": "8mm",
-        "margin-right": "8mm",
+        "margin-top": "5mm",
+        "margin-bottom": "5mm",
+        "margin-left": "5mm",
+        "margin-right": "5mm",
     })
 
 

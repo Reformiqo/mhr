@@ -117,16 +117,30 @@ class TestSixUpLayout(FrappeTestCase):
         self.assertIn("A4", HTY_6UP_STYLE)
 
     def test_renders_grid_with_2_columns_per_row(self):
-        """Inspect the rendered HTML string for the expected 2-col structure."""
+        """Pin the renderer lays out 3 rows of 2 cells per A4 sheet."""
         from mhr.utilis import render_hty_6up_pdf
         import inspect as _inspect
-        # Pull the function source to verify the row pattern is present.
         src = _inspect.getsource(render_hty_6up_pdf)
-        # 3 rows per sheet (indexed at 0, 2, 4) — pin the loop tuple shape.
         self.assertIn("(0, 2, 4)", src,
-            "Renderer must lay out 3 rows of 2 cells each per A4 sheet.")
-        self.assertIn("page-break", src,
-            "Renderer must page-break between sheets.")
+            "Renderer must iterate row-indices (0, 2, 4) for the 3x2 grid.")
+
+    def test_sheet_self_page_breaks(self):
+        """The CSS makes each <table class=sheet> page-break-after: always
+        (and the last sheet auto, so no trailing blank page). Pin both."""
+        from mhr.utilis import HTY_6UP_STYLE
+        self.assertIn("page-break-after: always", HTY_6UP_STYLE,
+            "Each sheet must page-break-after: always.")
+        self.assertIn("last-of-type", HTY_6UP_STYLE,
+            "Last sheet must not force an extra blank page.")
+
+    def test_row_height_pinned_to_thirds(self):
+        """3 rows at 33.33% of a fixed 287mm sheet height keeps wkhtmltopdf
+        from overflowing row 3 onto the next page (the bug in the first cut)."""
+        from mhr.utilis import HTY_6UP_STYLE
+        self.assertIn("height: 287mm", HTY_6UP_STYLE,
+            "Sheet must declare an explicit height (A4 - 2x5mm margin).")
+        self.assertIn("33.33%", HTY_6UP_STYLE,
+            "Each row must be exactly 1/3 of the sheet height.")
 
 
 class TestPrintBatchBranchesToSixUp(FrappeTestCase):
