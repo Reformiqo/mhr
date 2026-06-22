@@ -5,6 +5,22 @@ from frappe.utils.print_format import download_pdf, download_multi_pdf
 import json
 
 
+def hty_qr_data_url(text):
+    """MI1-I62: render a QR code as a base64 PNG data URL for inline use
+    in Jinja print formats. Uses `segno` (already in the bench env), so
+    no remote service or pre-generated file is needed. Returns "" for
+    falsy input. Exposed to Jinja via hooks.py `jinja.methods`."""
+    if not text:
+        return ""
+    import io
+    import base64
+    import segno
+    qr = segno.make(str(text), error="M")
+    buf = io.BytesIO()
+    qr.save(buf, kind="png", scale=4, border=1)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 @frappe.whitelist()
 def update_stock_entry(doc, method=None):
     total_cone = 0

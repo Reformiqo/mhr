@@ -65,10 +65,13 @@ doctype_js = {
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "mhr.utils.jinja_methods",
-# 	"filters": "mhr.utils.jinja_filters"
-# }
+# MI1-I62: hty_qr_data_url is used by the HTY Batch Label print format
+# to embed a QR code inline (no remote service, no pre-generated file).
+jinja = {
+    "methods": [
+        "mhr.utilis.hty_qr_data_url",
+    ],
+}
 
 # Installation
 # ------------
