@@ -73,8 +73,27 @@ frappe.ui.form.on('Print Batch', {
             frm.refresh_field('item');
         }
         fetch_and_append_batch(frm);
+    },
+
+    before_save: function(frm) {
+        sort_list_batches(frm);
     }
 });
+
+function sort_list_batches(frm) {
+    if (!frm.doc.list_batches || !frm.doc.list_batches.length) {
+        return;
+    }
+
+    frm.doc.list_batches.sort(function(a, b) {
+        return (a.batch || '').localeCompare(b.batch || '', undefined, {
+            numeric: true,
+            sensitivity: 'base'
+        });
+    });
+
+    frm.refresh_field('list_batches');
+}
 
 function fetch_and_append_batch(frm) {
     // MI1-I62: drop the early bail on empty supplier_batch_no — the
