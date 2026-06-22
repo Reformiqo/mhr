@@ -320,7 +320,9 @@ class Container(Document):
             )
 
         for batch in self.batches:
-            if frappe.db.exists(
+            if not batch.batch_id:
+                continue
+            if not frappe.db.exists(
                 "Batch",
                 {
                     "name": batch.batch_id,
@@ -328,10 +330,30 @@ class Container(Document):
                     "custom_lot_no": self.lot_no,
                 },
             ):
-                frappe.db.sql(
-                    "DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s",
-                    (batch.batch_id, self.container_no, self.lot_no),
-                )
+                continue
+            # MI1: same guard as on_cancel — never delete a Batch master that
+            # another live Container still references via Batch Items. The
+            # original MCJC-1614-997 / lot 07042026 corruption (240 orphan
+            # masters) came from on_trash wiping batches a sibling Container
+            # was still using.
+            other_owner = frappe.db.sql(
+                """
+                SELECT bi.parent FROM `tabBatch Items` bi
+                JOIN `tabContainer` c ON c.name = bi.parent
+                WHERE bi.batch_id = %s
+                  AND bi.parenttype = 'Container'
+                  AND bi.parent != %s
+                  AND c.docstatus != 2
+                LIMIT 1
+                """,
+                (batch.batch_id, self.name),
+            )
+            if other_owner:
+                continue
+            frappe.db.sql(
+                "DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s",
+                (batch.batch_id, self.container_no, self.lot_no),
+            )
         pr = frappe.get_all(
             "Purchase Receipt",
             filters={"custom_container_no": self.name},
@@ -788,6 +810,25 @@ class Container(Document):
             if not batch.batch_id:
                 continue
             if self.get_batch_stock_qty(batch.batch_id) > 0:
+                continue
+            # MI1: same guard as on_cancel/on_trash — never delete a Batch
+            # master shared with another live Container. resubmit_container
+            # rebuilds THIS container's batches in step 3, but if a sibling
+            # Container references the same batch_id (e.g. via amendment
+            # chain or duplicate), wiping it here orphans the sibling.
+            other_owner = frappe.db.sql(
+                """
+                SELECT bi.parent FROM `tabBatch Items` bi
+                JOIN `tabContainer` c ON c.name = bi.parent
+                WHERE bi.batch_id = %s
+                  AND bi.parenttype = 'Container'
+                  AND bi.parent != %s
+                  AND c.docstatus != 2
+                LIMIT 1
+                """,
+                (batch.batch_id, self.name),
+            )
+            if other_owner:
                 continue
             frappe.db.sql(
                 "DELETE FROM `tabBatch` WHERE name = %s AND custom_container_no = %s AND custom_lot_no = %s",
