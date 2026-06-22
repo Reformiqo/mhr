@@ -21,6 +21,32 @@ def hty_qr_data_url(text):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def hty_parse_filament_count(item_code):
+    """MI1-I62: extract the filament-count digits from a Den/Fil item code.
+
+    Examples:
+        '210/72 7.2 GPD'  -> '72'
+        '58D/24F'         -> '24'
+        '120D/48 F LOW MX' -> '48'
+        '58D/24f'         -> '24'   (case-tolerant)
+        'NO-SLASH-CODE'   -> ''
+
+    Strategy: split on '/', take leading digits of the next token, stop
+    at the first non-digit. This handles both space-separated ('72 ')
+    and letter-suffixed ('24F') forms.
+    """
+    if not item_code or "/" not in item_code:
+        return ""
+    after = item_code.split("/", 1)[1].lstrip()
+    digits = []
+    for ch in after:
+        if ch.isdigit():
+            digits.append(ch)
+        else:
+            break
+    return "".join(digits)
+
+
 @frappe.whitelist()
 def update_stock_entry(doc, method=None):
     total_cone = 0

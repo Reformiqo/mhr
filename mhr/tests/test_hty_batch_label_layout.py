@@ -47,22 +47,46 @@ class TestHtyQrDataUrlHelper(FrappeTestCase):
             "Base64 payload looks too short to be a valid QR PNG.")
 
 
+class TestParseFilamentCount(FrappeTestCase):
+    """The Cone field on the label is the leading digits after '/' in the
+    item code (so '210/72 7.2 GPD' -> '72' and '58D/24F' -> '24')."""
+
+    def test_helper_exists(self):
+        from mhr import utilis
+        self.assertTrue(callable(getattr(utilis, "hty_parse_filament_count", None)))
+
+    def test_examples(self):
+        from mhr.utilis import hty_parse_filament_count as f
+        self.assertEqual(f("210/72 7.2 GPD"), "72")
+        self.assertEqual(f("58D/24F"), "24",
+            "'24F' must parse to '24' (leading digits only).")
+        self.assertEqual(f("120D/48 F LOW MX"), "48")
+        self.assertEqual(f("NOSLASH"), "",
+            "No '/' in code -> '' (don't guess).")
+        self.assertEqual(f(""), "")
+        self.assertEqual(f(None), "")
+        self.assertEqual(f("210/"), "",
+            "Trailing slash with nothing after -> ''.")
+
+
 class TestJinjaRegistration(FrappeTestCase):
 
-    def test_helper_registered_in_hooks(self):
-        """The helper must be reachable from Jinja templates — that
-        requires `jinja.methods` in hooks.py to include it."""
+    def test_helpers_registered_in_hooks(self):
+        """Both helpers must be reachable from Jinja templates — that
+        requires `jinja.methods` in hooks.py to include them."""
         import mhr.hooks as hooks_mod
         jinja_cfg = getattr(hooks_mod, "jinja", None)
         self.assertIsNotNone(jinja_cfg,
-            "hooks.py must define a `jinja` dict for the HTY Batch Label "
-            "template to call hty_qr_data_url.")
+            "hooks.py must define a `jinja` dict for HTY Batch Label.")
         methods = (jinja_cfg or {}).get("methods", [])
         if isinstance(methods, str):
             methods = [methods]
-        self.assertIn("mhr.utilis.hty_qr_data_url", methods,
-            "`jinja.methods` in hooks.py must include "
-            "'mhr.utilis.hty_qr_data_url'.")
+        for required in (
+            "mhr.utilis.hty_qr_data_url",
+            "mhr.utilis.hty_parse_filament_count",
+        ):
+            self.assertIn(required, methods,
+                f"`jinja.methods` in hooks.py must include {required!r}.")
 
 
 class TestHtyBatchLabelFormat(FrappeTestCase):
@@ -127,13 +151,19 @@ class TestHtyBatchLabelFormat(FrappeTestCase):
             "doc.name as a fallback.",
         )
 
-    def test_cone_value_parsed_from_item(self):
-        """The label's 'Cone' field is the filament count parsed from the
-        item code ('210/72 7.2 GPD' → '72'). Template must split the item."""
-        # Loose check — the template references the item split logic.
-        self.assertIn('item', self.html.lower())
-        self.assertRegex(
-            self.html,
-            r'split\(\s*["\']/["\']',
-            "Template must split the item code on '/' to extract Cone.",
-        )
+    def test_cone_value_uses_parse_helper(self):
+        """The label's 'Cone' field uses hty_parse_filament_count(item)
+        so '24F' parses to '24' (leading digits only), not just split-take.
+        Pin that the template invokes the helper."""
+        self.assertIn("hty_parse_filament_count", self.html,
+            "Template must call hty_parse_filament_count(item_code) for Cone.")
+
+    def test_page_size_set_via_css_field(self):
+        """The doc's `css` field (NOT inline <style>) is where Frappe injects
+        @page rules for wkhtmltopdf. NB does this; HTY must too — otherwise
+        the page falls back to A4 and the label prints huge."""
+        css = self.fmt.get("css", "") or ""
+        self.assertIn("@page", css,
+            "css field must declare @page (size + margins).")
+        self.assertIn("105mm 95mm", css,
+            "Page size must be ~A6 (105mm x 95mm) to match the reference PDF.")
