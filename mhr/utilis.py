@@ -21,6 +21,30 @@ def hty_qr_data_url(text):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def strip_prefix(val):
+    """MI1-I62: strip the prefix from values stored as 'Prefix-Value' so
+    labels and reports show only the meaningful tail.
+
+    Examples:
+        'Grade-AA'        -> 'AA'
+        'Lusture-Bright'  -> 'Bright'
+        'Wood'            -> 'Wood'    (no hyphen -> unchanged)
+        ''                -> ''
+        None              -> ''
+
+    Splits on the LAST hyphen (matches the strip_prefix pattern already
+    used in container_report.py / stock_sheet reports) so a value like
+    'A-B-C' returns 'C'. Grade/Luster in mhr are stored single-hyphen
+    ('Grade-AA', 'Lusture-Bright'), so this is correct.
+    """
+    if not val:
+        return ""
+    s = str(val)
+    if "-" in s:
+        return s.rsplit("-", 1)[-1]
+    return s
+
+
 def hty_parse_filament_count(item_code):
     """MI1-I62: extract the filament-count digits from a Den/Fil item code.
 

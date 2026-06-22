@@ -69,11 +69,31 @@ class TestParseFilamentCount(FrappeTestCase):
             "Trailing slash with nothing after -> ''.")
 
 
+class TestStripPrefix(FrappeTestCase):
+    """Grade / Luster fields are stored prefixed in mhr ('Grade-AA',
+    'Lusture-Bright'). strip_prefix() returns just the tail so labels
+    + reports can show 'AA' / 'Bright', matching Raj's reference PDF."""
+
+    def test_helper_exists(self):
+        from mhr import utilis
+        self.assertTrue(callable(getattr(utilis, "strip_prefix", None)))
+
+    def test_examples(self):
+        from mhr.utilis import strip_prefix as f
+        self.assertEqual(f("Grade-AA"), "AA")
+        self.assertEqual(f("Lusture-Bright"), "Bright")
+        self.assertEqual(f("Wood"), "Wood",
+            "Values without '-' must pass through unchanged.")
+        self.assertEqual(f(""), "")
+        self.assertEqual(f(None), "")
+        self.assertEqual(f("A-B-C"), "C",
+            "Splits on the LAST hyphen — matches the existing report helper.")
+
+
 class TestJinjaRegistration(FrappeTestCase):
 
     def test_helpers_registered_in_hooks(self):
-        """Both helpers must be reachable from Jinja templates — that
-        requires `jinja.methods` in hooks.py to include them."""
+        """All HTY-label helpers must be reachable from Jinja templates."""
         import mhr.hooks as hooks_mod
         jinja_cfg = getattr(hooks_mod, "jinja", None)
         self.assertIsNotNone(jinja_cfg,
@@ -84,6 +104,7 @@ class TestJinjaRegistration(FrappeTestCase):
         for required in (
             "mhr.utilis.hty_qr_data_url",
             "mhr.utilis.hty_parse_filament_count",
+            "mhr.utilis.strip_prefix",
         ):
             self.assertIn(required, methods,
                 f"`jinja.methods` in hooks.py must include {required!r}.")
@@ -140,6 +161,20 @@ class TestHtyBatchLabelFormat(FrappeTestCase):
             )
             self.assertRegex(self.html, pattern,
                 f"Label {label!r} must be backed by doc.{fieldname}.")
+
+    def test_grade_and_luster_use_strip_prefix(self):
+        """Grade + Luster come out of the DB prefixed ('Grade-AA',
+        'Lusture-Bright'). The template must wrap them in strip_prefix(...)
+        so the printed label shows just 'AA' / 'Bright' (matches reference)."""
+        for label, fieldname in (("Grade", "custom_grade"), ("Luster", "custom_lusture")):
+            pattern = re.compile(
+                re.escape(label) + r".{0,180}?strip_prefix\(\s*doc\."
+                + re.escape(fieldname) + r"\s*\)",
+                re.DOTALL,
+            )
+            self.assertRegex(self.html, pattern,
+                f"{label} must be wrapped in strip_prefix(doc.{fieldname}) — "
+                "otherwise the printed value keeps the 'Grade-' / 'Lusture-' prefix.")
 
     def test_serial_uses_supplier_batch_no_fallback_name(self):
         """Top-right serial = Batch.custom_supplier_batch_no, falling back
