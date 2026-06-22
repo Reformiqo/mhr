@@ -68,33 +68,32 @@ HTY_6UP_STYLE = """
 
   .page {
     position: relative;
-    width: 210mm; height: 297mm;
+    width: 210mm; height: 280mm;          /* less than A4 (297mm) */
     overflow: hidden;
-    /* No page-break-before/after declarations.
-       height:297mm = full A4 -> each .page naturally fills one PDF page,
-       the next .page naturally starts on the next.
-       page-break-inside: avoid stops wkhtmltopdf from splitting a
-       single .page across two PDF pages.
-       page-break-after: always made one blank page after each real one;
-       page-break-before: always did the same. The cleanest fix is to
-       let the height drive pagination — no explicit break rules at all. */
+    page-break-after: always;
     page-break-inside: avoid;
   }
+  .page:last-of-type { page-break-after: auto; }
+  /* Height: 280mm gives 17mm of slack vs the 297mm A4 page. Without
+     this slack, wkhtmltopdf accumulates rounding drift between blocks
+     and by the 3rd .page the bottom row gets pushed onto the next
+     PDF page (the '6+6+4' pattern we hit at exact 297mm). The page-
+     break-after: always with slack also avoids the blank-page bug
+     that exact-A4-height + page-break-after produced. */
 
-  /* 3 rows x 2 cols on A4. With 5mm outer margin + 92mm tall cells:
-     row 1 at top 5mm, row 2 at 99mm, row 3 at 193mm — last cell ends
-     at 193+92 = 285mm, well within 297mm. Columns at 5mm and 107mm
-     give 96mm-wide cells with a 2mm centre gutter. */
+  /* 3 rows x 2 cols. Cells 90mm tall fit comfortably inside 280mm
+     (3 * 90 = 270mm + 10mm slack). Two 96mm columns + 2mm centre
+     gutter at left positions 5mm and 107mm. */
   .cell {
     position: absolute;
-    width: 96mm; height: 92mm;
+    width: 96mm; height: 90mm;
     padding: 3mm 4mm;
     box-sizing: border-box;
     overflow: hidden;
   }
-  .cell.r1 { top: 5mm; }
-  .cell.r2 { top: 99mm; }
-  .cell.r3 { top: 193mm; }
+  .cell.r1 { top: 0mm; }
+  .cell.r2 { top: 93mm; }
+  .cell.r3 { top: 186mm; }
   .cell.c1 { left: 5mm; }
   .cell.c2 { left: 107mm; }
 

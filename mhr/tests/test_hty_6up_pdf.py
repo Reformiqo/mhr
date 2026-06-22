@@ -126,32 +126,39 @@ class TestSixUpLayout(FrappeTestCase):
         self.assertIn(".cell.c1", HTY_6UP_STYLE)
         self.assertIn(".cell.c2", HTY_6UP_STYLE)
 
-    def test_no_page_break_declarations_only_height_driven(self):
-        """Final pagination strategy: rely on .page being height:297mm so
-        natural flow fills exactly one A4 PDF page each. Adding
-        page-break-before OR page-break-after: always on a 297mm-tall block
-        causes wkhtmltopdf to emit an extra blank page (the 'every other
-        page is blank' bug we hit twice). Only page-break-inside: avoid is
-        allowed — it stops a single .page from splitting across two PDF
-        pages but adds nothing else. Comments are stripped first so docs
-        inside /* ... */ don't trip the assertion."""
+    def test_page_height_less_than_a4_for_drift_slack(self):
+        """The .page height MUST be smaller than A4 (297mm) so wkhtmltopdf's
+        per-block rounding drift can't push row 3 onto the next page.
+
+        We hit this bug twice: at 297mm with page-break:none, every 3rd
+        page rendered only 4 labels (top 2 rows). The fix is geometric
+        slack — 280mm leaves 17mm headroom that drift can never fill.
+        """
         import re
         from mhr.utilis import HTY_6UP_STYLE
         rules = re.sub(r"/\*.*?\*/", "", HTY_6UP_STYLE, flags=re.DOTALL)
-        self.assertNotIn("page-break-before: always", rules,
-            "Don't use page-break-before: always — causes a blank page "
-            "before each real page when the block exactly fills A4.")
-        self.assertNotIn("page-break-after: always", rules,
-            "Don't use page-break-after: always — causes a blank page "
-            "after each real page when the block exactly fills A4.")
+        # The 297mm-height regression must not return.
+        self.assertNotIn("height: 297mm", rules,
+            "Don't pin .page to exactly 297mm — wkhtmltopdf drift over "
+            "multiple pages pushes the bottom row to the next PDF page.")
+        self.assertIn("height: 280mm", rules,
+            ".page must be 280mm (17mm of drift slack below A4 297mm).")
+
+    def test_page_break_after_with_first_of_type_override(self):
+        """With shorter-than-A4 .page height, page-break-after: always now
+        produces exactly N pages (not 2N) because the block doesn't fill
+        the natural page boundary. :last-of-type suppresses the trailing
+        break so there's no blank page at the end."""
+        import re
+        from mhr.utilis import HTY_6UP_STYLE
+        rules = re.sub(r"/\*.*?\*/", "", HTY_6UP_STYLE, flags=re.DOTALL)
+        self.assertIn("page-break-after: always", rules,
+            "Each .page must page-break-after: always (with shorter height "
+            "for slack, this no longer causes blank pages).")
+        self.assertIn("last-of-type", rules,
+            "Last .page must auto-override the page-break-after.")
         self.assertIn("page-break-inside: avoid", rules,
-            "Must use page-break-inside: avoid so a single .page can't be "
-            "split across two PDF pages.")
-        # Sanity: the .page block must still declare A4 height so natural
-        # flow paginates correctly.
-        self.assertIn("height: 297mm", rules,
-            ".page must be exactly 297mm tall (= A4 portrait height) so "
-            "natural overflow drives pagination.")
+            ".page must declare page-break-inside: avoid as belt+braces.")
 
     def test_renderer_emits_6_cells_per_page(self):
         """Source-level pin on the renderer's HTML emission."""
