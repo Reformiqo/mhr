@@ -130,14 +130,20 @@ class TestSixUpLayout(FrappeTestCase):
         """Use page-break-BEFORE: always on all pages except :first-of-type
         — not page-break-after. Reason: when a 297mm block exactly fills
         A4, page-break-after: always adds an *extra* blank page after each
-        real page (the 'every other page is blank' bug from the prior cut)."""
+        real page (the 'every other page is blank' bug from the prior cut).
+        Comments are stripped before checking so explanatory text inside
+        /* ... */ doesn't trip the assertion."""
+        import re
         from mhr.utilis import HTY_6UP_STYLE
-        self.assertIn("page-break-before: always", HTY_6UP_STYLE,
+        # Strip CSS comments so the assertion sees only real rules.
+        rules = re.sub(r"/\*.*?\*/", "", HTY_6UP_STYLE, flags=re.DOTALL)
+        self.assertIn("page-break-before: always", rules,
             "Must use page-break-before: always (not after).")
-        self.assertIn("first-of-type", HTY_6UP_STYLE,
+        self.assertIn("first-of-type", rules,
             "First .page must suppress its page-break-before.")
-        # Catch the regression: no `page-break-after: always` on .page.
-        self.assertNotIn("page-break-after: always", HTY_6UP_STYLE,
+        # Catch the regression: no `page-break-after: always` declaration
+        # in the actual rules (comments allowed to mention it).
+        self.assertNotIn("page-break-after: always", rules,
             "Don't use page-break-after: always — produces a blank page "
             "after every real page when the block exactly fills A4.")
 
