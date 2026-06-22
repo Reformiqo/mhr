@@ -81,7 +81,6 @@ frappe.ui.form.on('Print Batch', {
 });
 
 function sort_list_batches(frm) {
-    console.log("Sorting Called")
     if (!frm.doc.list_batches || !frm.doc.list_batches.length) {
         return;
     }
