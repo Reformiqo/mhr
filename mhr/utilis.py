@@ -55,22 +55,27 @@ HTY_LABEL_HTML = """
 
 HTY_6UP_STYLE = """
 <style>
-  /* A4 - 5mm margin each side = 200x287mm content area.
-     3 rows x 2 cols at exactly 33.33% row height keeps wkhtmltopdf
-     from page-breaking mid-sheet. border-collapse=collapse + no
-     border-spacing avoids the cumulative-spacing overflow that put
-     row 3 on the next page in the first cut. */
+  /* A4 portrait, 5mm side margins -> 200x287mm usable.
+     Lock each row to exactly 90mm with page-break-inside: avoid, so 3
+     rows (= 270mm) ALWAYS fit on one page with 17mm to spare. No
+     `table { height: ... }` (wkhtmltopdf treats it as a suggestion and
+     row 3 spills onto page 2). No `tr { height: 33% }` either — that
+     wastes vertical space with empty cells when the label content is
+     short. Per-row mm-height is the only thing wkhtmltopdf reliably
+     honors here. */
   html, body { margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt; }
   @page { size: A4 portrait; }
 
   table.sheet {
-    width: 100%; height: 287mm;
-    border-collapse: collapse; table-layout: fixed;
+    width: 100%; border-collapse: collapse; table-layout: fixed;
     page-break-after: always;
   }
   table.sheet:last-of-type { page-break-after: auto; }
-  table.sheet > tbody > tr { height: 33.33%; }
+  table.sheet > tbody > tr {
+    height: 90mm;            /* 3 x 90 = 270mm, fits 287mm */
+    page-break-inside: avoid;
+  }
   table.sheet > tbody > tr > td.cell {
     width: 50%; vertical-align: top; padding: 2mm 3mm;
     border: 0; box-sizing: border-box; overflow: hidden;
@@ -82,13 +87,13 @@ HTY_6UP_STYLE = """
   table.outer > tbody > tr > td.fields-col { width: 65%; padding-right: 2mm; }
   table.outer > tbody > tr > td.right-col { width: 35%; text-align: right; }
   table.fields { width: 100%; border-collapse: collapse; }
-  table.fields td { padding: 0.4mm 1mm; vertical-align: top; line-height: 1.1; }
+  table.fields td { padding: 0.3mm 1mm; vertical-align: top; line-height: 1.1; }
   table.fields td.k { font-weight: bold; width: 42%; white-space: nowrap; }
   table.fields td.v { width: 58%; }
   table.fields tr.b td { font-weight: bold; }
-  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 1.5mm; }
+  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 1mm; }
   .right-col img.qr { width: 22mm; height: 22mm; }
-  .caption { font-size: 7pt; text-align: center; margin-top: 1mm; }
+  .caption { font-size: 7pt; text-align: center; margin-top: 0.5mm; }
 </style>
 """.strip()
 

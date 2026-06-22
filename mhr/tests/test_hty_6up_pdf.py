@@ -133,14 +133,23 @@ class TestSixUpLayout(FrappeTestCase):
         self.assertIn("last-of-type", HTY_6UP_STYLE,
             "Last sheet must not force an extra blank page.")
 
-    def test_row_height_pinned_to_thirds(self):
-        """3 rows at 33.33% of a fixed 287mm sheet height keeps wkhtmltopdf
-        from overflowing row 3 onto the next page (the bug in the first cut)."""
+    def test_row_height_fixed_in_mm(self):
+        """wkhtmltopdf ignores `table { height: N }` and percent row heights
+        for paging — only per-row mm heights are honored. 3 x 90mm = 270mm
+        fits comfortably in A4 - 2x5mm = 287mm with 17mm to spare. Pinning
+        the mm value + page-break-inside: avoid ensures 6 labels per page,
+        not 4+2."""
         from mhr.utilis import HTY_6UP_STYLE
-        self.assertIn("height: 287mm", HTY_6UP_STYLE,
-            "Sheet must declare an explicit height (A4 - 2x5mm margin).")
-        self.assertIn("33.33%", HTY_6UP_STYLE,
-            "Each row must be exactly 1/3 of the sheet height.")
+        self.assertIn("height: 90mm", HTY_6UP_STYLE,
+            "Each row must declare a fixed mm height (wkhtmltopdf doesn't "
+            "honour percent heights for table paging).")
+        self.assertIn("page-break-inside: avoid", HTY_6UP_STYLE,
+            "Rows must declare page-break-inside: avoid so a single row "
+            "can't be split across pages.")
+        # Conversely, MUST NOT pin a table-level height (the bug from the
+        # previous cut — wkhtmltopdf treats it as a suggestion and overflows).
+        self.assertNotIn("table.sheet {\n    width: 100%; height:", HTY_6UP_STYLE,
+            "Don't set height on table.sheet — wkhtmltopdf ignores it.")
 
 
 class TestPrintBatchBranchesToSixUp(FrappeTestCase):
