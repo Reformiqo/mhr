@@ -55,31 +55,40 @@ HTY_LABEL_HTML = """
 
 HTY_6UP_STYLE = """
 <style>
-  /* A4 portrait, 5mm side margins -> 200x287mm usable.
-     Lock each row to exactly 90mm with page-break-inside: avoid, so 3
-     rows (= 270mm) ALWAYS fit on one page with 17mm to spare. No
-     `table { height: ... }` (wkhtmltopdf treats it as a suggestion and
-     row 3 spills onto page 2). No `tr { height: 33% }` either — that
-     wastes vertical space with empty cells when the label content is
-     short. Per-row mm-height is the only thing wkhtmltopdf reliably
-     honors here. */
+  /* Absolute positioning — wkhtmltopdf cannot misinterpret fixed mm
+     coordinates. Each `.page` is exactly A4 (210x297mm) with 6 cells
+     hard-pinned at predetermined (top,left) offsets. page-break-after
+     forces a new page after every 6 cells. Earlier table-based attempts
+     left wkhtmltopdf room to decide row-3-doesn't-fit; this leaves no
+     such room. */
   html, body { margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt; }
-  @page { size: A4 portrait; }
+  @page { size: A4 portrait; margin: 0; }
 
-  table.sheet {
-    width: 100%; border-collapse: collapse; table-layout: fixed;
+  .page {
+    position: relative;
+    width: 210mm; height: 297mm;
     page-break-after: always;
+    overflow: hidden;
   }
-  table.sheet:last-of-type { page-break-after: auto; }
-  table.sheet > tbody > tr {
-    height: 90mm;            /* 3 x 90 = 270mm, fits 287mm */
-    page-break-inside: avoid;
+  .page:last-of-type { page-break-after: auto; }
+
+  /* 3 rows x 2 cols on A4. With 5mm outer margin + 92mm tall cells:
+     row 1 at top 5mm, row 2 at 99mm, row 3 at 193mm — last cell ends
+     at 193+92 = 285mm, well within 297mm. Columns at 5mm and 107mm
+     give 96mm-wide cells with a 2mm centre gutter. */
+  .cell {
+    position: absolute;
+    width: 96mm; height: 92mm;
+    padding: 3mm 4mm;
+    box-sizing: border-box;
+    overflow: hidden;
   }
-  table.sheet > tbody > tr > td.cell {
-    width: 50%; vertical-align: top; padding: 2mm 3mm;
-    border: 0; box-sizing: border-box; overflow: hidden;
-  }
+  .cell.r1 { top: 5mm; }
+  .cell.r2 { top: 99mm; }
+  .cell.r3 { top: 193mm; }
+  .cell.c1 { left: 5mm; }
+  .cell.c2 { left: 107mm; }
 
   .hty-label { padding: 0; box-sizing: border-box; }
   table.outer { width: 100%; border-collapse: collapse; }
@@ -142,23 +151,25 @@ def render_hty_6up_pdf(batch_names):
     while len(labels) % 6 != 0:
         labels.append("")
 
+    # Six cells per page at absolute (row, col) coordinates. row indices
+    # map to top: 5mm / 99mm / 193mm; col indices to left: 5mm / 107mm.
+    # The order is left-to-right, top-to-bottom (reading order).
+    positions = [
+        ("r1", "c1"), ("r1", "c2"),
+        ("r2", "c1"), ("r2", "c2"),
+        ("r3", "c1"), ("r3", "c2"),
+    ]
     pages = []
     for i in range(0, len(labels), 6):
         chunk = labels[i:i + 6]
-        sheet = '<table class="sheet"><tbody>'
-        for r in (0, 2, 4):
-            sheet += (
-                '<tr>'
-                f'<td class="cell">{chunk[r]}</td>'
-                f'<td class="cell">{chunk[r + 1]}</td>'
-                '</tr>'
-            )
-        sheet += '</tbody></table>'
-        pages.append(sheet)
+        cells = "".join(
+            f'<div class="cell {row} {col}">{chunk[k]}</div>'
+            for k, (row, col) in enumerate(positions)
+        )
+        pages.append(f'<div class="page">{cells}</div>')
 
-    # Each <table class="sheet"> self-page-breaks via CSS, so just
-    # concatenate — no inter-sheet divider needed (and no extra blank
-    # page at the end thanks to `:last-of-type { page-break-after: auto }`).
+    # Each .page self-page-breaks via CSS, and `:last-of-type
+    # { page-break-after: auto }` prevents a trailing blank page.
     html = (
         "<!doctype html><html><head><meta charset='utf-8'>"
         + HTY_6UP_STYLE
@@ -168,12 +179,15 @@ def render_hty_6up_pdf(batch_names):
     )
 
     from frappe.utils.pdf import get_pdf
+    # Margins = 0 because the @page CSS rule and .page width/height are
+    # set explicitly. Letting wkhtmltopdf add margins on top would push
+    # row 3 off the page.
     return get_pdf(html, options={
         "page-size": "A4",
-        "margin-top": "5mm",
-        "margin-bottom": "5mm",
-        "margin-left": "5mm",
-        "margin-right": "5mm",
+        "margin-top": "0",
+        "margin-bottom": "0",
+        "margin-left": "0",
+        "margin-right": "0",
     })
 
 

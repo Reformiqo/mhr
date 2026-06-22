@@ -106,50 +106,46 @@ class TestSixUpLayout(FrappeTestCase):
             self.assertIn(token, HTY_LABEL_HTML,
                 f"Template must use {token!r} (context key set by the renderer).")
 
-    def test_style_declares_6up_grid(self):
+    def test_style_uses_absolute_positioning(self):
+        """Layout is absolute-positioned on a fixed-size A4 page so
+        wkhtmltopdf can't decide row 3 doesn't fit. Pin the load-bearing
+        CSS rules."""
         from mhr.utilis import HTY_6UP_STYLE
-        # 2-column sheet table with cell width 50%.
-        self.assertIn("table.sheet", HTY_6UP_STYLE)
-        self.assertIn("width: 50%", HTY_6UP_STYLE)
-        # Page-break for multi-page output.
-        self.assertIn("page-break-after", HTY_6UP_STYLE)
         # A4 page size.
-        self.assertIn("A4", HTY_6UP_STYLE)
+        self.assertIn("A4 portrait", HTY_6UP_STYLE)
+        # The page block must be exactly A4 in mm.
+        self.assertIn("210mm", HTY_6UP_STYLE)
+        self.assertIn("297mm", HTY_6UP_STYLE)
+        # Cells are absolutely positioned.
+        self.assertIn("position: absolute", HTY_6UP_STYLE)
+        # Three row offsets (r1/r2/r3) at the chosen mm positions.
+        self.assertIn(".cell.r1", HTY_6UP_STYLE)
+        self.assertIn(".cell.r2", HTY_6UP_STYLE)
+        self.assertIn(".cell.r3", HTY_6UP_STYLE)
+        # Two column offsets (c1/c2).
+        self.assertIn(".cell.c1", HTY_6UP_STYLE)
+        self.assertIn(".cell.c2", HTY_6UP_STYLE)
 
-    def test_renders_grid_with_2_columns_per_row(self):
-        """Pin the renderer lays out 3 rows of 2 cells per A4 sheet."""
+    def test_page_self_page_breaks(self):
+        """Each .page page-break-after: always; the last suppresses the
+        trailing blank page."""
+        from mhr.utilis import HTY_6UP_STYLE
+        self.assertIn("page-break-after: always", HTY_6UP_STYLE)
+        self.assertIn("last-of-type", HTY_6UP_STYLE)
+
+    def test_renderer_emits_6_cells_per_page(self):
+        """Source-level pin on the renderer's HTML emission."""
         from mhr.utilis import render_hty_6up_pdf
         import inspect as _inspect
         src = _inspect.getsource(render_hty_6up_pdf)
-        self.assertIn("(0, 2, 4)", src,
-            "Renderer must iterate row-indices (0, 2, 4) for the 3x2 grid.")
-
-    def test_sheet_self_page_breaks(self):
-        """The CSS makes each <table class=sheet> page-break-after: always
-        (and the last sheet auto, so no trailing blank page). Pin both."""
-        from mhr.utilis import HTY_6UP_STYLE
-        self.assertIn("page-break-after: always", HTY_6UP_STYLE,
-            "Each sheet must page-break-after: always.")
-        self.assertIn("last-of-type", HTY_6UP_STYLE,
-            "Last sheet must not force an extra blank page.")
-
-    def test_row_height_fixed_in_mm(self):
-        """wkhtmltopdf ignores `table { height: N }` and percent row heights
-        for paging — only per-row mm heights are honored. 3 x 90mm = 270mm
-        fits comfortably in A4 - 2x5mm = 287mm with 17mm to spare. Pinning
-        the mm value + page-break-inside: avoid ensures 6 labels per page,
-        not 4+2."""
-        from mhr.utilis import HTY_6UP_STYLE
-        self.assertIn("height: 90mm", HTY_6UP_STYLE,
-            "Each row must declare a fixed mm height (wkhtmltopdf doesn't "
-            "honour percent heights for table paging).")
-        self.assertIn("page-break-inside: avoid", HTY_6UP_STYLE,
-            "Rows must declare page-break-inside: avoid so a single row "
-            "can't be split across pages.")
-        # Conversely, MUST NOT pin a table-level height (the bug from the
-        # previous cut — wkhtmltopdf treats it as a suggestion and overflows).
-        self.assertNotIn("table.sheet {\n    width: 100%; height:", HTY_6UP_STYLE,
-            "Don't set height on table.sheet — wkhtmltopdf ignores it.")
+        # All 6 row/col combinations must be in the positions table.
+        for combo in ('("r1", "c1")', '("r1", "c2")',
+                      '("r2", "c1")', '("r2", "c2")',
+                      '("r3", "c1")', '("r3", "c2")'):
+            self.assertIn(combo, src,
+                f"Renderer's positions table must include {combo}.")
+        # wkhtmltopdf margins must be 0 — the @page CSS owns the size.
+        self.assertIn('"margin-top": "0"', src)
 
 
 class TestPrintBatchBranchesToSixUp(FrappeTestCase):
