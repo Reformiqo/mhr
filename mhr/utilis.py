@@ -21,6 +21,139 @@ def hty_qr_data_url(text):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+# MI1-I62: per-label HTML used by both the single-batch print format
+# (preview) and the 6-up A4 bulk PDF (Print Batch). Centralised here so
+# the layout doesn't drift between the two paths.
+HTY_LABEL_HTML = """
+<div class="hty-label">
+  <table class="outer"><tbody>
+    <tr>
+      <td class="fields-col">
+        <table class="fields"><tbody>
+          <tr class="b"><td class="k">Container No.</td><td class="v">{{ doc.custom_container_no or "" }}</td></tr>
+          <tr><td class="k">Pallet No.</td><td class="v">{{ doc.custom_cone or "" }}</td></tr>
+          <tr><td class="k">Den/Fil</td><td class="v">{{ item_code }}</td></tr>
+          <tr><td class="k">Cone</td><td class="v">{{ cone_val }}</td></tr>
+          <tr class="b"><td class="k">Net Wt</td><td class="v">{{ net_wt_str }}</td></tr>
+          <tr><td class="k">Gross Wt</td><td class="v">{{ gross_wt_str }}</td></tr>
+          <tr><td class="k">Grade</td><td class="v">{{ grade_val }}</td></tr>
+          <tr><td class="k">Luster</td><td class="v">{{ luster_val }}</td></tr>
+          <tr><td class="k">Type</td><td class="v">PALLET</td></tr>
+          <tr><td class="k">Lot No.</td><td class="v">{{ doc.custom_lot_no or "" }}</td></tr>
+        </tbody></table>
+      </td>
+      <td class="right-col">
+        <div class="serial">{{ serial }}</div>
+        <img class="qr" src="{{ qr_url }}" alt="QR" />
+      </td>
+    </tr>
+  </tbody></table>
+  <div class="caption">{{ qr_payload }}.</div>
+</div>
+""".strip()
+
+
+HTY_6UP_STYLE = """
+<style>
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; }
+  @page { size: A4 portrait; margin: 0; }
+  table.sheet { width: 100%; border-collapse: separate; border-spacing: 4mm; table-layout: fixed; }
+  table.sheet > tbody > tr > td.cell { width: 50%; vertical-align: top; padding: 0; height: 88mm; border: 0; }
+  .hty-label { padding: 2mm 3mm; font-size: 9pt; box-sizing: border-box; }
+  table.outer { width: 100%; border-collapse: collapse; }
+  table.outer > tbody > tr > td { vertical-align: top; padding: 0; }
+  table.outer > tbody > tr > td.fields-col { width: 65%; padding-right: 3mm; }
+  table.outer > tbody > tr > td.right-col { width: 35%; text-align: right; }
+  table.fields { width: 100%; border-collapse: collapse; }
+  table.fields td { padding: 0.8mm 1.5mm; vertical-align: top; line-height: 1.15; }
+  table.fields td.k { font-weight: bold; width: 42%; white-space: nowrap; }
+  table.fields td.v { width: 58%; }
+  table.fields tr.b td { font-weight: bold; }
+  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 2mm; }
+  .right-col img.qr { width: 26mm; height: 26mm; }
+  .caption { font-size: 7.5pt; text-align: center; margin-top: 1mm; letter-spacing: 0.3pt; }
+  .page-break { page-break-after: always; }
+</style>
+""".strip()
+
+
+def render_hty_6up_pdf(batch_names):
+    """MI1-I62 (final): render N HTY Batch Labels into ONE A4 PDF — 6 labels
+    per page, 2 cols × 3 rows, matching Raj's reference PDF.
+
+    Returns the PDF bytes. Skips (and logs) any batch name that no longer
+    exists in `tabBatch`. Pads the final page with empty cells so the
+    grid stays clean when N is not a multiple of 6.
+    """
+    if not batch_names:
+        return b""
+
+    labels = []
+    for name in batch_names:
+        if not frappe.db.exists("Batch", name):
+            frappe.log_error(f"HTY 6up render: Batch {name} not found", "HTY 6up render")
+            continue
+        doc = frappe.get_doc("Batch", name)
+        qr_payload = "{}_{}_{}".format(
+            doc.custom_cone or "",
+            doc.custom_container_no or "",
+            doc.custom_lot_no or "",
+        )
+        ctx = {
+            "doc": doc,
+            "item_code": doc.item or "",
+            "cone_val": hty_parse_filament_count(doc.item or ""),
+            "net_wt_str": ("%.3f" % float(doc.batch_qty)) if doc.batch_qty is not None else "",
+            "gross_wt_str": ("%.3f" % float(doc.get("custom_gross_weight")))
+                if doc.get("custom_gross_weight") else "",
+            "grade_val": strip_prefix(doc.custom_grade),
+            "luster_val": strip_prefix(doc.custom_lusture),
+            "serial": doc.custom_supplier_batch_no or doc.name,
+            "qr_payload": qr_payload,
+            "qr_url": hty_qr_data_url(qr_payload),
+        }
+        labels.append(frappe.render_template(HTY_LABEL_HTML, ctx))
+
+    if not labels:
+        return b""
+
+    # Pad to next multiple of 6 so the last sheet has 6 cells.
+    while len(labels) % 6 != 0:
+        labels.append("")
+
+    pages = []
+    for i in range(0, len(labels), 6):
+        chunk = labels[i:i + 6]
+        sheet = '<table class="sheet"><tbody>'
+        for r in (0, 2, 4):
+            sheet += (
+                '<tr>'
+                f'<td class="cell">{chunk[r]}</td>'
+                f'<td class="cell">{chunk[r + 1]}</td>'
+                '</tr>'
+            )
+        sheet += '</tbody></table>'
+        pages.append(sheet)
+
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        + HTY_6UP_STYLE
+        + "</head><body>"
+        + '<div class="page-break"></div>'.join(pages)
+        + "</body></html>"
+    )
+
+    from frappe.utils.pdf import get_pdf
+    return get_pdf(html, options={
+        "page-size": "A4",
+        "margin-top": "8mm",
+        "margin-bottom": "8mm",
+        "margin-left": "8mm",
+        "margin-right": "8mm",
+    })
+
+
 def strip_prefix(val):
     """MI1-I62: strip the prefix from values stored as 'Prefix-Value' so
     labels and reports show only the meaningful tail.
