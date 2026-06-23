@@ -150,19 +150,22 @@ class TestSixUpLayout(FrappeTestCase):
         self.assertIn("height: 280mm", rules,
             ".page must be 280mm (17mm of drift slack below A4 297mm).")
 
-    def test_page_break_after_with_first_of_type_override(self):
-        """With shorter-than-A4 .page height, page-break-after: always now
-        produces exactly N pages (not 2N) because the block doesn't fill
-        the natural page boundary. :last-of-type suppresses the trailing
-        break so there's no blank page at the end."""
+    def test_no_explicit_page_breaks_natural_overflow_only(self):
+        """With .page at 280mm (17mm slack vs A4 297mm), adding
+        page-break-before/after: always causes a blank page after every
+        real one — wkhtmltopdf already takes a natural break because the
+        next 280mm .page can't fit in the remaining 17mm. Combining the
+        two break mechanisms double-breaks. So: NO explicit page-break-
+        before/after rules. Natural overflow + page-break-inside: avoid
+        is the whole story."""
         import re
         from mhr.utilis import HTY_6UP_STYLE
         rules = re.sub(r"/\*.*?\*/", "", HTY_6UP_STYLE, flags=re.DOTALL)
-        self.assertIn("page-break-after: always", rules,
-            "Each .page must page-break-after: always (with shorter height "
-            "for slack, this no longer causes blank pages).")
-        self.assertIn("last-of-type", rules,
-            "Last .page must auto-override the page-break-after.")
+        self.assertNotIn("page-break-after: always", rules,
+            "Don't use page-break-after: always — collides with the natural "
+            "overflow break and produces a blank page after each real page.")
+        self.assertNotIn("page-break-before: always", rules,
+            "Don't use page-break-before: always — same double-break bug.")
         self.assertIn("page-break-inside: avoid", rules,
             ".page must declare page-break-inside: avoid as belt+braces.")
 

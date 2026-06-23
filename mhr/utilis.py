@@ -70,16 +70,19 @@ HTY_6UP_STYLE = """
     position: relative;
     width: 210mm; height: 280mm;          /* less than A4 (297mm) */
     overflow: hidden;
-    page-break-after: always;
     page-break-inside: avoid;
   }
-  .page:last-of-type { page-break-after: auto; }
-  /* Height: 280mm gives 17mm of slack vs the 297mm A4 page. Without
-     this slack, wkhtmltopdf accumulates rounding drift between blocks
-     and by the 3rd .page the bottom row gets pushed onto the next
-     PDF page (the '6+6+4' pattern we hit at exact 297mm). The page-
-     break-after: always with slack also avoids the blank-page bug
-     that exact-A4-height + page-break-after produced. */
+  /* Height: 280mm gives 17mm of slack vs the 297mm A4 page. Two effects:
+     (1) Drift slack — wkhtmltopdf's per-block rounding can't push the
+         bottom row off (the '6+6+4' pattern we hit at exact 297mm).
+     (2) Natural-flow pagination — when the next .page (also 280mm) won't
+         fit in the remaining 17mm of the current PDF page, wkhtmltopdf
+         page-breaks on its own. We DELIBERATELY don't add
+         page-break-after: always: combining the explicit break with the
+         already-triggered natural break produced an extra blank page
+         after every real one (the bug Raj saw on page 4 of 6). With just
+         natural overflow + page-break-inside: avoid, the math gives
+         exactly N PDF pages for N .page blocks, no blanks. */
 
   /* 3 rows x 2 cols. Cells 90mm tall fit comfortably inside 280mm
      (3 * 90 = 270mm + 10mm slack). Two 96mm columns + 2mm centre
