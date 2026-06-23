@@ -31,26 +31,25 @@ frappe.ui.form.on('Print Batch', {
         if (frm.doc.container_no && frm.doc.lot_no) {
             mi1_i27_populate_items(frm, /* preserve_value */ true);
         }
-
-        // MI1-I62 (Container ID fetch, 2026-06-23): "Fetch by Container ID"
-        // custom button. Shown when Container + Lot are set; Item is an
-        // optional narrowing filter (server method handles item=None).
-        // Don't gate on Item — Raj's screenshot showed the button missing
-        // even with Item set, but the more discoverable behaviour is to
-        // show the button as soon as Container + Lot pin the search space.
-        if (frm.doc.container_no && frm.doc.lot_no) {
-            frm.add_custom_button(__("Fetch by Container ID"), function () {
-                open_container_id_picker(frm);
-            });
+        // MI1-I62 (Container ID inline Select, 2026-06-23): mirror the
+        // Item-options helper for the Container ID Select. HTY-only —
+        // VFY uses the Cone fetch path; HTY needs to pick one Container
+        // document out of the many that share the same container_no.
+        if (frm.doc.transaction_type === "HTY"
+                && frm.doc.container_no && frm.doc.lot_no) {
+            populate_container_ids(frm, /* preserve_value */ true);
         }
     },
 
     container_no: function(frm) {
-        // Clear lot_no + item when container_no changes
+        // Clear lot_no + item + container_id when container_no changes
         frm.set_value('lot_no', '');
         frm.set_value('item', '');
+        frm.set_value('container_id', '');
         frm.set_df_property('item', 'options', '');
+        frm.set_df_property('container_id', 'options', '');
         frm.refresh_field('item');
+        frm.refresh_field('container_id');
         if (frm.doc.container_no) {
             mi1_i27_populate_lot_nos(frm, /* preserve_value */ false);
         } else {
@@ -90,17 +89,60 @@ frappe.ui.form.on('Print Batch', {
         // MI1-I27 (Item bifurcation): a new lot may hold a different set
         // of items — reset + repopulate the Item Select.
         frm.set_value('item', '');
+        // MI1-I62 (Container ID HTY-only, 2026-06-23): same for container_id —
+        // a new lot has a different set of Container docs.
+        frm.set_value('container_id', '');
         if (frm.doc.container_no && frm.doc.lot_no) {
             mi1_i27_populate_items(frm, /* preserve_value */ false);
+            if (frm.doc.transaction_type === "HTY") {
+                populate_container_ids(frm, /* preserve_value */ false);
+            }
         } else {
             frm.set_df_property('item', 'options', '');
+            frm.set_df_property('container_id', 'options', '');
             frm.refresh_field('item');
+            frm.refresh_field('container_id');
         }
         // MI1-I62 (reverted per Raj 2026-06-23): DO NOT auto-fetch every
         // batch when the user just picks a Lot No. The fetch should only
         // run when the user explicitly types a Supplier Batch No (handled
         // by the supplier_batch_no change handler above). Selecting a Lot
         // alone must NOT populate List Batches.
+    },
+
+    // MI1-I62 (Container ID HTY-only, 2026-06-23): when the user changes Item
+    // in HTY mode, narrow the container_id options to that item too.
+    item: function(frm) {
+        if (frm.doc.transaction_type !== "HTY") return;
+        if (!(frm.doc.container_no && frm.doc.lot_no)) return;
+        frm.set_value('container_id', '');
+        populate_container_ids(frm, /* preserve_value */ false);
+    },
+
+    // MI1-I62 (Container ID HTY-only, 2026-06-23): selecting a Container ID
+    // fires the bulk-fetch — every Batch under that Container doc gets
+    // appended (newest-on-top, dedup), no popup, no button.
+    container_id: function(frm) {
+        if (frm.doc.transaction_type !== "HTY") return;
+        if (!frm.doc.container_id) return;
+        fetch_and_append_batches_for_container_id(frm, frm.doc.container_id);
+        // Clear the field after the fetch so the user can immediately
+        // pick another Container ID without manually emptying it.
+        frm.set_value('container_id', '');
+    },
+
+    // MI1-I62 (Container ID HTY-only, 2026-06-23): when transaction_type
+    // flips between VFY and HTY, repopulate (or clear) container_id options
+    // accordingly so the Select isn't stale.
+    transaction_type: function(frm) {
+        if (frm.doc.transaction_type === "HTY"
+                && frm.doc.container_no && frm.doc.lot_no) {
+            populate_container_ids(frm, /* preserve_value */ true);
+        } else {
+            frm.set_value('container_id', '');
+            frm.set_df_property('container_id', 'options', '');
+            frm.refresh_field('container_id');
+        }
     },
 
     // MI1-I62 (newest on top, 2026-06-23): removed the before_save
@@ -110,11 +152,13 @@ frappe.ui.form.on('Print Batch', {
     // order.
 });
 
-// MI1-I62 (Container ID fetch, 2026-06-23): open a popup listing every
-// Container document that matches the current (Container No, Lot No,
-// Item). On selection, fetch every Batch belonging to that Container
-// document and append to list_batches (newest-on-top, dedup).
-function open_container_id_picker(frm) {
+// MI1-I62 (Container ID HTY-only inline Select, 2026-06-23): populate the
+// container_id Select options with every Container doc matching the
+// current (Container No, Lot No, optional Item). Mirrors the
+// mi1_i27_populate_items pattern. preserve_value=true keeps the
+// existing container_id selection across refreshes when still valid.
+function populate_container_ids(frm, preserve_value) {
+    var prev = frm.doc.container_id;
     frappe.call({
         method: "mhr.utilis.get_container_ids_for",
         args: {
@@ -122,41 +166,16 @@ function open_container_id_picker(frm) {
             lot_no: frm.doc.lot_no,
             item: frm.doc.item || "",
         },
-        freeze: true,
-        freeze_message: __("Looking up Container IDs..."),
         callback: function (r) {
             var ids = (r && r.message) || [];
-            if (!ids.length) {
-                frappe.msgprint(__(
-                    "No Container documents found for {0} / {1} / {2}.",
-                    [frm.doc.container_no, frm.doc.lot_no, frm.doc.item]
-                ));
-                return;
+            // First option is blank ("pick one") — matches the Item Select
+            // convention so the field defaults to "nothing selected".
+            var options = [""].concat(ids);
+            frm.set_df_property("container_id", "options", options.join("\n"));
+            frm.refresh_field("container_id");
+            if (preserve_value && prev && ids.indexOf(prev) >= 0) {
+                frm.set_value("container_id", prev);
             }
-            if (ids.length === 1) {
-                // Skip the popup — only one match, just fetch it.
-                fetch_and_append_batches_for_container_id(frm, ids[0]);
-                return;
-            }
-            var d = new frappe.ui.Dialog({
-                title: __("Pick a Container ID"),
-                fields: [{
-                    fieldname: "container_id",
-                    label: __("Container ID"),
-                    fieldtype: "Select",
-                    options: ids.join("\n"),
-                    reqd: 1,
-                    default: ids[0],
-                }],
-                primary_action_label: __("Fetch Batches"),
-                primary_action(values) {
-                    d.hide();
-                    fetch_and_append_batches_for_container_id(
-                        frm, values.container_id
-                    );
-                },
-            });
-            d.show();
         },
     });
 }
