@@ -19,13 +19,24 @@ from frappe.tests.utils import FrappeTestCase
 class TestServerMethodGuards(FrappeTestCase):
 
     def test_method_exists_and_whitelisted(self):
+        """Pin: function exists + carries the @frappe.whitelist() decorator
+        in source (the JS button calls it via /api/method/...)."""
+        import inspect
         from mhr import utilis
         fn = getattr(utilis, "make_receive_from_subcontractor", None)
         self.assertTrue(callable(fn),
             "mhr.utilis.make_receive_from_subcontractor must exist.")
-        self.assertTrue(getattr(fn, "is_whitelisted", False) or getattr(fn, "_is_whitelisted", False)
-                        or "make_receive_from_subcontractor" in (frappe.whitelisted or {}),
-            "Method must be @frappe.whitelist()-ed so the JS button can call it.")
+        # Frappe versions differ on the runtime attribute name; the source
+        # check is the version-stable way to assert the decorator is there.
+        # Read the file directly because inspect.getsource of the FUNCTION
+        # doesn't include lines above its `def`.
+        src = open(inspect.getsourcefile(utilis)).read()
+        self.assertRegex(
+            src,
+            r"@frappe\.whitelist\(\)\s*\ndef\s+make_receive_from_subcontractor\b",
+            "make_receive_from_subcontractor must be decorated with "
+            "@frappe.whitelist() so the JS button can hit it via /api/method.",
+        )
 
     def test_signature(self):
         from mhr.utilis import make_receive_from_subcontractor
