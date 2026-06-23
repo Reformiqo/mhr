@@ -31,6 +31,16 @@ frappe.ui.form.on('Print Batch', {
         if (frm.doc.container_no && frm.doc.lot_no) {
             mi1_i27_populate_items(frm, /* preserve_value */ true);
         }
+
+        // MI1-I62 (Container ID fetch, 2026-06-23): "Fetch by Container ID"
+        // custom button. Shown only when Container + Lot + Item are set —
+        // those three narrow the universe of Container docs that share the
+        // same container_no enough to be a meaningful pick list.
+        if (frm.doc.container_no && frm.doc.lot_no && frm.doc.item) {
+            frm.add_custom_button(__("Fetch by Container ID"), function () {
+                open_container_id_picker(frm);
+            });
+        }
     },
 
     container_no: function(frm) {
@@ -97,6 +107,101 @@ frappe.ui.form.on('Print Batch', {
     // (newest first, see prepend_added_rows below) is now the persisted
     // order.
 });
+
+// MI1-I62 (Container ID fetch, 2026-06-23): open a popup listing every
+// Container document that matches the current (Container No, Lot No,
+// Item). On selection, fetch every Batch belonging to that Container
+// document and append to list_batches (newest-on-top, dedup).
+function open_container_id_picker(frm) {
+    frappe.call({
+        method: "mhr.utilis.get_container_ids_for",
+        args: {
+            container_no: frm.doc.container_no,
+            lot_no: frm.doc.lot_no,
+            item: frm.doc.item || "",
+        },
+        freeze: true,
+        freeze_message: __("Looking up Container IDs..."),
+        callback: function (r) {
+            var ids = (r && r.message) || [];
+            if (!ids.length) {
+                frappe.msgprint(__(
+                    "No Container documents found for {0} / {1} / {2}.",
+                    [frm.doc.container_no, frm.doc.lot_no, frm.doc.item]
+                ));
+                return;
+            }
+            if (ids.length === 1) {
+                // Skip the popup — only one match, just fetch it.
+                fetch_and_append_batches_for_container_id(frm, ids[0]);
+                return;
+            }
+            var d = new frappe.ui.Dialog({
+                title: __("Pick a Container ID"),
+                fields: [{
+                    fieldname: "container_id",
+                    label: __("Container ID"),
+                    fieldtype: "Select",
+                    options: ids.join("\n"),
+                    reqd: 1,
+                    default: ids[0],
+                }],
+                primary_action_label: __("Fetch Batches"),
+                primary_action(values) {
+                    d.hide();
+                    fetch_and_append_batches_for_container_id(
+                        frm, values.container_id
+                    );
+                },
+            });
+            d.show();
+        },
+    });
+}
+
+function fetch_and_append_batches_for_container_id(frm, container_id) {
+    if (!container_id) return;
+    frappe.call({
+        method: "mhr.utilis.get_batches_for_container_id",
+        args: { container_id: container_id },
+        freeze: true,
+        freeze_message: __("Fetching batches for {0}...", [container_id]),
+        callback: function (r) {
+            var rows = (r && r.message) || [];
+            if (!Array.isArray(rows)) rows = [rows];
+            if (!rows.length) {
+                frappe.msgprint(__("No batches found for Container ID {0}.", [container_id]));
+                return;
+            }
+            var existing = new Set((frm.doc.list_batches || []).map(function (row) {
+                return row.batch;
+            }));
+            var added = 0, skipped = 0;
+            rows.forEach(function (data) {
+                if (!data || !data.batch) return;
+                if (existing.has(data.batch)) { skipped++; return; }
+                existing.add(data.batch);
+                var child = frm.add_child("list_batches");
+                child.batch = data.batch;
+                child.cone = data.cone;
+                child.lot_no = data.lot_no;
+                child.batch_qty = data.batch_qty;
+                added++;
+            });
+            if (added > 0) {
+                prepend_added_rows(frm, added);
+                frm.refresh_field("list_batches");
+                frappe.show_alert({
+                    message: __("Added {0} batch(es) from Container ID {1}.",
+                                [added, container_id]),
+                    indicator: 'green',
+                }, 4);
+            } else if (skipped > 0) {
+                frappe.msgprint(__('All matching batches are already in the list.'));
+            }
+        },
+    });
+}
 
 // MI1-I62 (newest on top, 2026-06-23): after fetch_and_append_batch* has
 // appended N new rows to list_batches, move those N rows to index 0

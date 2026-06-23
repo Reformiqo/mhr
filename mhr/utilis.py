@@ -1172,6 +1172,74 @@ def get_print_batch(lot_no, container_no, supplier_batch_no=None, item=None, con
 
 
 @frappe.whitelist()
+def get_container_ids_for(container_no, lot_no, item=None):
+    """MI1-I62 (Container ID fetch, 2026-06-23): return the distinct
+    Container document IDs that match the given (container_no, lot_no, item).
+
+    Background: Container's autoname is `format:{container_no}-{#}`, so
+    one user-facing Container No (e.g. MCJC-1614) maps to MANY Container
+    documents (MCJC-1614-1, MCJC-1614-2, ...). The Print Batch form's
+    "Fetch by Container ID" flow uses this method to populate a Select
+    so the user can pick exactly one of those Container docs and then
+    fetch every Batch belonging to it.
+
+    Returns a list of strings (sorted). `item` is optional — pass to
+    narrow when one (container_no, lot) has rows under different items.
+    """
+    if not (container_no and lot_no):
+        return []
+    filters = {
+        "container_no": container_no,
+        "lot_no": lot_no,
+    }
+    if item:
+        filters["item"] = item
+    rows = frappe.get_all(
+        "Container",
+        filters=filters,
+        fields=["name"],
+        order_by="name asc",
+        # The Container table is large; an explicit limit keeps the
+        # popup usable when someone filters too broadly.
+        limit=200,
+    )
+    return [r.name for r in rows]
+
+
+@frappe.whitelist()
+def get_batches_for_container_id(container_id):
+    """MI1-I62 (Container ID fetch, 2026-06-23): return every Batch
+    belonging to one specific Container document, in the same payload
+    shape as `get_print_batch` so the JS append/dedup path is reused.
+
+    The link from Container -> Batch lives in the `Batch Items` child
+    table (parent=Container.name, batch_id=Batch.name). We join that
+    bridge to the Batch master to pull the cone / lot / qty / supplier
+    batch info the print-batch UI needs.
+    """
+    if not container_id:
+        return []
+    rows = frappe.db.sql(
+        """
+        SELECT
+            b.name        AS batch,
+            b.item        AS item,
+            b.custom_cone AS cone,
+            b.custom_lot_no AS lot_no,
+            b.batch_qty   AS batch_qty,
+            b.custom_supplier_batch_no AS supplier_batch_no
+        FROM `tabBatch Items` bi
+        INNER JOIN `tabBatch` b ON b.name = bi.batch_id
+        WHERE bi.parent = %s AND bi.parenttype = 'Container'
+        ORDER BY b.creation ASC
+        """,
+        (container_id,),
+        as_dict=True,
+    )
+    return rows
+
+
+@frappe.whitelist()
 def update_container():
     frappe.db.sql(
         """
