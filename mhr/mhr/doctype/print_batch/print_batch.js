@@ -72,7 +72,11 @@ frappe.ui.form.on('Print Batch', {
             frm.set_df_property('item', 'options', '');
             frm.refresh_field('item');
         }
-        fetch_and_append_batch(frm);
+        // MI1-I62 (reverted per Raj 2026-06-23): DO NOT auto-fetch every
+        // batch when the user just picks a Lot No. The fetch should only
+        // run when the user explicitly types a Supplier Batch No (handled
+        // by the supplier_batch_no change handler above). Selecting a Lot
+        // alone must NOT populate List Batches.
     },
 
     before_save: function(frm) {
@@ -96,13 +100,14 @@ function sort_list_batches(frm) {
 }
 
 function fetch_and_append_batch(frm) {
-    // MI1-I62: drop the early bail on empty supplier_batch_no — the
-    // user can now pick Container + Lot alone and the system fetches
-    // EVERY matching Batch into list_batches. Supplier Batch No still
-    // works as an optional narrowing filter when present. Need at least
-    // Container + Lot before firing, otherwise the server query is too
-    // broad.
+    // MI1-I62 (reverted per Raj 2026-06-23): a fetch must require ALL of
+    // Container No + Lot No + Supplier Batch No. Selecting only Container
+    // + Lot must NOT populate List Batches — the user is expected to type
+    // a Supplier Batch No to drive each fetch. The server method itself
+    // remains permissive (other callers exist) — the gate lives here in
+    // the form.
     if (!frm.doc.container_no || !frm.doc.lot_no) return;
+    if (!frm.doc.supplier_batch_no) return;
 
     frappe.call({
         method: "mhr.utilis.get_print_batch",
