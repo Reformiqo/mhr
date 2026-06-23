@@ -32,7 +32,7 @@ HTY_LABEL_HTML = """
         <table class="fields"><tbody>
           <tr class="b"><td class="k">Container No.</td><td class="v">{{ doc.custom_container_no or "" }}</td></tr>
           <tr><td class="k">Pallet No.</td><td class="v">{{ doc.custom_cone or "" }}</td></tr>
-          <tr><td class="k">Den/Fil</td><td class="v">{{ item_code }}</td></tr>
+          <tr class="b"><td class="k">Den/Fil</td><td class="v">{{ item_code }}</td></tr>
           <tr><td class="k">Cone</td><td class="v">{{ cone_val }}</td></tr>
           <tr class="b"><td class="k">Net Wt</td><td class="v">{{ net_wt_str }}</td></tr>
           <tr><td class="k">Gross Wt</td><td class="v">{{ gross_wt_str }}</td></tr>
@@ -48,7 +48,6 @@ HTY_LABEL_HTML = """
       </td>
     </tr>
   </tbody></table>
-  <div class="caption">{{ qr_payload }}.</div>
 </div>
 """.strip()
 
@@ -101,18 +100,31 @@ HTY_6UP_STYLE = """
   .cell.c2 { left: 107mm; }
 
   .hty-label { padding: 0; box-sizing: border-box; }
-  table.outer { width: 100%; border-collapse: collapse; }
+  table.outer { width: 100%; height: 100%; border-collapse: collapse; }
   table.outer > tbody > tr > td { vertical-align: top; padding: 0; }
   table.outer > tbody > tr > td.fields-col { width: 65%; padding-right: 2mm; }
-  table.outer > tbody > tr > td.right-col { width: 35%; text-align: right; }
+  /* Right column: serial top, QR centered below. Vertical-align middle
+     so the QR doesn't crowd the top edge — matches Raj's reference. */
+  table.outer > tbody > tr > td.right-col {
+    width: 35%; text-align: right; vertical-align: top;
+    padding-top: 6mm;
+  }
   table.fields { width: 100%; border-collapse: collapse; }
-  table.fields td { padding: 0.3mm 1mm; vertical-align: top; line-height: 1.1; }
-  table.fields td.k { font-weight: bold; width: 42%; white-space: nowrap; }
+  /* Per-row vertical padding bumped from 0.3mm to 2mm and line-height
+     from 1.1 to 1.4 so each field has the airy spacing of the reference
+     PDF (Raj's MEHER_CREATIONS_QRCODE0.71.pdf). 10 rows × ~7.5mm ≈ 75mm,
+     leaving 15mm headroom inside each 90mm cell. */
+  table.fields td { padding: 2mm 1mm; vertical-align: top; line-height: 1.4; }
+  /* Non-bold labels: regular weight (reference shows only Container No.,
+     Den/Fil, Net Wt as bold). The tr.b override below handles those. */
+  table.fields td.k { font-weight: normal; width: 42%; white-space: nowrap; }
   table.fields td.v { width: 58%; }
+  /* Bold rows: Container No., Den/Fil, Net Wt (label + value). */
   table.fields tr.b td { font-weight: bold; }
-  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 1mm; }
-  .right-col img.qr { width: 22mm; height: 22mm; }
-  .caption { font-size: 7pt; text-align: center; margin-top: 0.5mm; }
+  /* Serial number sits above the QR, right-aligned, prominent. */
+  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 4mm; }
+  /* Larger QR + right-aligned to match the reference layout. */
+  .right-col img.qr { width: 28mm; height: 28mm; }
 </style>
 """.strip()
 

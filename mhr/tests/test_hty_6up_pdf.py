@@ -105,12 +105,42 @@ class TestSixUpLayout(FrappeTestCase):
                 f"Label {label!r} missing from HTY_LABEL_HTML.")
 
     def test_label_template_uses_helpers(self):
+        """qr_payload is intentionally NOT in the template anymore (the
+        bottom caption that used it was removed per Raj's reference PDF) —
+        it's still computed in render_hty_6up_pdf to seed qr_url, but
+        doesn't appear in the rendered HTML."""
         from mhr.utilis import HTY_LABEL_HTML
         for token in ("doc.custom_container_no", "doc.custom_cone",
                       "item_code", "cone_val", "net_wt_str", "gross_wt_str",
-                      "grade_val", "luster_val", "serial", "qr_payload", "qr_url"):
+                      "grade_val", "luster_val", "serial", "qr_url"):
             self.assertIn(token, HTY_LABEL_HTML,
                 f"Template must use {token!r} (context key set by the renderer).")
+
+    def test_bottom_caption_removed(self):
+        """Raj's reference PDF has no bottom caption (the
+        '6_MCJC-1519_04122025.' line). Removing the caption div left
+        the template free of that trailing text — pin that it stays gone."""
+        from mhr.utilis import HTY_LABEL_HTML
+        self.assertNotIn('class="caption"', HTY_LABEL_HTML,
+            "Bottom caption div must not be in the label template — "
+            "Raj's reference layout removes it.")
+        self.assertNotIn("{{ qr_payload }}", HTY_LABEL_HTML,
+            "qr_payload placeholder must not be in the template "
+            "(it was only consumed by the removed caption).")
+
+    def test_denfil_row_is_bold(self):
+        """Raj's reference has Container No., Den/Fil, AND Net Wt as
+        the three bold rows. Earlier our template only marked Container
+        No. + Net Wt — this pin protects against the regression."""
+        from mhr.utilis import HTY_LABEL_HTML
+        # The Den/Fil row must carry the `class="b"` (bold) modifier.
+        import re
+        self.assertRegex(
+            HTY_LABEL_HTML,
+            r'<tr class="b">[^<]*<td class="k">Den/Fil</td>',
+            "Den/Fil row must be marked with the bold class — matches "
+            "Raj's reference PDF.",
+        )
 
     def test_style_uses_absolute_positioning(self):
         """Layout is absolute-positioned on a fixed-size A4 page so
