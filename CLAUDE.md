@@ -42,6 +42,7 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Stock Sheet (Inward Cone Wise)` (+ `v2`)
 - `Stock Sheets (Inward Coneless Stock )`
 - `Stock Sheets (Inward Rest Stock )`
+- `Subcontractor Material Tracking` — MI1-I50; sent / received / pending per Send-to-Subcontractor item, filterable by date / supplier / status
 
 **Report optimization pattern** (applied across all 4 stock reports, 2026-02-08):
 
@@ -59,10 +60,37 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Delivery Note.on_cancel` → `mhr.utilis.reverse_item_batch`
 - `Delivery Note.validate` → `set_delivery_note_user`, `set_return_cone_from_original`, `calculate_delivery_note_totals`
 - `Batch.validate` → `mhr.batch_qr_code.set_si_qrcode`
-- `Stock Entry.validate` → `mhr.utilis.update_stock_entry`
-- `Stock Entry.on_submit` → `mhr.utilis.update_batch_warehouse_on_stock_entry`
-- `Stock Entry.on_cancel` → `mhr.utilis.revert_batch_warehouse_on_stock_entry`
+- `Stock Entry.validate` → `mhr.utilis.update_stock_entry`, `mhr.utilis.validate_hty_stock_entry`, `mhr.utilis.validate_subcontract_receipt` (MI1-I50 P3)
+- `Stock Entry.on_submit` → `mhr.utilis.update_batch_warehouse_on_stock_entry`, `mhr.utilis.apply_subcontract_receipt` (MI1-I50 P3)
+- `Stock Entry.on_cancel` → `mhr.utilis.revert_batch_warehouse_on_stock_entry`, `mhr.utilis.revert_subcontract_receipt` (MI1-I50 P3)
 - `Sales Order.validate` → `mhr.utilis.validate_so_available_qty`
+
+### Subcontract receipt flow (MI1-I50)
+
+A "Receive entry" is any Stock Entry whose `custom_original_send_entry` points
+back at a submitted Send-to-Subcontractor entry. The three hooks above are
+fast-no-op for every other Stock Entry. Flow:
+
+1. On a submitted Send entry, JS adds a **"Receive from Subcontractor"**
+   button (gated on docstatus=1 + purpose=Send to Subcontractor + at least
+   one item with `qty - custom_received_qty > 0`). Click → calls
+   `mhr.utilis.make_receive_from_subcontractor(source_name)` which builds a
+   Draft Material Transfer with reversed warehouses and item custom fields
+   carried over (cone / lot / container / supplier batch / gross weight).
+2. On validate of that Draft, `validate_subcontract_receipt` refuses
+   over-receipts beyond `custom_overreceipt_tolerance_pct` on the source
+   (aggregated by item + batch).
+3. On submit, `apply_subcontract_receipt` distributes the qty across source
+   rows FIFO, writes `custom_received_qty` + `custom_pending_qty`, and
+   transitions `custom_subcontract_status` (`Open` → `Partially Received`
+   → `Fully Received`). All writes use `update_modified=False` so the
+   source's modified ts doesn't bump.
+4. On cancel, `revert_subcontract_receipt` LIFOs the qty back, clamps at 0.
+5. The Stock Entry's Connections panel surfaces linked Receipts via
+   `override_doctype_dashboards["Stock Entry"]` →
+   `mhr.overrides.stock_entry_dashboard.get_dashboard_data` (self-referential
+   link, uses `non_standard_fieldnames` to point at `custom_original_send_entry`).
+6. `Subcontractor Material Tracking` report aggregates all of this for review.
 
 ### Client-side JS hooks
 
@@ -91,6 +119,7 @@ fixtures = [
     {"doctype": "Custom Field",   "filters": [["module", "in", ("Mhr")]]},
     {"doctype": "Report",         "filters": [["module", "in", ("Mhr")]]},
     {"doctype": "Property Setter","filters": [["module", "in", ("Mhr")]]},
+    {"doctype": "Print Format",   "filters": [["module", "in", ("Mhr")]]},
 ]
 ```
 
