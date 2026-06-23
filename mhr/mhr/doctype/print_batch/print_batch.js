@@ -91,24 +91,24 @@ frappe.ui.form.on('Print Batch', {
         // alone must NOT populate List Batches.
     },
 
-    before_save: function(frm) {
-        sort_list_batches(frm);
-    }
+    // MI1-I62 (newest on top, 2026-06-23): removed the before_save
+    // alphabetical sort. Raj wants newly-added rows pinned to the top
+    // of List Batches; sorting on save would undo that. Insertion order
+    // (newest first, see prepend_added_rows below) is now the persisted
+    // order.
 });
 
-function sort_list_batches(frm) {
-    if (!frm.doc.list_batches || !frm.doc.list_batches.length) {
-        return;
-    }
-
-    frm.doc.list_batches.sort(function(a, b) {
-        return (a.batch || '').localeCompare(b.batch || '', undefined, {
-            numeric: true,
-            sensitivity: 'base'
-        });
-    });
-
-    frm.refresh_field('list_batches');
+// MI1-I62 (newest on top, 2026-06-23): after fetch_and_append_batch* has
+// appended N new rows to list_batches, move those N rows to index 0
+// (newest on top) and renumber idx so the order persists on save.
+function prepend_added_rows(frm, added_count) {
+    if (!added_count) return;
+    var lst = frm.doc.list_batches || [];
+    if (added_count > lst.length) return;
+    // The just-appended rows are at the end of the array.
+    var new_rows = lst.splice(lst.length - added_count, added_count);
+    Array.prototype.unshift.apply(lst, new_rows);
+    lst.forEach(function (r, i) { r.idx = i + 1; });
 }
 
 // MI1-I62 (VFY Cone fetch, 2026-06-23): fetch every Batch matching
@@ -151,6 +151,7 @@ function fetch_and_append_batch_by_cone(frm) {
                 added++;
             });
             if (added > 0) {
+                prepend_added_rows(frm, added);
                 frm.refresh_field("list_batches");
                 frm.set_value("cone", "");
                 frappe.show_alert({
@@ -221,6 +222,7 @@ function fetch_and_append_batch(frm) {
             });
 
             if (added > 0) {
+                prepend_added_rows(frm, added);
                 frm.refresh_field("list_batches");
                 frm.set_value("supplier_batch_no", "");
                 if (rows.length > 1) {
