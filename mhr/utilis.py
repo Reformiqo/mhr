@@ -201,6 +201,89 @@ def render_hty_6up_pdf(batch_names):
     })
 
 
+@frappe.whitelist()
+def make_receive_from_subcontractor(source_name):
+    """MI1-I50 P2: build a draft Stock Entry that receives material back
+    from a subcontractor against a submitted 'Send to Subcontractor' SE.
+
+    - Source must be Submitted + purpose 'Send to Subcontractor'.
+    - Per item, pending = qty - custom_received_qty. Skip fully-received.
+    - New entry has warehouses REVERSED (s_warehouse <-> t_warehouse) so
+      stock flows subcontractor -> internal.
+    - All custom fields on items (cone, lot, container, supplier batch,
+      gross weight, etc.) are carried over.
+    - Links back to the original via custom_original_send_entry.
+
+    Returns the new draft's name; caller (JS) navigates to it.
+    """
+    source = frappe.get_doc("Stock Entry", source_name)
+    if source.docstatus != 1:
+        frappe.throw(_("Source Stock Entry must be Submitted."))
+    if source.purpose != "Send to Subcontractor":
+        frappe.throw(_("Source Stock Entry purpose must be 'Send to Subcontractor'."))
+
+    receipt = frappe.new_doc("Stock Entry")
+    receipt.stock_entry_type = "Material Transfer"
+    receipt.purpose = "Material Transfer"
+    receipt.company = source.company
+    receipt.posting_date = frappe.utils.nowdate()
+    receipt.posting_time = frappe.utils.nowtime()
+    receipt.set_posting_time = 1
+    receipt.set("custom_original_send_entry", source.name)
+
+    # Carry header custom fields if the doctype defines them.
+    carry_header = (
+        "custom_container_number", "custom_lot_no", "custom_glue",
+        "custom_pulp", "custom_lusture", "custom_grade", "custom_fsc",
+        "custom_notes", "custom_denier", "custom_merge_no",
+    )
+    for f in carry_header:
+        v = source.get(f)
+        if v is not None and source.meta.has_field(f):
+            receipt.set(f, v)
+
+    # Items — only those with pending qty > 0.
+    item_custom_fields = (
+        "custom_cone", "custom_lot_no", "custom_container_no",
+        "custom_supplier_batch_no", "custom_gross_weight",
+    )
+    appended = 0
+    for src_item in source.items:
+        sent_qty = flt(src_item.qty)
+        already = flt(src_item.get("custom_received_qty") or 0)
+        pending = sent_qty - already
+        if pending <= 0:
+            continue
+        row = {
+            "item_code": src_item.item_code,
+            "item_name": src_item.item_name,
+            "qty": pending,
+            "uom": src_item.uom,
+            "stock_uom": src_item.stock_uom,
+            "conversion_factor": src_item.conversion_factor or 1,
+            "batch_no": src_item.batch_no,
+            "serial_no": src_item.serial_no,
+            "use_serial_batch_fields": src_item.get("use_serial_batch_fields") or 0,
+            # REVERSE warehouses so stock flows subcontractor -> internal.
+            "s_warehouse": src_item.t_warehouse,
+            "t_warehouse": src_item.s_warehouse,
+            "allow_zero_valuation_rate": src_item.get("allow_zero_valuation_rate") or 0,
+            "basic_rate": src_item.basic_rate or 0,
+        }
+        for cf in item_custom_fields:
+            v = src_item.get(cf)
+            if v is not None:
+                row[cf] = v
+        receipt.append("items", row)
+        appended += 1
+
+    if not appended:
+        frappe.throw(_("Nothing to receive — all items on this Send entry are already fully received."))
+
+    receipt.insert(ignore_permissions=True)
+    return {"name": receipt.name}
+
+
 def strip_prefix(val):
     """MI1-I62: strip the prefix from values stored as 'Prefix-Value' so
     labels and reports show only the meaningful tail.

@@ -112,3 +112,43 @@ frappe.ui.form.on("Stock Entry", {
         }
     },
 });
+
+// MI1-I50 P2: "Receive from Subcontractor" custom button.
+//
+// Shown on a SUBMITTED Stock Entry whose purpose is "Send to Subcontractor"
+// and which still has pending items (qty - custom_received_qty > 0).
+// Click -> mhr.utilis.make_receive_from_subcontractor builds a Draft Stock
+// Entry pre-filled with items, batches, lots, custom fields, and warehouses
+// reversed (subcontractor -> internal). User then submits the draft to
+// record the return.
+frappe.ui.form.on("Stock Entry", {
+    refresh(frm) {
+        if (frm.doc.docstatus !== 1) return;
+        if (frm.doc.purpose !== "Send to Subcontractor") return;
+
+        // Compute pending qty client-side (the per-item custom_received_qty
+        // is kept up to date by the server hook in P3).
+        const has_pending = (frm.doc.items || []).some(function (it) {
+            return flt(it.qty) - flt(it.custom_received_qty || 0) > 0;
+        });
+        if (!has_pending) return;
+
+        frm.add_custom_button(
+            __("Receive from Subcontractor"),
+            function () {
+                frappe.call({
+                    method: "mhr.utilis.make_receive_from_subcontractor",
+                    args: { source_name: frm.doc.name },
+                    freeze: true,
+                    freeze_message: __("Building draft Receive entry..."),
+                    callback(r) {
+                        if (r && r.message && r.message.name) {
+                            frappe.set_route("Form", "Stock Entry", r.message.name);
+                        }
+                    },
+                });
+            },
+            __("Create"),
+        );
+    },
+});
