@@ -69,14 +69,33 @@ class TestDnReportTransactionTypeFilter(FrappeTestCase):
         super().setUpClass()
         cls.query = (_load_dn_report_fixture().get("query") or "")
 
-    def test_joins_container_for_filtering(self):
-        # We need Container.transaction_type to filter by, so JOIN on
-        # tabContainer keyed on dni.custom_container_no.
+    def test_filters_via_exists_subquery_on_container_no(self):
+        """Original approach used LEFT JOIN tabContainer ON c.name =
+        dni.custom_container_no, but dni.custom_container_no stores the
+        user-facing container_no (e.g. 'MCJC-1614'), not the autonamed
+        Container.name (e.g. 'MCJC-1614-1') — every JOIN row missed and
+        VFY/HTY returned empty.
+
+        Fixed by replacing the JOIN with an EXISTS subquery on the
+        container_no column. Also avoids the row-multiplication problem
+        of one container_no mapping to many Container docs."""
         self.assertRegex(
             self.query,
-            r"JOIN\s+`tabContainer`\s+\w+\s+ON\s+\w+\.name\s*=\s*dni\.custom_container_no",
-            "DN report must LEFT JOIN tabContainer on dni.custom_container_no "
-            "so transaction_type filtering works.",
+            r"EXISTS\s*\(",
+            "Transaction-type filter must use EXISTS (not JOIN).",
+        )
+        self.assertIn(
+            "c.container_no = dni.custom_container_no",
+            self.query,
+            "EXISTS subquery must key on container_no (user-facing label), "
+            "NOT on Container.name (the autonamed primary key).",
+        )
+        self.assertNotIn(
+            "c.name = dni.custom_container_no",
+            self.query,
+            "Old broken JOIN on c.name must NOT be in the SQL — it never "
+            "matched because dni.custom_container_no is the container_no "
+            "label, not the autonamed Container.name.",
         )
 
     def test_where_filters_by_transaction_type(self):
