@@ -99,7 +99,7 @@ class TestDnReportRunsWithDefaults(FrappeTestCase):
                 filters={
                     "from_date": "2026-06-01",
                     "to_date": "2026-06-30",
-                    "transaction_type": "",
+                    "transaction_type": "All",
                 },
                 ignore_prepared_report=True,
             )
@@ -107,3 +107,22 @@ class TestDnReportRunsWithDefaults(FrappeTestCase):
             self.fail(f"DN report still raises KeyError({e!r}) on a populated "
                       f"filter dict — the SQL has placeholders the filters don't "
                       f"cover.")
+
+    def test_run_with_empty_string_transaction_type(self):
+        """Frappe's query_report client DROPS filters whose value is "".
+        Reproduce the dropped-filter case explicitly to make sure the
+        SQL's 'All' / '' bypass actually handles it."""
+        from frappe.desk.query_report import run as run_report
+        # Pass empty string — the SQL guard must treat it the same as 'All'.
+        try:
+            run_report(
+                report_name="DN",
+                filters={
+                    "from_date": "2026-06-01",
+                    "to_date": "2026-06-30",
+                    "transaction_type": "",
+                },
+                ignore_prepared_report=True,
+            )
+        except KeyError as e:
+            self.fail(f"DN report KeyError({e!r}) — SQL must accept '' as 'no filter'.")

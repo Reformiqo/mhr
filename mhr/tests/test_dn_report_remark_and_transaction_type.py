@@ -84,11 +84,13 @@ class TestDnReportTransactionTypeFilter(FrappeTestCase):
         # the joined Container.transaction_type.
         self.assertIn("%(transaction_type)s", self.query,
             "WHERE must consume the transaction_type filter from JS.")
-        # Blank filter must pass everything (or-style guard).
+        # 'All' (the JS default) AND '' (defensive) must pass everything.
+        # Frappe drops empty-string filters from the payload, so the JS
+        # uses 'All' as a sentinel default; the SQL accepts both.
         self.assertRegex(
             self.query,
-            r"COALESCE\s*\(\s*NULLIF\s*\(\s*%\(transaction_type\)s\s*,\s*''\s*\)\s*,\s*''\s*\)\s*=\s*''",
-            "Empty/blank transaction_type filter must allow all rows.",
+            r"%\(transaction_type\)s\s+IN\s*\(\s*'All'\s*,\s*''\s*\)",
+            "Filter sentinel 'All' (and blank) must allow all rows.",
         )
 
 
