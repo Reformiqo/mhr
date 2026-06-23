@@ -63,6 +63,17 @@ class TestCustomFieldShape(FrappeTestCase):
         self.assertIn("container_no", depends_on)
         self.assertIn("lot_no", depends_on)
 
+    def test_field_positioned_below_cone(self):
+        """Raj's layout: Container ID sits in the right-hand column,
+        below the Cone (and below Supplier Batch No, where the right
+        column starts). insert_after='cone' puts it there."""
+        insert_after = frappe.db.get_value(
+            "Custom Field", "Print Batch-container_id", "insert_after"
+        )
+        self.assertEqual(insert_after, "cone",
+            "Container ID must be inserted after the Cone field so it "
+            "lands in the right column directly below Supplier Batch No.")
+
 
 class TestServerMethodsStillExist(FrappeTestCase):
     """The popup is gone but the server methods stay — the inline Select
