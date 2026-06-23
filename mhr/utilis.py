@@ -107,14 +107,22 @@ HTY_6UP_STYLE = """
      so the QR doesn't crowd the top edge — matches Raj's reference. */
   table.outer > tbody > tr > td.right-col {
     width: 35%; text-align: right; vertical-align: top;
-    padding-top: 6mm;
+    padding-top: 3mm;
   }
   table.fields { width: 100%; border-collapse: collapse; }
-  /* Per-row vertical padding bumped from 0.3mm to 2mm and line-height
-     from 1.1 to 1.4 so each field has the airy spacing of the reference
-     PDF (Raj's MEHER_CREATIONS_QRCODE0.71.pdf). 10 rows × ~7.5mm ≈ 75mm,
-     leaving 15mm headroom inside each 90mm cell. */
-  table.fields td { padding: 2mm 1mm; vertical-align: top; line-height: 1.4; }
+  /* Spacing 2026-06-23 (second iter): the 2mm + line-height-1.4 from
+     the first attempt pushed total content to ~85mm — right at the
+     cell's 84mm content area (90mm cell - 6mm vertical padding).
+     wkhtmltopdf's overflow:hidden on absolutely-positioned cells is
+     unreliable when content equals/exceeds the box, so labels were
+     spilling across page boundaries (Raj's screenshot: top half of
+     QR on one page, bottom half on the next).
+     Trimmed to 1.5mm padding + 1.3 line-height:
+       per-row = 1.5*2 + 3.2pt*1.3 ≈ 7.2mm
+       10 rows × 7.2mm = 72mm + 6mm cell padding = 78mm in a 90mm cell
+       → 12mm headroom, no spillover. Still airier than the original
+       0.3mm + line-height-1.1. */
+  table.fields td { padding: 1.5mm 1mm; vertical-align: top; line-height: 1.3; }
   /* Non-bold labels: regular weight (reference shows only Container No.,
      Den/Fil, Net Wt as bold). The tr.b override below handles those. */
   table.fields td.k { font-weight: normal; width: 42%; white-space: nowrap; }
@@ -122,9 +130,11 @@ HTY_6UP_STYLE = """
   /* Bold rows: Container No., Den/Fil, Net Wt (label + value). */
   table.fields tr.b td { font-weight: bold; }
   /* Serial number sits above the QR, right-aligned, prominent. */
-  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 4mm; }
-  /* Larger QR + right-aligned to match the reference layout. */
-  .right-col img.qr { width: 28mm; height: 28mm; }
+  .right-col .serial { font-weight: bold; font-size: 10pt; margin-bottom: 3mm; }
+  /* QR sized to fit the right column without forcing the QR off the
+     cell when the field column is at its tallest. 26mm gives ~6mm
+     slack between the serial line and the bottom of the cell. */
+  .right-col img.qr { width: 26mm; height: 26mm; }
 </style>
 """.strip()
 
