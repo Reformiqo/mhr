@@ -24,9 +24,10 @@ class TestGetPrintBatchReturnsList(FrappeTestCase):
         sig = inspect.signature(get_print_batch)
         self.assertEqual(
             list(sig.parameters.keys()),
-            ["lot_no", "container_no", "supplier_batch_no", "item"],
-            "MI1-I27 (Item bifurcation): get_print_batch must accept an "
-            "optional `item` filter as the 4th param.",
+            ["lot_no", "container_no", "supplier_batch_no", "item", "cone"],
+            "MI1-I27 (Item bifurcation) + MI1-I62 (Cone fetch): "
+            "get_print_batch must accept an optional `item` (4th) AND "
+            "`cone` (5th) filter.",
         )
         # `item` must be optional (default None) so existing callers that
         # don't pass it keep the all-items behaviour.
@@ -41,6 +42,12 @@ class TestGetPrintBatchReturnsList(FrappeTestCase):
             sig.parameters["supplier_batch_no"].default,
             "MI1-I62: `supplier_batch_no` must default to None — required by "
             "the auto-fetch-by-(Container+Lot) flow.",
+        )
+        # MI1-I62 (Cone fetch): `cone` is optional, defaults to None.
+        self.assertIsNone(
+            sig.parameters["cone"].default,
+            "MI1-I62 (Cone fetch): `cone` must default to None — only "
+            "narrows the result when explicitly passed by the VFY form.",
         )
 
     def test_returns_list_for_no_match(self):

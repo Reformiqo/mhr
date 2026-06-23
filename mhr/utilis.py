@@ -1112,7 +1112,7 @@ def generate_multi_pdf_url(batches, doc_name):
 
 
 @frappe.whitelist()
-def get_print_batch(lot_no, container_no, supplier_batch_no=None, item=None):
+def get_print_batch(lot_no, container_no, supplier_batch_no=None, item=None, cone=None):
     """MI1-I27 / MI1-I62: return Batch rows matching (container, lot) + optional filters.
 
     Raj's report (MCJC-1522 / Lot 13112025): the same supplier_batch_no
@@ -1134,10 +1134,14 @@ def get_print_batch(lot_no, container_no, supplier_batch_no=None, item=None):
 
     MI1-I62 (Fetch by Container+Lot): `supplier_batch_no` is now
     OPTIONAL. With blank/None supplier_batch_no, every Batch under the
-    given (container, lot) is returned — that's what the JS uses when
-    the user picks just Container + Lot and wants ALL batches pre-loaded
-    into list_batches, irrespective of supplier batch. Passing a value
-    still narrows to that supplier batch (existing behaviour preserved).
+    given (container, lot) is returned. Passing a value still narrows
+    to that supplier batch (existing behaviour preserved).
+
+    MI1-I62 (VFY Cone fetch, 2026-06-23): `cone` is OPTIONAL. When set,
+    only Batches whose `custom_cone` equals the given value are
+    returned — used by the VFY-only "Cone" form field. Combine with
+    container + lot for the typical "all batches of cone N for this
+    (container, lot)" lookup.
     """
     filters = {
         "custom_lot_no": lot_no,
@@ -1147,6 +1151,8 @@ def get_print_batch(lot_no, container_no, supplier_batch_no=None, item=None):
         filters["custom_supplier_batch_no"] = supplier_batch_no
     if item:
         filters["item"] = item
+    if cone:
+        filters["custom_cone"] = cone
     rows = frappe.get_all(
         "Batch",
         filters=filters,

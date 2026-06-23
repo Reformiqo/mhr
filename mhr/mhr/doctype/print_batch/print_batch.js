@@ -62,6 +62,18 @@ frappe.ui.form.on('Print Batch', {
         }, 2000);
     },
 
+    // MI1-I62 (VFY Cone fetch, 2026-06-23): VFY-only Cone field.
+    // Typing a cone number fetches every Batch with that cone for the
+    // current (container, lot), debounced like supplier_batch_no.
+    cone: function(frm) {
+        if (frm.doc.transaction_type !== "VFY") return;
+        if (frm._cone_debounce) clearTimeout(frm._cone_debounce);
+        frm._cone_debounce = setTimeout(function() {
+            frm._cone_debounce = null;
+            fetch_and_append_batch_by_cone(frm);
+        }, 2000);
+    },
+
     lot_no: function(frm) {
         // MI1-I27 (Item bifurcation): a new lot may hold a different set
         // of items — reset + repopulate the Item Select.
@@ -97,6 +109,59 @@ function sort_list_batches(frm) {
     });
 
     frm.refresh_field('list_batches');
+}
+
+// MI1-I62 (VFY Cone fetch, 2026-06-23): fetch every Batch matching
+// (container, lot, cone). Same append-and-dedup behaviour as the
+// supplier-batch path below, just keyed by cone instead.
+function fetch_and_append_batch_by_cone(frm) {
+    if (!frm.doc.container_no || !frm.doc.lot_no) return;
+    if (!frm.doc.cone) return;
+
+    frappe.call({
+        method: "mhr.utilis.get_print_batch",
+        args: {
+            lot_no: frm.doc.lot_no,
+            container_no: frm.doc.container_no,
+            supplier_batch_no: "",            // not filtering by supplier batch
+            item: frm.doc.item || "",
+            cone: frm.doc.cone,
+        },
+        callback: function (response) {
+            var rows = response.message || [];
+            if (!Array.isArray(rows)) rows = [rows];
+            if (rows.length === 0) {
+                frappe.msgprint(__('No batches found for that container / lot / cone.'));
+                return;
+            }
+            var existing = new Set((frm.doc.list_batches || []).map(function (row) {
+                return row.batch;
+            }));
+            var added = 0;
+            var skipped = 0;
+            rows.forEach(function (data) {
+                if (!data || !data.batch) return;
+                if (existing.has(data.batch)) { skipped++; return; }
+                existing.add(data.batch);
+                var child = frm.add_child("list_batches");
+                child.batch = data.batch;
+                child.cone = data.cone;
+                child.lot_no = data.lot_no;
+                child.batch_qty = data.batch_qty;
+                added++;
+            });
+            if (added > 0) {
+                frm.refresh_field("list_batches");
+                frm.set_value("cone", "");
+                frappe.show_alert({
+                    message: __('Added {0} batch(es) for cone {1}.', [added, frm.doc.cone || '']),
+                    indicator: 'green',
+                }, 4);
+            } else if (skipped > 0) {
+                frappe.msgprint(__('All matching batches are already in the list.'));
+            }
+        },
+    });
 }
 
 function fetch_and_append_batch(frm) {
