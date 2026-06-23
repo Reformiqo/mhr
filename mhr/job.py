@@ -95,7 +95,10 @@ def create_purchase_receipt(container, is_return=0, pr=None):
     purchase_receipt.supplier = container.supplier
     # MI1-I69 (2026-06-23): PR posting_date must equal Container Inward
     # date. Fall back to today() for legacy rows with no date.
+    # set_posting_time = 1 stops ERPNext's StockController from
+    # silently resetting posting_date to today on validate.
     purchase_receipt.posting_date = container.posting_date or frappe.utils.today()
+    purchase_receipt.set_posting_time = 1
     purchase_receipt.custom_container_no = container.name
     purchase_receipt.custom_total_batches = len(container.batches)
     purchase_receipt.custom_lot_number = container.lot_no

@@ -594,7 +594,14 @@ class Container(Document):
         # posting_date is missing — guards against legacy rows with no
         # date and against the stale 2025-12-28 literal default that
         # used to ship as a Property Setter (now changed to 'Today').
+        #
+        # set_posting_time = 1 is REQUIRED: ERPNext's StockController
+        # resets posting_date to today() on validate unless this flag
+        # is on. Without it the back-dated Container Inward date gets
+        # silently clobbered. (Raj 2026-06-23 follow-up: Container
+        # dated 2025-12-01 produced a PR dated 2026-06-24.)
         purchase_receipt.posting_date = self.posting_date or frappe.utils.today()
+        purchase_receipt.set_posting_time = 1
         purchase_receipt.custom_container_no = self.name
         purchase_receipt.custom_total_batches = len(self.batches)
         purchase_receipt.custom_lot_number = self.lot_no

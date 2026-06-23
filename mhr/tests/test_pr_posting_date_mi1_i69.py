@@ -53,6 +53,19 @@ class TestCreatePrFallback(FrappeTestCase):
             "when self.posting_date is falsy.",
         )
 
+    def test_container_method_sets_set_posting_time(self):
+        """ERPNext's StockController resets posting_date to today() on
+        validate unless set_posting_time=1. Without this flag, a
+        back-dated Container Inward (e.g. 2025-12-01) silently produces
+        a PR dated today — exactly Raj's 2026-06-23 follow-up screenshot."""
+        from mhr.mhr.doctype.container.container import Container
+        src = inspect.getsource(Container.create_purchase_receipt)
+        self.assertIn(
+            "purchase_receipt.set_posting_time = 1", src,
+            "set_posting_time = 1 MUST be set on the PR — otherwise "
+            "ERPNext clobbers our posting_date back to today.",
+        )
+
     def test_job_module_uses_fallback(self):
         from mhr import job as job_mod
         src = inspect.getsource(job_mod.create_purchase_receipt)
@@ -60,6 +73,16 @@ class TestCreatePrFallback(FrappeTestCase):
             "container.posting_date or frappe.utils.today()", src,
             "mhr.job.create_purchase_receipt must use the same fallback "
             "as the Container method — same behaviour on either path.",
+        )
+
+    def test_job_module_sets_set_posting_time(self):
+        from mhr import job as job_mod
+        src = inspect.getsource(job_mod.create_purchase_receipt)
+        self.assertIn(
+            "purchase_receipt.set_posting_time = 1", src,
+            "mhr.job.create_purchase_receipt must ALSO set "
+            "set_posting_time = 1 — same StockController reset bug "
+            "applies to the queued path.",
         )
 
 
