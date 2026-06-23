@@ -1509,6 +1509,44 @@ def calculate_delivery_note_totals(doc, method=None):
     doc.custom_total_cone = total_cone
     doc.custom_item_length = len(doc.items)
     set_header_container_info_from_items(doc)
+    # MI1-I63 (2026-06-23): backfill DN Item gross weight from the linked
+    # Batch master. The Custom Field already has fetch_from set so the
+    # form auto-fills on batch_no change — but programmatic DN creates
+    # (e.g. mapper from Sales Order, bulk imports) bypass the form
+    # fetch. Doing it here on validate guarantees the field is populated
+    # before submit no matter how the row was created. fetch_if_empty
+    # semantics: only fill rows whose custom_gross_weight is currently
+    # 0 / unset, so any manual override stays intact.
+    backfill_dn_item_gross_weight(doc)
+
+
+def backfill_dn_item_gross_weight(doc):
+    """MI1-I63: copy Batch.custom_gross_weight onto Delivery Note Item rows.
+
+    Skips:
+      - rows without a batch_no (can't resolve)
+      - rows whose custom_gross_weight is already > 0 (manual override)
+    """
+    batch_nos = list({
+        i.batch_no for i in (doc.get("items") or [])
+        if i.get("batch_no") and not flt(i.get("custom_gross_weight") or 0) > 0
+    })
+    if not batch_nos:
+        return
+    rows = frappe.get_all(
+        "Batch",
+        filters={"name": ["in", batch_nos]},
+        fields=["name", "custom_gross_weight"],
+    )
+    by_batch = {r.name: flt(r.custom_gross_weight or 0) for r in rows}
+    for item in doc.items:
+        if not item.batch_no:
+            continue
+        if flt(item.get("custom_gross_weight") or 0) > 0:
+            continue
+        gw = by_batch.get(item.batch_no, 0)
+        if gw:
+            item.custom_gross_weight = gw
 
 
 def set_header_container_info_from_items(doc):
