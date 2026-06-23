@@ -247,7 +247,13 @@ def make_receive_from_subcontractor(source_name):
         frappe.throw(_("Source Stock Entry purpose must be 'Send to Subcontractor'."))
 
     receipt = frappe.new_doc("Stock Entry")
-    receipt.stock_entry_type = "Material Transfer"
+    # MI1-I50 (2026-06-23 follow-up): Raj wants the receive entry typed
+    # as 'Job Work Received' (a custom Stock Entry Type seeded by
+    # mhr.patches.v1_0.seed_job_work_received_stock_entry_type with
+    # purpose='Material Transfer'). Material Transfer purpose keeps
+    # both source and target warehouses required, matching the
+    # warehouse-pair semantics Raj expects.
+    receipt.stock_entry_type = "Job Work Received"
     receipt.purpose = "Material Transfer"
     receipt.company = source.company
     receipt.posting_date = frappe.utils.nowdate()
@@ -288,9 +294,13 @@ def make_receive_from_subcontractor(source_name):
             "batch_no": src_item.batch_no,
             "serial_no": src_item.serial_no,
             "use_serial_batch_fields": src_item.get("use_serial_batch_fields") or 0,
-            # REVERSE warehouses so stock flows subcontractor -> internal.
-            "s_warehouse": src_item.t_warehouse,
-            "t_warehouse": src_item.s_warehouse,
+            # MI1-I50 (2026-06-23 follow-up): warehouses STAY THE SAME as
+            # the source Send entry (Raj's request — see his screenshot
+            # comparison). Earlier I reversed them assuming the receive
+            # had to flow subcontractor -> internal, but Raj's workflow
+            # records the receipt against the original direction.
+            "s_warehouse": src_item.s_warehouse,
+            "t_warehouse": src_item.t_warehouse,
             "allow_zero_valuation_rate": src_item.get("allow_zero_valuation_rate") or 0,
             "basic_rate": src_item.basic_rate or 0,
         }

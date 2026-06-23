@@ -3,7 +3,8 @@
 Pins the build of a draft Receive entry from a submitted Send-to-Subcontractor:
   - Source must be docstatus=1 + purpose='Send to Subcontractor' (else throw).
   - Per-item pending = qty - custom_received_qty; fully-received items skipped.
-  - Warehouses REVERSED (s_warehouse <-> t_warehouse).
+  - Warehouses STAY THE SAME (Raj 2026-06-23: no reversal — receive
+    entry preserves source/target as on the original Send entry).
   - Carries custom fields (cone, lot, container, supplier batch, gross weight).
   - Links back via custom_original_send_entry.
 
@@ -69,16 +70,36 @@ class TestSourceValidation(FrappeTestCase):
         self.assertIn("'Send to Subcontractor'", src,
             "Server method must reject sources with the wrong purpose.")
 
-    def test_reverses_warehouses(self):
-        """Pin: the new entry's s_warehouse comes from source's t_warehouse
-        and vice versa — material flows subcontractor -> internal."""
+    def test_warehouses_stay_the_same(self):
+        """Pin (Raj 2026-06-23 follow-up): the new entry's warehouses
+        STAY THE SAME as the source Send entry — do NOT reverse.
+        Earlier we reversed assuming the receive flowed subcontractor
+        -> internal, but Raj's workflow records the receipt against
+        the original direction."""
         import inspect
         from mhr import utilis
         src = inspect.getsource(utilis.make_receive_from_subcontractor)
-        self.assertIn('"s_warehouse": src_item.t_warehouse', src,
-            "Receive entry's s_warehouse must = source's t_warehouse (reversed).")
-        self.assertIn('"t_warehouse": src_item.s_warehouse', src,
-            "Receive entry's t_warehouse must = source's s_warehouse (reversed).")
+        self.assertIn('"s_warehouse": src_item.s_warehouse', src,
+            "Receive entry's s_warehouse must = source's s_warehouse (same).")
+        self.assertIn('"t_warehouse": src_item.t_warehouse', src,
+            "Receive entry's t_warehouse must = source's t_warehouse (same).")
+        # Guard against the old reversed pattern slipping back in.
+        self.assertNotIn('"s_warehouse": src_item.t_warehouse', src,
+            "Old reversed pattern must NOT come back.")
+        self.assertNotIn('"t_warehouse": src_item.s_warehouse', src,
+            "Old reversed pattern must NOT come back.")
+
+    def test_stock_entry_type_is_job_work_received(self):
+        """Pin: type is 'Job Work Received' (custom Stock Entry Type
+        seeded by mhr.patches.v1_0.seed_job_work_received_stock_entry_type)
+        not the generic 'Material Transfer'."""
+        import inspect
+        from mhr import utilis
+        src = inspect.getsource(utilis.make_receive_from_subcontractor)
+        self.assertIn(
+            'receipt.stock_entry_type = "Job Work Received"', src,
+            "Receive entry must be typed 'Job Work Received'.",
+        )
 
     def test_links_back_to_source(self):
         import inspect
