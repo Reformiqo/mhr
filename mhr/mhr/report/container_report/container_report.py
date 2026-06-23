@@ -10,7 +10,9 @@ PRECISION = 3
 
 def execute(filters=None):
 	filters = filters or {}
-	columns = get_columns()
+	# MI1-I64 (rework): pass filters into get_columns so labels can swap
+	# (Pulp/Glue when VFY, Type/Product when HTY).
+	columns = get_columns(filters)
 	data = get_data(filters)
 	# MI1-I39 P2-C: transaction_type filter via the shared helper in mhr.utilis.
 	from mhr.utilis import filter_rows_by_transaction_type
@@ -18,16 +20,21 @@ def execute(filters=None):
 	return columns, data
 
 
-def get_columns():
+def get_columns(filters=None):
+	# MI1-I64 (rework): labels swap with the Transaction Type filter.
+	# HTY -> Type/Product; VFY (or no filter) -> Pulp/Glue. Fieldnames
+	# stay the same so the data dicts always resolve.
+	filters = filters or {}
+	is_hty = (filters.get("transaction_type") == "HTY")
+	pulp_label = "Type" if is_hty else "Pulp"
+	glue_label = "Product" if is_hty else "Glue"
 	return [
 		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 100},
 		{"label": _("Container Number"), "fieldname": "container_number", "fieldtype": "Data", "width": 140},
 		{"label": _("Item"), "fieldname": "item", "fieldtype": "Data", "width": 120},
-		# MI1-I64: HTY-friendly labels (Pulp -> Type, Glue -> Product).
-		# Fieldnames stay the same so the data dicts continue to work.
-		{"label": _("Type"), "fieldname": "pulp", "fieldtype": "Data", "width": 90},
+		{"label": _(pulp_label), "fieldname": "pulp", "fieldtype": "Data", "width": 90},
 		{"label": _("Lusture"), "fieldname": "lusture", "fieldtype": "Data", "width": 90},
-		{"label": _("Product"), "fieldname": "glue", "fieldtype": "Data", "width": 90},
+		{"label": _(glue_label), "fieldname": "glue", "fieldtype": "Data", "width": 90},
 		{"label": _("Grade"), "fieldname": "grade", "fieldtype": "Data", "width": 90},
 		{"label": _("IN Qty"), "fieldname": "in_qty", "fieldtype": "Float", "width": 110, "precision": PRECISION},
 		{"label": _("OUT Qty"), "fieldname": "out_qty", "fieldtype": "Float", "width": 110, "precision": PRECISION},

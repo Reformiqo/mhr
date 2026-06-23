@@ -9,7 +9,9 @@ from collections import defaultdict
 
 
 def execute(filters=None):
-    columns = get_columns()
+    filters = filters or {}
+    # MI1-I64 (rework): pass filters so column labels can swap with Transaction Type.
+    columns = get_columns(filters)
     data = get_data(filters)
     # MI1-I39 P2-C: HTY transaction_type filter via shared helper.
     from mhr.utilis import filter_rows_by_transaction_type
@@ -17,7 +19,14 @@ def execute(filters=None):
     return columns, data
 
 
-def get_columns():
+def get_columns(filters=None):
+    # MI1-I64 (rework): labels swap with Transaction Type filter.
+    # HTY -> Type/Product; VFY (or no filter) -> Pulp/Glue. Fieldnames
+    # stay capitalised "Pulp"/"Glue" so the row dicts always resolve.
+    filters = filters or {}
+    is_hty = (filters.get("transaction_type") == "HTY")
+    pulp_label = "Type" if is_hty else "Pulp"
+    glue_label = "Product" if is_hty else "Glue"
     return [
         # --- Identity ---
         {"label": _("Date"), "fieldname": "Date", "fieldtype": "Data", "width": 100},
@@ -28,12 +37,9 @@ def get_columns():
         {"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 70},
         {"label": _("Merge No"), "fieldname": "Merge No", "fieldtype": "Data", "width": 100},
         # --- Specifications ---
-        # MI1-I64: HTY-friendly labels (Pulp -> Type, Glue -> Product).
-        # Fieldnames stay the same (capitalised "Pulp"/"Glue") so the
-        # data dicts at lines 483/485 still resolve correctly.
-        {"label": _("Type"), "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
+        {"label": _(pulp_label), "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
         {"label": _("Lusture"), "fieldname": "Lusture", "fieldtype": "Data", "width": 90},
-        {"label": _("Product"), "fieldname": "Glue", "fieldtype": "Data", "width": 90},
+        {"label": _(glue_label), "fieldname": "Glue", "fieldtype": "Data", "width": 90},
         # --- Stock ---
         {"label": _("Balance Qty"), "fieldname": "Balance", "fieldtype": "Data", "width": 110},
         {"label": _("Booked Qty"), "fieldname": "Buyer Qty", "fieldtype": "Data", "width": 100},
