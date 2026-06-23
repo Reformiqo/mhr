@@ -142,76 +142,59 @@ class TestSixUpLayout(FrappeTestCase):
             "Raj's reference PDF.",
         )
 
-    def test_style_uses_absolute_positioning(self):
-        """Layout is absolute-positioned on a fixed-size A4 page so
-        wkhtmltopdf can't decide row 3 doesn't fit. Pin the load-bearing
-        CSS rules."""
+    def test_style_uses_absolute_positioning_on_body(self):
+        """Layout (third iter, 2026-06-23): absolute-positioned cells
+        on the body, but rendered as ONE wkhtmltopdf invocation per
+        PDF page (no multi-page CSS pagination). The two earlier
+        approaches (absolute positioning in a multi-page HTML; table
+        layout with page-break-after) both produced spillover because
+        wkhtmltopdf doesn't reliably honour page-break-inside: avoid
+        nor overflow:hidden when content equals the page height.
+
+        With one PDF page == one wkhtmltopdf call, there's no pagination
+        decision to misinterpret."""
         from mhr.utilis import HTY_6UP_STYLE
-        # A4 page size.
         self.assertIn("A4 portrait", HTY_6UP_STYLE)
-        # The page block must be exactly A4 in mm.
-        self.assertIn("210mm", HTY_6UP_STYLE)
-        self.assertIn("297mm", HTY_6UP_STYLE)
+        # Body is the containing block — a shorter-than-A4 height
+        # absorbs wkhtmltopdf's mystery internal margin.
+        self.assertIn("position: relative", HTY_6UP_STYLE)
+        # Body height intentionally < 297mm (A4) so the rendered content
+        # doesn't spill onto a second PDF page.
+        self.assertRegex(
+            HTY_6UP_STYLE,
+            r"body\s*\{[^}]*height:\s*280mm",
+            "body height must be 280mm (smaller than A4 297mm to absorb "
+            "wkhtmltopdf's internal margin).",
+        )
         # Cells are absolutely positioned.
         self.assertIn("position: absolute", HTY_6UP_STYLE)
-        # Three row offsets (r1/r2/r3) at the chosen mm positions.
-        self.assertIn(".cell.r1", HTY_6UP_STYLE)
-        self.assertIn(".cell.r2", HTY_6UP_STYLE)
-        self.assertIn(".cell.r3", HTY_6UP_STYLE)
-        # Two column offsets (c1/c2).
-        self.assertIn(".cell.c1", HTY_6UP_STYLE)
-        self.assertIn(".cell.c2", HTY_6UP_STYLE)
+        # 6 row/col combinations.
+        for sel in (".cell.r1", ".cell.r2", ".cell.r3",
+                    ".cell.c1", ".cell.c2"):
+            self.assertIn(sel, HTY_6UP_STYLE)
 
-    def test_page_height_less_than_a4_for_drift_slack(self):
-        """The .page height MUST be smaller than A4 (297mm) so wkhtmltopdf's
-        per-block rounding drift can't push row 3 onto the next page.
-
-        We hit this bug twice: at 297mm with page-break:none, every 3rd
-        page rendered only 4 labels (top 2 rows). The fix is geometric
-        slack — 280mm leaves 17mm headroom that drift can never fill.
-        """
-        import re
-        from mhr.utilis import HTY_6UP_STYLE
-        rules = re.sub(r"/\*.*?\*/", "", HTY_6UP_STYLE, flags=re.DOTALL)
-        # The 297mm-height regression must not return.
-        self.assertNotIn("height: 297mm", rules,
-            "Don't pin .page to exactly 297mm — wkhtmltopdf drift over "
-            "multiple pages pushes the bottom row to the next PDF page.")
-        self.assertIn("height: 280mm", rules,
-            ".page must be 280mm (17mm of drift slack below A4 297mm).")
-
-    def test_no_explicit_page_breaks_natural_overflow_only(self):
-        """With .page at 280mm (17mm slack vs A4 297mm), adding
-        page-break-before/after: always causes a blank page after every
-        real one — wkhtmltopdf already takes a natural break because the
-        next 280mm .page can't fit in the remaining 17mm. Combining the
-        two break mechanisms double-breaks. So: NO explicit page-break-
-        before/after rules. Natural overflow + page-break-inside: avoid
-        is the whole story."""
-        import re
-        from mhr.utilis import HTY_6UP_STYLE
-        rules = re.sub(r"/\*.*?\*/", "", HTY_6UP_STYLE, flags=re.DOTALL)
-        self.assertNotIn("page-break-after: always", rules,
-            "Don't use page-break-after: always — collides with the natural "
-            "overflow break and produces a blank page after each real page.")
-        self.assertNotIn("page-break-before: always", rules,
-            "Don't use page-break-before: always — same double-break bug.")
-        self.assertIn("page-break-inside: avoid", rules,
-            ".page must declare page-break-inside: avoid as belt+braces.")
-
-    def test_renderer_emits_6_cells_per_page(self):
-        """Source-level pin on the renderer's HTML emission."""
+    def test_renderer_one_pdf_per_logical_page(self):
+        """Source-level pin: the renderer must invoke wkhtmltopdf ONCE
+        per logical page and concatenate with pypdf, ensuring exactly
+        one PDF page per group of 6 cells (no spillover, no blank)."""
         from mhr.utilis import render_hty_6up_pdf
         import inspect as _inspect
         src = _inspect.getsource(render_hty_6up_pdf)
-        # All 6 row/col combinations must be in the positions table.
+        self.assertIn("from pypdf import PdfReader, PdfWriter", src,
+            "Renderer must use pypdf to concatenate per-page PDFs.")
+        self.assertIn("for i in range(0, len(labels), 6):", src,
+            "Renderer must loop in batches of 6 labels.")
+        self.assertIn("get_pdf(page_html", src,
+            "Renderer must call get_pdf for each logical page.")
+        self.assertIn("writer.add_page(reader.pages[0])", src,
+            "Renderer must take ONLY the first page from each "
+            "wkhtmltopdf invocation (discards trailing blanks).")
+        # 6-cell positions must all be present.
         for combo in ('("r1", "c1")', '("r1", "c2")',
                       '("r2", "c1")', '("r2", "c2")',
                       '("r3", "c1")', '("r3", "c2")'):
             self.assertIn(combo, src,
-                f"Renderer's positions table must include {combo}.")
-        # wkhtmltopdf margins must be 0 — the @page CSS owns the size.
-        self.assertIn('"margin-top": "0"', src)
+                f"Position {combo} missing from the positions table.")
 
 
 class TestPrintBatchBranchesToSixUp(FrappeTestCase):

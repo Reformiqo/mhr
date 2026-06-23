@@ -54,48 +54,39 @@ HTY_LABEL_HTML = """
 
 HTY_6UP_STYLE = """
 <style>
-  /* Absolute positioning — wkhtmltopdf cannot misinterpret fixed mm
-     coordinates. Each `.page` is exactly A4 (210x297mm) with 6 cells
-     hard-pinned at predetermined (top,left) offsets. Pages are broken
-     via `page-break-before: always` on every .page except :first-of-type
-     (canonical multi-page HTML pattern). Earlier table-based attempts
-     left wkhtmltopdf room to decide row-3-doesn't-fit; this leaves no
-     such room. */
+  /* Single-page absolute-positioning layout (2026-06-23 third iter).
+     Each PDF page is rendered as its OWN wkhtmltopdf invocation, so
+     there's no multi-page CSS magic to misinterpret. Within that one
+     page, 6 cells are hard-pinned at known (top, left) mm offsets on
+     the body. wkhtmltopdf has nothing to "decide" about page breaks
+     — we already split the work for it. */
   html, body { margin: 0; padding: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt; }
+  /* Body height intentionally smaller than A4 (297mm). wkhtmltopdf adds
+     ~12-15mm of mystery margin on top of body height, so setting body
+     to 297mm caused the rendered content to spill onto a second PDF
+     page (every invocation produced 1 real + 1 blank page). 280mm
+     leaves enough headroom. */
+  body {
+    font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt;
+    width: 210mm; height: 280mm;
+    position: relative;
+    margin: 0;
+    overflow: hidden;
+  }
   @page { size: A4 portrait; margin: 0; }
 
-  .page {
-    position: relative;
-    width: 210mm; height: 280mm;          /* less than A4 (297mm) */
-    overflow: hidden;
-    page-break-inside: avoid;
-  }
-  /* Height: 280mm gives 17mm of slack vs the 297mm A4 page. Two effects:
-     (1) Drift slack — wkhtmltopdf's per-block rounding can't push the
-         bottom row off (the '6+6+4' pattern we hit at exact 297mm).
-     (2) Natural-flow pagination — when the next .page (also 280mm) won't
-         fit in the remaining 17mm of the current PDF page, wkhtmltopdf
-         page-breaks on its own. We DELIBERATELY don't add
-         page-break-after: always: combining the explicit break with the
-         already-triggered natural break produced an extra blank page
-         after every real one (the bug Raj saw on page 4 of 6). With just
-         natural overflow + page-break-inside: avoid, the math gives
-         exactly N PDF pages for N .page blocks, no blanks. */
-
-  /* 3 rows x 2 cols. Cells 90mm tall fit comfortably inside 280mm
-     (3 * 90 = 270mm + 10mm slack). Two 96mm columns + 2mm centre
-     gutter at left positions 5mm and 107mm. */
+  /* 6 cells at fixed mm offsets. Cells 88mm tall × 100mm wide.
+     3 × 88 = 264mm + 5mm top + 5mm bottom slack = 274mm < 280mm body. */
   .cell {
     position: absolute;
-    width: 96mm; height: 90mm;
+    width: 100mm; height: 88mm;
     padding: 3mm 4mm;
     box-sizing: border-box;
     overflow: hidden;
   }
-  .cell.r1 { top: 0mm; }
-  .cell.r2 { top: 93mm; }
-  .cell.r3 { top: 186mm; }
+  .cell.r1 { top: 3mm; }
+  .cell.r2 { top: 94mm; }
+  .cell.r3 { top: 185mm; }
   .cell.c1 { left: 5mm; }
   .cell.c2 { left: 107mm; }
 
@@ -183,44 +174,55 @@ def render_hty_6up_pdf(batch_names):
     while len(labels) % 6 != 0:
         labels.append("")
 
-    # Six cells per page at absolute (row, col) coordinates. row indices
-    # map to top: 5mm / 99mm / 193mm; col indices to left: 5mm / 107mm.
-    # The order is left-to-right, top-to-bottom (reading order).
+    # Render each PDF page SEPARATELY and concatenate with pypdf.
+    # Within one page we use absolute positioning on body (no
+    # containing-block tricks) so wkhtmltopdf has no degrees of freedom
+    # to insert a break — we're feeding it exactly one A4 page worth
+    # of fixed-position content per invocation.
+    from frappe.utils.pdf import get_pdf
+    from pypdf import PdfReader, PdfWriter
+    import io
+
+    # Reading-order positions (TL → TR → ML → MR → BL → BR).
     positions = [
         ("r1", "c1"), ("r1", "c2"),
         ("r2", "c1"), ("r2", "c2"),
         ("r3", "c1"), ("r3", "c2"),
     ]
-    pages = []
+
+    writer = PdfWriter()
     for i in range(0, len(labels), 6):
         chunk = labels[i:i + 6]
-        cells = "".join(
+        cells_html = "".join(
             f'<div class="cell {row} {col}">{chunk[k]}</div>'
             for k, (row, col) in enumerate(positions)
         )
-        pages.append(f'<div class="page">{cells}</div>')
+        page_html = (
+            "<!doctype html><html><head><meta charset='utf-8'>"
+            + HTY_6UP_STYLE
+            + "</head><body>"
+            + cells_html
+            + "</body></html>"
+        )
+        page_pdf = get_pdf(page_html, options={
+            "page-size": "A4",
+            "margin-top": "0",
+            "margin-bottom": "0",
+            "margin-left": "0",
+            "margin-right": "0",
+        })
+        reader = PdfReader(io.BytesIO(page_pdf))
+        # Per-invocation HTML carries exactly 6 cells of content — take
+        # only the FIRST page. wkhtmltopdf often emits a trailing blank
+        # page from absolute-positioned body content (cause unknown; the
+        # body has overflow:hidden + height < A4). Discarding subsequent
+        # pages gives us the clean N-page output the user expects.
+        if reader.pages:
+            writer.add_page(reader.pages[0])
 
-    # Each .page self-page-breaks via CSS, and `:last-of-type
-    # { page-break-after: auto }` prevents a trailing blank page.
-    html = (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        + HTY_6UP_STYLE
-        + "</head><body>"
-        + "".join(pages)
-        + "</body></html>"
-    )
-
-    from frappe.utils.pdf import get_pdf
-    # Margins = 0 because the @page CSS rule and .page width/height are
-    # set explicitly. Letting wkhtmltopdf add margins on top would push
-    # row 3 off the page.
-    return get_pdf(html, options={
-        "page-size": "A4",
-        "margin-top": "0",
-        "margin-bottom": "0",
-        "margin-left": "0",
-        "margin-right": "0",
-    })
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 
 @frappe.whitelist()
