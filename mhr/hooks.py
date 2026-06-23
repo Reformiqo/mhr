@@ -170,9 +170,20 @@ doc_events = {
             "mhr.utilis.update_stock_entry",
             # MI1-I39 P2-G: HTY mode → ensure HTY naming series before save.
             "mhr.utilis.validate_hty_stock_entry",
+            # MI1-I50 P3: refuse over-receipts beyond the source's tolerance.
+            "mhr.utilis.validate_subcontract_receipt",
         ],
-        "on_submit": "mhr.utilis.update_batch_warehouse_on_stock_entry",
-        "on_cancel": "mhr.utilis.revert_batch_warehouse_on_stock_entry",
+        "on_submit": [
+            "mhr.utilis.update_batch_warehouse_on_stock_entry",
+            # MI1-I50 P3: push received qty back onto the source Send entry
+            # and refresh its custom_subcontract_status.
+            "mhr.utilis.apply_subcontract_receipt",
+        ],
+        "on_cancel": [
+            "mhr.utilis.revert_batch_warehouse_on_stock_entry",
+            # MI1-I50 P3: undo the received-qty bump on the source.
+            "mhr.utilis.revert_subcontract_receipt",
+        ],
     },
     "Sales Order": {
         "validate": "mhr.utilis.validate_so_available_qty",
@@ -237,9 +248,11 @@ scheduler_events = {
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-# 	"Task": "mhr.task.get_dashboard_data"
-# }
+# MI1-I50 P4: surface Receive entries (custom_original_send_entry = source.name)
+# in the Connections panel on the source Send-to-Subcontractor entry.
+override_doctype_dashboards = {
+    "Stock Entry": "mhr.overrides.stock_entry_dashboard.get_dashboard_data"
+}
 
 # exempt linked doctypes from being automatically cancelled
 #

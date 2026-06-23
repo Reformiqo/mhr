@@ -284,6 +284,239 @@ def make_receive_from_subcontractor(source_name):
     return {"name": receipt.name}
 
 
+# ---------------------------------------------------------------------------
+# MI1-I50 P3 — qty recompute hooks + over-receipt validation
+# ---------------------------------------------------------------------------
+# A "Receive entry" is any Stock Entry whose custom_original_send_entry points
+# at a submitted Send-to-Subcontractor entry. The hooks below run on EVERY
+# Stock Entry (cheap fast-path early return when custom_original_send_entry
+# is empty) so we don't have to special-case the doctype.
+#
+# Status options on the source's custom_subcontract_status select:
+#   "Open"                — no qty received yet
+#   "Partially Received"  — some but not all
+#   "Fully Received"      — total_received >= total_sent (within rounding)
+
+_SUBCONTRACT_STATUS_OPEN = "Open"
+_SUBCONTRACT_STATUS_PARTIAL = "Partially Received"
+_SUBCONTRACT_STATUS_FULL = "Fully Received"
+_SUBCONTRACT_QTY_EPSILON = 0.0001
+
+
+def _subcontract_source_name(doc):
+    """Return the source Send-entry name if this SE is a receipt against one,
+    else None. Fast-path used by every hook."""
+    return doc.get("custom_original_send_entry") or None
+
+
+def _subcontract_match_key(item):
+    """(item_code, batch_no) — the join key between Receive and Source rows.
+
+    Source-built receipts mirror source rows 1:1, but the user can edit qty
+    or add rows. We aggregate by this key on both sides so multi-row source
+    + edited receipt still reconciles correctly."""
+    return (item.item_code, (item.batch_no or ""))
+
+
+@frappe.whitelist()
+def validate_subcontract_receipt(doc, method=None):
+    """MI1-I50 P3: on a Receive entry's validate, refuse over-receipts beyond
+    pending * (1 + custom_overreceipt_tolerance_pct / 100) per (item, batch).
+
+    Runs on every Stock Entry but no-ops unless custom_original_send_entry is
+    set. Tolerance defaults to 0 (strict) when the source field is empty."""
+    source_name = _subcontract_source_name(doc)
+    if not source_name:
+        return
+
+    if not frappe.db.exists("Stock Entry", source_name):
+        frappe.throw(_("Original Send entry {0} no longer exists.").format(source_name))
+
+    source = frappe.get_doc("Stock Entry", source_name)
+    if source.docstatus != 1:
+        frappe.throw(_(
+            "Original Send entry {0} is not Submitted (status={1})."
+        ).format(source_name, source.docstatus))
+
+    tolerance_pct = flt(source.get("custom_overreceipt_tolerance_pct") or 0)
+
+    # Pending per (item, batch) on the source. NOTE: source.custom_received_qty
+    # already excludes THIS draft (we're pre-submit), so we can compare directly.
+    pending = {}
+    for s in source.items:
+        key = _subcontract_match_key(s)
+        sent = flt(s.qty)
+        already = flt(s.get("custom_received_qty") or 0)
+        pending[key] = pending.get(key, 0.0) + (sent - already)
+
+    # Sum incoming receipt per key.
+    incoming = {}
+    for r in doc.items:
+        key = _subcontract_match_key(r)
+        incoming[key] = incoming.get(key, 0.0) + flt(r.qty)
+
+    for key, inc in incoming.items():
+        pend = pending.get(key, 0.0)
+        max_allowed = pend * (1.0 + tolerance_pct / 100.0)
+        if inc > max_allowed + _SUBCONTRACT_QTY_EPSILON:
+            item_code, batch = key
+            frappe.throw(_(
+                "Over-receipt blocked for item <b>{0}</b> (batch {1}): "
+                "pending {2}, tolerance {3}%, but this entry is taking {4}. "
+                "Either reduce the qty on this row or raise "
+                "<b>Over-Receipt Tolerance</b> on the source Send entry."
+            ).format(item_code, batch or "—",
+                     round(pend, 3), tolerance_pct, round(inc, 3)))
+
+
+@frappe.whitelist()
+def apply_subcontract_receipt(doc, method=None):
+    """MI1-I50 P3: on_submit of a Receive entry, push received qty back onto
+    the source Send entry's items (FIFO across rows with the same key) and
+    refresh the source's custom_subcontract_status + each row's
+    custom_pending_qty."""
+    source_name = _subcontract_source_name(doc)
+    if not source_name:
+        return
+    _apply_receipt_delta(source_name, doc, sign=+1)
+    _refresh_subcontract_status(source_name)
+
+
+@frappe.whitelist()
+def revert_subcontract_receipt(doc, method=None):
+    """MI1-I50 P3: on_cancel of a Receive entry, pull the previously-applied
+    qty back off the source's rows (LIFO) and refresh status."""
+    source_name = _subcontract_source_name(doc)
+    if not source_name:
+        return
+    _apply_receipt_delta(source_name, doc, sign=-1)
+    _refresh_subcontract_status(source_name)
+
+
+def _apply_receipt_delta(source_name, receipt_doc, sign):
+    """Distribute the receipt's qty across source rows keyed by (item, batch).
+
+    sign=+1 to add (on_submit), sign=-1 to subtract (on_cancel).
+
+    Allocation:
+      - Add: walk source rows in declared order, fill each one's remaining
+        room (qty - custom_received_qty) first; overflow caused by tolerance
+        spills into the first row that had any room.
+      - Subtract: walk source rows in reverse, draining already-received
+        qty until the cancel amount is fully reversed.
+
+    We use frappe.db.set_value(update_modified=False) to avoid bumping the
+    source's modified timestamp from a child-table write — that would cause
+    "Document has been modified" errors for any user currently viewing the
+    source entry's form."""
+    source = frappe.get_doc("Stock Entry", source_name)
+    by_key = {}
+    for s in source.items:
+        by_key.setdefault(_subcontract_match_key(s), []).append(s)
+
+    if sign > 0:
+        for r in receipt_doc.items:
+            remaining = flt(r.qty)
+            if remaining <= 0:
+                continue
+            rows = by_key.get(_subcontract_match_key(r), [])
+            if not rows:
+                continue
+            # Pass 1: fill rooms in order.
+            for s in rows:
+                if remaining <= _SUBCONTRACT_QTY_EPSILON:
+                    break
+                already = flt(s.get("custom_received_qty") or 0)
+                room = flt(s.qty) - already
+                if room <= 0:
+                    continue
+                take = min(remaining, room)
+                _bump_source_row(s.name, already + take)
+                remaining -= take
+            # Pass 2: anything left is tolerance overflow → put it on the first row.
+            if remaining > _SUBCONTRACT_QTY_EPSILON:
+                s = rows[0]
+                already = flt(frappe.db.get_value(
+                    "Stock Entry Detail", s.name, "custom_received_qty"
+                ) or 0)
+                _bump_source_row(s.name, already + remaining)
+    else:
+        for r in receipt_doc.items:
+            to_revert = flt(r.qty)
+            if to_revert <= 0:
+                continue
+            rows = by_key.get(_subcontract_match_key(r), [])
+            if not rows:
+                continue
+            for s in reversed(rows):
+                if to_revert <= _SUBCONTRACT_QTY_EPSILON:
+                    break
+                already = flt(frappe.db.get_value(
+                    "Stock Entry Detail", s.name, "custom_received_qty"
+                ) or 0)
+                if already <= 0:
+                    continue
+                give_back = min(to_revert, already)
+                _bump_source_row(s.name, already - give_back)
+                to_revert -= give_back
+            # Anything still un-reverted means the source was edited
+            # post-receipt; clamp to 0 on the first row.
+            if to_revert > _SUBCONTRACT_QTY_EPSILON:
+                s = rows[0]
+                already = flt(frappe.db.get_value(
+                    "Stock Entry Detail", s.name, "custom_received_qty"
+                ) or 0)
+                _bump_source_row(s.name, max(0.0, already - to_revert))
+
+
+def _bump_source_row(detail_name, new_received_qty):
+    frappe.db.set_value(
+        "Stock Entry Detail", detail_name,
+        "custom_received_qty", flt(new_received_qty),
+        update_modified=False,
+    )
+
+
+def _refresh_subcontract_status(source_name):
+    """Recompute each source row's custom_pending_qty (qty - custom_received_qty)
+    and the parent's custom_subcontract_status."""
+    items = frappe.db.sql(
+        """
+        SELECT name, qty, COALESCE(custom_received_qty, 0) AS recv
+        FROM `tabStock Entry Detail`
+        WHERE parent = %s AND parenttype = 'Stock Entry'
+        """,
+        (source_name,),
+        as_dict=True,
+    )
+    total_sent = 0.0
+    total_received = 0.0
+    for it in items:
+        sent = flt(it.qty)
+        recv = flt(it.recv)
+        pending = sent - recv
+        frappe.db.set_value(
+            "Stock Entry Detail", it.name,
+            "custom_pending_qty", pending,
+            update_modified=False,
+        )
+        total_sent += sent
+        total_received += recv
+
+    if total_received <= _SUBCONTRACT_QTY_EPSILON:
+        status = _SUBCONTRACT_STATUS_OPEN
+    elif total_received + _SUBCONTRACT_QTY_EPSILON >= total_sent:
+        status = _SUBCONTRACT_STATUS_FULL
+    else:
+        status = _SUBCONTRACT_STATUS_PARTIAL
+
+    frappe.db.set_value(
+        "Stock Entry", source_name,
+        "custom_subcontract_status", status,
+        update_modified=False,
+    )
+
+
 def strip_prefix(val):
     """MI1-I62: strip the prefix from values stored as 'Prefix-Value' so
     labels and reports show only the meaningful tail.

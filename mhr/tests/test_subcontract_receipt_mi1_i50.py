@@ -142,3 +142,149 @@ class TestButtonRendering(FrappeTestCase):
 
     def test_navigates_to_new_draft(self):
         self.assertIn('frappe.set_route("Form", "Stock Entry"', self.js)
+
+
+# ---------------------------------------------------------------------------
+# MI1-I50 P3 — qty recompute hooks + over-receipt validation
+# ---------------------------------------------------------------------------
+
+class TestSubcontractRecomputeHooks(FrappeTestCase):
+    """Source-level pin on the three new hook functions.
+
+    Behavioural tests (real Stock Entries) are deferred to P6 because they
+    need a Send-to-Subcontractor entry, batches, and warehouses already
+    seeded — too heavy to stand up here. These tests fail fast if anyone
+    renames a helper, drops a guard, or breaks the hooks wiring."""
+
+    def test_helpers_exist(self):
+        from mhr import utilis
+        for name in (
+            "validate_subcontract_receipt",
+            "apply_subcontract_receipt",
+            "revert_subcontract_receipt",
+            "_apply_receipt_delta",
+            "_refresh_subcontract_status",
+            "_subcontract_source_name",
+            "_subcontract_match_key",
+        ):
+            self.assertTrue(callable(getattr(utilis, name, None)),
+                f"mhr.utilis.{name} must exist.")
+
+    def test_validate_is_whitelisted(self):
+        import inspect
+        from mhr import utilis
+        src = open(inspect.getsourcefile(utilis)).read()
+        for fn in ("validate_subcontract_receipt",
+                   "apply_subcontract_receipt",
+                   "revert_subcontract_receipt"):
+            self.assertRegex(
+                src,
+                rf"@frappe\.whitelist\(\)\s*\ndef\s+{fn}\b",
+                f"{fn} must be @frappe.whitelist()-ed (hooks call it as method-path).",
+            )
+
+    def test_fast_path_early_return(self):
+        """Validate/apply/revert must no-op when custom_original_send_entry is
+        empty — otherwise EVERY Stock Entry on the system would pay the cost."""
+        import inspect
+        from mhr import utilis
+        for fn_name in ("validate_subcontract_receipt",
+                        "apply_subcontract_receipt",
+                        "revert_subcontract_receipt"):
+            src = inspect.getsource(getattr(utilis, fn_name))
+            self.assertIn("_subcontract_source_name(doc)", src,
+                f"{fn_name} must fast-path via _subcontract_source_name.")
+            self.assertIn("return", src,
+                f"{fn_name} must early-return when source is None.")
+
+    def test_validate_checks_source_submitted(self):
+        import inspect
+        from mhr import utilis
+        src = inspect.getsource(utilis.validate_subcontract_receipt)
+        self.assertIn("docstatus != 1", src,
+            "Receipt must refuse if source Send entry isn't submitted.")
+        self.assertIn("custom_overreceipt_tolerance_pct", src,
+            "Tolerance must come from source.custom_overreceipt_tolerance_pct.")
+
+    def test_validate_aggregates_by_item_and_batch(self):
+        """The receipt may have its own row count; pending must aggregate by
+        the (item, batch) key on BOTH sides before comparing."""
+        import inspect
+        from mhr import utilis
+        src = inspect.getsource(utilis.validate_subcontract_receipt)
+        self.assertIn("_subcontract_match_key(s)", src,
+            "Source pending map must key on (item, batch).")
+        self.assertIn("_subcontract_match_key(r)", src,
+            "Receipt incoming map must key on (item, batch).")
+        self.assertIn("tolerance_pct / 100", src,
+            "Allowed = pending * (1 + tolerance_pct/100).")
+
+    def test_apply_and_revert_call_refresh(self):
+        import inspect
+        from mhr import utilis
+        for fn_name in ("apply_subcontract_receipt", "revert_subcontract_receipt"):
+            src = inspect.getsource(getattr(utilis, fn_name))
+            self.assertIn("_refresh_subcontract_status(source_name)", src,
+                f"{fn_name} must refresh status after mutating qty.")
+
+    def test_apply_uses_positive_sign_revert_uses_negative(self):
+        import inspect
+        from mhr import utilis
+        apply_src = inspect.getsource(utilis.apply_subcontract_receipt)
+        revert_src = inspect.getsource(utilis.revert_subcontract_receipt)
+        self.assertIn("sign=+1", apply_src,
+            "apply_subcontract_receipt must call _apply_receipt_delta(sign=+1).")
+        self.assertIn("sign=-1", revert_src,
+            "revert_subcontract_receipt must call _apply_receipt_delta(sign=-1).")
+
+    def test_refresh_writes_pending_qty_per_row(self):
+        import inspect
+        from mhr import utilis
+        src = inspect.getsource(utilis._refresh_subcontract_status)
+        self.assertIn("custom_pending_qty", src,
+            "Refresh must write per-row pending qty so the UI shows it.")
+        # Status branches reference the module-level constants.
+        self.assertIn("_SUBCONTRACT_STATUS_OPEN", src)
+        self.assertIn("_SUBCONTRACT_STATUS_PARTIAL", src)
+        self.assertIn("_SUBCONTRACT_STATUS_FULL", src)
+        self.assertIn("update_modified=False", src,
+            "Writes to source rows must NOT bump source.modified — would "
+            "trip 'Document has been modified' for anyone viewing the form.")
+
+    def test_status_constants_match_fixture_options(self):
+        """Pin: the three status constants line up with the Select options
+        on the custom_subcontract_status custom field (P1 fixture)."""
+        from mhr import utilis
+        self.assertEqual(utilis._SUBCONTRACT_STATUS_OPEN, "Open")
+        self.assertEqual(utilis._SUBCONTRACT_STATUS_PARTIAL, "Partially Received")
+        self.assertEqual(utilis._SUBCONTRACT_STATUS_FULL, "Fully Received")
+
+    def test_delta_uses_update_modified_false(self):
+        import inspect
+        from mhr import utilis
+        src = inspect.getsource(utilis._bump_source_row)
+        self.assertIn("update_modified=False", src,
+            "_bump_source_row must pass update_modified=False to db.set_value.")
+
+
+class TestHooksWiring(FrappeTestCase):
+    """The hook functions are useless if hooks.py doesn't actually call them."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import os
+        path = os.path.join(frappe.get_app_path("mhr"), "hooks.py")
+        cls.hooks_src = open(path).read()
+
+    def test_validate_wired(self):
+        self.assertIn('"mhr.utilis.validate_subcontract_receipt"', self.hooks_src,
+            "validate_subcontract_receipt must be in Stock Entry.validate.")
+
+    def test_on_submit_wired(self):
+        self.assertIn('"mhr.utilis.apply_subcontract_receipt"', self.hooks_src,
+            "apply_subcontract_receipt must be in Stock Entry.on_submit.")
+
+    def test_on_cancel_wired(self):
+        self.assertIn('"mhr.utilis.revert_subcontract_receipt"', self.hooks_src,
+            "revert_subcontract_receipt must be in Stock Entry.on_cancel.")
