@@ -37,12 +37,19 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 			"options": "Company"
 		},
 		// MI1-I39 P2-C: HTY transaction_type filter. Blank = all.
+		// MI1-I64 (rework 2): on_change forces report.refresh() so the
+		// Pulp/Glue ↔ Type/Product header labels swap immediately when
+		// the dropdown changes (otherwise headers stay stale until the
+		// user clicks Refresh manually).
 		{
 			"fieldname": "transaction_type",
 			"label": __("Transaction Type"),
 			"fieldtype": "Select",
 			"options": "\nVFY\nHTY",
-			"default": ""
+			"default": "",
+			on_change: function () {
+				frappe.query_report.refresh();
+			}
 		}
 	],
 	formatter: function(value, row, column, data, default_formatter) {
