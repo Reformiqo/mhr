@@ -9,3 +9,4 @@ mhr.patches.v1_0.backfill_hty_transaction_type
 mhr.patches.v1_0.rename_normal_to_vfy
 mhr.patches.v1_0.heal_orphan_batch_masters
 mhr.patches.v1_0.backfill_address_links_from_delivery_stops
+mhr.patches.v1_0.convert_transaction_type_to_link
