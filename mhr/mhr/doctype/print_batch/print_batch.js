@@ -33,10 +33,12 @@ frappe.ui.form.on('Print Batch', {
         }
 
         // MI1-I62 (Container ID fetch, 2026-06-23): "Fetch by Container ID"
-        // custom button. Shown only when Container + Lot + Item are set —
-        // those three narrow the universe of Container docs that share the
-        // same container_no enough to be a meaningful pick list.
-        if (frm.doc.container_no && frm.doc.lot_no && frm.doc.item) {
+        // custom button. Shown when Container + Lot are set; Item is an
+        // optional narrowing filter (server method handles item=None).
+        // Don't gate on Item — Raj's screenshot showed the button missing
+        // even with Item set, but the more discoverable behaviour is to
+        // show the button as soon as Container + Lot pin the search space.
+        if (frm.doc.container_no && frm.doc.lot_no) {
             frm.add_custom_button(__("Fetch by Container ID"), function () {
                 open_container_id_picker(frm);
             });

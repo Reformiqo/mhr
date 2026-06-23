@@ -131,17 +131,30 @@ class TestJsButtonAndPicker(FrappeTestCase):
         self.assertIn('"Fetch by Container ID"', body,
             "refresh must add the 'Fetch by Container ID' custom button.")
 
-    def test_button_gated_on_container_lot_item(self):
+    def test_button_gated_on_container_and_lot(self):
+        """Container + Lot pin the search space; Item is an optional
+        narrowing filter (server method accepts item=None). Don't gate
+        on Item — Raj reported the button missing even with Item set,
+        so the looser gate makes it more discoverable."""
         m = re.search(
             r"refresh:\s*function\s*\(\s*frm\s*\)\s*\{(.*?)\n\s*\},",
             self.js, re.DOTALL,
         )
         body = m.group(1)
-        self.assertRegex(
-            body,
-            r"frm\.doc\.container_no\s*&&\s*frm\.doc\.lot_no\s*&&\s*frm\.doc\.item",
-            "Button must only render when Container + Lot + Item are all set.",
+        # Find the immediate guard around the button add.
+        button_block = re.search(
+            r"if\s*\([^)]*\)\s*\{\s*frm\.add_custom_button\(__\(\"Fetch by Container ID\"\)",
+            body, re.DOTALL,
         )
+        self.assertIsNotNone(button_block,
+            "Could not find the 'Fetch by Container ID' button guard.")
+        guard = button_block.group(0)
+        self.assertIn("frm.doc.container_no", guard)
+        self.assertIn("frm.doc.lot_no", guard)
+        # Item is NOT in the guard — looser condition for discoverability.
+        self.assertNotIn("frm.doc.item", guard,
+            "Item must NOT be in the button render guard — it's optional, "
+            "and the server method handles item=None.")
 
     def test_picker_calls_listing_endpoint(self):
         m = re.search(
