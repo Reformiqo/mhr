@@ -589,7 +589,12 @@ class Container(Document):
         purchase_receipt = frappe.new_doc("Purchase Receipt")
         purchase_receipt.company = self.company
         purchase_receipt.supplier = self.supplier
-        purchase_receipt.posting_date = self.posting_date
+        # MI1-I69 (2026-06-23): the PR posting date must match the
+        # Container Inward date. Fall back to today() when the Container's
+        # posting_date is missing — guards against legacy rows with no
+        # date and against the stale 2025-12-28 literal default that
+        # used to ship as a Property Setter (now changed to 'Today').
+        purchase_receipt.posting_date = self.posting_date or frappe.utils.today()
         purchase_receipt.custom_container_no = self.name
         purchase_receipt.custom_total_batches = len(self.batches)
         purchase_receipt.custom_lot_number = self.lot_no

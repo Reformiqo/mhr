@@ -93,7 +93,9 @@ def create_purchase_receipt(container, is_return=0, pr=None):
     purchase_receipt = frappe.new_doc("Purchase Receipt")
     purchase_receipt.company = container.company
     purchase_receipt.supplier = container.supplier
-    purchase_receipt.posting_date = container.posting_date
+    # MI1-I69 (2026-06-23): PR posting_date must equal Container Inward
+    # date. Fall back to today() for legacy rows with no date.
+    purchase_receipt.posting_date = container.posting_date or frappe.utils.today()
     purchase_receipt.custom_container_no = container.name
     purchase_receipt.custom_total_batches = len(container.batches)
     purchase_receipt.custom_lot_number = container.lot_no
