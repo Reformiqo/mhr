@@ -153,7 +153,14 @@ doc_events = {
         ]
     },
     "Batch": {
-        "validate": "mhr.batch_qr_code.set_si_qrcode",
+        "validate": [
+            "mhr.batch_qr_code.set_si_qrcode",
+            # Auto-fetch Transaction Type from the linked Container.
+            # custom_container_no on Batch is a varchar (not a Link),
+            # so a fetch_from declaration won't work — server hook does
+            # the resolution via Container.container_no lookup.
+            "mhr.utilis.set_batch_transaction_type_from_container",
+        ],
     },
     # MI1: send outbound mail immediately instead of waiting on the
     # scheduled flush. The standard Communication composer always

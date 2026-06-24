@@ -1205,6 +1205,36 @@ def get_print_batch(lot_no, container_no, supplier_batch_no=None, item=None, con
     ]
 
 
+def set_batch_transaction_type_from_container(doc, method=None):
+    """Auto-fill Batch.custom_transaction_type from the linked Container.
+
+    Custom Field `Batch-custom_transaction_type` is a Link to Transaction
+    Type, but `Batch.custom_container_no` is just a varchar holding the
+    user-facing container_no value (e.g. 'MCJC-1614') — not a Link to a
+    specific Container.name. fetch_from can't bridge that, so this
+    server hook does the lookup explicitly:
+      Batch.custom_container_no  -> Container.container_no
+      first matching Container's transaction_type  -> Batch.custom_transaction_type
+
+    Skips:
+      - Batches without custom_container_no (can't resolve)
+      - Batches whose custom_transaction_type is already set (manual
+        override stays intact)
+    """
+    if doc.get("custom_transaction_type"):
+        return
+    container_no = doc.get("custom_container_no")
+    if not container_no:
+        return
+    tt = frappe.db.get_value(
+        "Container",
+        {"container_no": container_no},
+        "transaction_type",
+    )
+    if tt:
+        doc.custom_transaction_type = tt
+
+
 @frappe.whitelist()
 def get_container_ids_for(container_no, lot_no, item=None):
     """MI1-I62 (Container ID fetch, 2026-06-23): return the distinct
