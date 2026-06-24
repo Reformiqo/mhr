@@ -91,14 +91,30 @@ class TestDnReportPerRowBatchAttributes(FrappeTestCase):
                 f"Old COALESCE(dn.{field}, b.{field}) pattern caused "
                 "every row to show the DN header's aggregated value.")
 
-    def test_item_length_from_batch_not_count(self):
-        """Item Length must read MAX(b.custom_total_item_length), not
-        COUNT(dni.name) — COUNT collapsed all batches in the GROUP BY
-        scope to a single number, ignoring the per-batch values."""
+    def test_item_length_prefers_batch_with_count_fallback(self):
+        """Item Length: prefer MAX(b.custom_total_item_length) when
+        the Batch master has it populated; fall back to COUNT(dni.name)
+        for batches whose custom_total_item_length is empty (Raj
+        2026-06-24: prod data has the field empty on most rows; the
+        report was showing blank Item Length until we added a fallback).
+        """
         self.assertIn("MAX(b.custom_total_item_length)", self.src,
-            "item_length must come from the Batch master.")
-        self.assertNotIn("COUNT(dni.name)", self.src,
-            "Old COUNT(dni.name) pattern collapsed multi-batch rows.")
+            "item_length must prefer the Batch master's value.")
+        # COUNT(dni.name) must appear inside a COALESCE fallback (not
+        # as the primary source).
+        self.assertIn("COALESCE(", self.src,
+            "item_length must be wrapped in COALESCE so the fallback fires.")
+        self.assertIn("COUNT(dni.name)", self.src,
+            "COUNT(dni.name) must remain as the fallback when "
+            "custom_total_item_length is NULL/empty.")
+        # Pin the structural order: NULLIF(MAX(...), '') is first,
+        # the CAST(COUNT(...) AS CHAR) is second.
+        nullif_pos = self.src.find("NULLIF(MAX(b.custom_total_item_length)")
+        count_pos = self.src.find("CAST(COUNT(dni.name) AS CHAR)")
+        self.assertGreater(nullif_pos, 0)
+        self.assertGreater(count_pos, nullif_pos,
+            "Batch master must be the PRIMARY source (first inside "
+            "COALESCE), with COUNT as the fallback (second).")
 
     def test_denier_from_batch_item(self):
         """Denier uses MAX(b.item) so it always matches the actual Batch

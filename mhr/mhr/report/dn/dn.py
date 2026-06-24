@@ -109,9 +109,16 @@ def get_data(filters):
             SUM(dni.qty) AS `total_qty`,
             dn.custom_merge_no AS `merge_no`,
             dni.custom_lot_no AS `lot_no`,
-            -- Item length comes from the Batch master, not COUNT(dni).
-            -- (Same bug class: COUNT was group-scoped, not per-batch.)
-            MAX(b.custom_total_item_length) AS `item_length`,
+            -- Item Length: prefer the Batch master's
+            -- custom_total_item_length when populated; fall back to
+            -- COUNT(dni.name) (the DN-row count within the per-row
+            -- GROUP BY scope) for batches that have no length stored.
+            -- COUNT is cast to CHAR so both branches share a varchar
+            -- column type.
+            COALESCE(
+                NULLIF(MAX(b.custom_total_item_length), ''),
+                CAST(COUNT(dni.name) AS CHAR)
+            ) AS `item_length`,
             dni.custom_container_no AS `container`,
             dn.customer_name AS `customer_name`,
             dn.vehicle_no AS `vehicle_no`,

@@ -4,19 +4,22 @@
 
 frappe.query_reports["DN"] = {
     "filters": [
+        // Raj 2026-06-24: no default date — report must stay blank
+        // until the user picks both From + To. reqd:0 + no default
+        // gets us that; the Python execute() returns [] when either
+        // date is missing, so an accidental run with one date set
+        // still surfaces nothing.
         {
             "fieldname": "from_date",
             "label": __("From Date"),
             "fieldtype": "Date",
-            "default": frappe.datetime.month_start(),
-            "reqd": 1,
+            "reqd": 0,
         },
         {
             "fieldname": "to_date",
             "label": __("To Date"),
             "fieldtype": "Date",
-            "default": frappe.datetime.get_today(),
-            "reqd": 1,
+            "reqd": 0,
         },
         {
             "fieldname": "transaction_type",

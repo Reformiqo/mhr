@@ -155,6 +155,17 @@ class TestDnRunsWithoutKeyError(FrappeTestCase):
         must run without throwing."""
         self._run("")
 
+    def test_missing_dates_returns_empty(self):
+        """Raj 2026-06-24: the report must stay blank until the user
+        picks both From + To dates. get_data returns [] when either
+        is missing — pin that contract."""
+        from mhr.mhr.report.dn.dn import get_data
+        self.assertEqual(get_data({"transaction_type": "All"}), [])
+        self.assertEqual(get_data({"from_date": "2026-06-01",
+                                    "transaction_type": "All"}), [])
+        self.assertEqual(get_data({"to_date": "2026-06-30",
+                                    "transaction_type": "All"}), [])
+
 
 class TestDnJsFilters(FrappeTestCase):
 
@@ -184,6 +195,24 @@ class TestDnJsFilters(FrappeTestCase):
             "transaction_type must default to 'All' (Frappe drops "
             "empty-string filters from the request payload).",
         )
+
+    def test_no_default_dates(self):
+        """Raj 2026-06-24: no date pre-selected. Report stays blank
+        until the user picks dates manually."""
+        # No frappe.datetime.* call in either date-filter block.
+        import re
+        m = re.search(
+            r'"fieldname":\s*"from_date".*?\},', self.js, re.DOTALL
+        )
+        self.assertIsNotNone(m, "from_date filter block missing.")
+        self.assertNotIn("frappe.datetime", m.group(0),
+            "from_date must have NO default value (Raj's spec).")
+        m = re.search(
+            r'"fieldname":\s*"to_date".*?\},', self.js, re.DOTALL
+        )
+        self.assertIsNotNone(m, "to_date filter block missing.")
+        self.assertNotIn("frappe.datetime", m.group(0),
+            "to_date must have NO default value (Raj's spec).")
 
     def test_transaction_type_on_change_refresh(self):
         # on_change=refresh is what triggers the label swap when the
