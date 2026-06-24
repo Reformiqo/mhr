@@ -52,6 +52,61 @@ class TestDnReportHasRemarkColumn(FrappeTestCase):
         self.assertIn("Remark", labels)
 
 
+class TestDnReportPerRowBatchAttributes(FrappeTestCase):
+    """MI1-I64 follow-up (2026-06-24): per-row attributes (Pulp / Glue /
+    Lusture / Grade / Denier / Item Length) must come from the linked
+    Batch master, NOT from the DN header's aggregated copy.
+
+    Previous SQL used COALESCE(NULLIF(dn.custom_*, ''), b.custom_*),
+    which preferred the DN-level aggregated value (set by
+    set_header_container_info_from_items). When a Sample Challan held
+    several batches with different attributes, every row showed the
+    same comma-joined / first-of-distinct header value."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.src = _get_data_src()
+
+    def test_pulp_uses_max_batch_only(self):
+        """Pulp must read from MAX(b.custom_pulp) — never from dn.custom_pulp."""
+        self.assertRegex(
+            self.src,
+            r"SUBSTRING_INDEX\(MAX\(b\.custom_pulp\)",
+            "pulp must come from the Batch master via MAX(b.custom_pulp).",
+        )
+        # Old buggy pattern must not return.
+        self.assertNotIn("COALESCE(NULLIF(dn.custom_pulp", self.src,
+            "Old COALESCE(dn.custom_pulp, b.custom_pulp) pattern caused "
+            "every row to show the DN header's aggregated value.")
+
+    def test_glue_lusture_grade_use_max_batch_only(self):
+        for field in ("custom_glue", "custom_lusture", "custom_grade"):
+            self.assertRegex(
+                self.src,
+                rf"SUBSTRING_INDEX\(MAX\(b\.{field}\)",
+                f"{field} must come from the Batch master.",
+            )
+            self.assertNotIn(f"COALESCE(NULLIF(dn.{field}", self.src,
+                f"Old COALESCE(dn.{field}, b.{field}) pattern caused "
+                "every row to show the DN header's aggregated value.")
+
+    def test_item_length_from_batch_not_count(self):
+        """Item Length must read MAX(b.custom_total_item_length), not
+        COUNT(dni.name) — COUNT collapsed all batches in the GROUP BY
+        scope to a single number, ignoring the per-batch values."""
+        self.assertIn("MAX(b.custom_total_item_length)", self.src,
+            "item_length must come from the Batch master.")
+        self.assertNotIn("COUNT(dni.name)", self.src,
+            "Old COUNT(dni.name) pattern collapsed multi-batch rows.")
+
+    def test_denier_from_batch_item(self):
+        """Denier uses MAX(b.item) so it always matches the actual Batch
+        master's item — falls back implicitly if Batch doesn't exist."""
+        self.assertIn("MAX(b.item)", self.src,
+            "denier must come from MAX(b.item) — Batch master canonical.")
+
+
 class TestDnReportTransactionTypeFilter(FrappeTestCase):
 
     @classmethod

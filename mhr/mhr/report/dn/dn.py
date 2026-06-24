@@ -38,7 +38,10 @@ def get_columns(filters):
         {"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 100, "precision": 3},
         {"label": _("Merge No"), "fieldname": "merge_no", "fieldtype": "Data", "width": 90},
         {"label": _("Lot No"), "fieldname": "lot_no", "fieldtype": "Data", "width": 110},
-        {"label": _("Item Length"), "fieldname": "item_length", "fieldtype": "Int", "width": 100},
+        # Item Length is varchar on Batch (custom_total_item_length) —
+        # was Int when sourced from COUNT(dni.name); now per-row from
+        # Batch master so the fieldtype follows the source column.
+        {"label": _("Item Length"), "fieldname": "item_length", "fieldtype": "Data", "width": 100},
         {"label": _("Container"), "fieldname": "container", "fieldtype": "Data", "width": 120},
         {"label": _("Customer Name"), "fieldname": "customer_name", "fieldtype": "Data", "width": 180},
         {"label": _("Vehicle No"), "fieldname": "vehicle_no", "fieldtype": "Data", "width": 110},
@@ -86,15 +89,29 @@ def get_data(filters):
             CONCAT('<a href="/app/delivery-note/', dn.name, '">', dn.name, '</a>') AS `id`,
             dn.challan_number AS `challan`,
             dn.posting_date AS `date`,
-            dni.item_code AS `denier`,
-            SUBSTRING_INDEX(COALESCE(NULLIF(dn.custom_pulp, ''), b.custom_pulp), '-', -1) AS `pulp`,
-            SUBSTRING_INDEX(COALESCE(NULLIF(dn.custom_glue, ''), b.custom_glue), '-', -1) AS `glue`,
-            SUBSTRING_INDEX(COALESCE(NULLIF(dn.custom_lusture, ''), b.custom_lusture), '-', -1) AS `lusture`,
-            SUBSTRING_INDEX(COALESCE(NULLIF(dn.custom_grade, ''), b.custom_grade), '-', -1) AS `grade`,
+            -- MI1-I64 follow-up (2026-06-24): denier comes from the Batch
+            -- master so it always matches the batch's actual item
+            -- (b.item is canonical; dni.item_code is the DN row's copy).
+            MAX(b.item) AS `denier`,
+            -- Batch attributes (Pulp / Glue / Lusture / Grade) MUST be
+            -- per-row from the linked Batch — NOT from the DN header.
+            -- Previously the SQL had COALESCE(NULLIF(dn.custom_*, ''),
+            -- b.custom_*) which preferred the DN-level aggregated value
+            -- (set by set_header_container_info_from_items as
+            -- comma-joined or first-of-distinct). When a Sample Challan
+            -- had multiple batches with different attributes every row
+            -- showed the same (aggregated) header value. MAX() picks the
+            -- single batch value within the per-row GROUP BY scope.
+            SUBSTRING_INDEX(MAX(b.custom_pulp), '-', -1) AS `pulp`,
+            SUBSTRING_INDEX(MAX(b.custom_glue), '-', -1) AS `glue`,
+            SUBSTRING_INDEX(MAX(b.custom_lusture), '-', -1) AS `lusture`,
+            SUBSTRING_INDEX(MAX(b.custom_grade), '-', -1) AS `grade`,
             SUM(dni.qty) AS `total_qty`,
             dn.custom_merge_no AS `merge_no`,
             dni.custom_lot_no AS `lot_no`,
-            COUNT(dni.name) AS `item_length`,
+            -- Item length comes from the Batch master, not COUNT(dni).
+            -- (Same bug class: COUNT was group-scoped, not per-batch.)
+            MAX(b.custom_total_item_length) AS `item_length`,
             dni.custom_container_no AS `container`,
             dn.customer_name AS `customer_name`,
             dn.vehicle_no AS `vehicle_no`,
