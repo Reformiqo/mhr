@@ -46,7 +46,9 @@ HTY_CLIENT_SCRIPTS = [
 
 class TestHTYTransactionTypeField(FrappeTestCase):
     """Every DocType in the FRD must carry a `transaction_type` field
-    of type Select(VFY,HTY) defaulting to VFY."""
+    defaulting to VFY. MI1-I70 converted it from Select(VFY,HTY) to a
+    Link -> Transaction Type, so the type/options assertions below track
+    that (the VFY/HTY values now live as Transaction Type docs)."""
 
     def test_field_exists_on_every_doctype(self):
         for dt in TRANSACTION_TYPE_DOCTYPES:
@@ -62,11 +64,12 @@ class TestHTYTransactionTypeField(FrappeTestCase):
                     f"MI1-I39: {dt}.transaction_type Custom Field is missing — "
                     f"the HTY toggle won't appear on the form.",
                 )
-                self.assertEqual(cf.fieldtype, "Select", f"{dt}.transaction_type must be Select")
+                # MI1-I70: converted Select(VFY|HTY) -> Link(Transaction Type).
+                self.assertEqual(cf.fieldtype, "Link", f"{dt}.transaction_type must be Link")
                 self.assertEqual(
-                    set(cf.options.splitlines()),
-                    {"VFY", "HTY"},
-                    f"{dt}.transaction_type options must be exactly VFY+HTY",
+                    cf.options,
+                    "Transaction Type",
+                    f"{dt}.transaction_type options must be 'Transaction Type'",
                 )
                 self.assertEqual(cf.default, "VFY",
                     f"{dt}.transaction_type must default to VFY — the FRD's hard rule "

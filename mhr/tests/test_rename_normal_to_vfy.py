@@ -41,10 +41,12 @@ class TestRenamePatchPostState(FrappeTestCase):
                     as_dict=True,
                 )
                 self.assertIsNotNone(cf, f"transaction_type Custom Field missing on {dt}.")
+                # MI1-I70 converted the Select(VFY|HTY) to Link -> Transaction Type;
+                # the VFY/HTY values now live as Transaction Type docs.
                 self.assertEqual(
-                    set(cf.options.splitlines()),
-                    {"VFY", "HTY"},
-                    f"{dt}.transaction_type options must be exactly VFY+HTY (not Normal).",
+                    cf.options,
+                    "Transaction Type",
+                    f"{dt}.transaction_type options must be 'Transaction Type'.",
                 )
                 self.assertEqual(
                     cf.default, "VFY",
