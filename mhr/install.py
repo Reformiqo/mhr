@@ -10,12 +10,35 @@ HTY_SERIES_BY_DOCTYPE = {
 }
 
 
+# Transaction Type Link records the `transaction_type` Custom Field
+# (default 'VFY') points at. Seeded by convert_transaction_type_to_link, but
+# patches are marked done-without-running on a FRESH install (e.g. CI
+# test_site) so the Link target stayed empty — every Stock Entry / Item
+# opening-stock entry (default VFY) then failed link validation. Seed here
+# too, since after_install runs on fresh installs.
+SEED_TRANSACTION_TYPES = ("VFY", "HTY")
+
+
 def after_install():
+	ensure_transaction_types()
 	ensure_hty_naming_series()
 
 
 def after_migrate():
+	ensure_transaction_types()
 	ensure_hty_naming_series()
+
+
+def ensure_transaction_types():
+	"""Create the VFY / HTY Transaction Type records if missing. Idempotent;
+	no-ops before the doctype exists."""
+	if not frappe.db.exists("DocType", "Transaction Type"):
+		return
+	for name in SEED_TRANSACTION_TYPES:
+		if not frappe.db.exists("Transaction Type", name):
+			doc = frappe.new_doc("Transaction Type")
+			doc.transaction_type_name = name
+			doc.insert(ignore_permissions=True)
 
 
 def ensure_hty_naming_series():
