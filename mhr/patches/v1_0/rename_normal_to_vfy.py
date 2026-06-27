@@ -62,6 +62,13 @@ def _rename_custom_field_options():
                 f"[MI1-I39 rename] {dt}: no transaction_type Custom Field — skipping."
             )
             continue
+        # MI1-I70 later converts this Select(VFY|HTY) -> Link(Transaction Type).
+        # On a fresh install the field is created as a Link straight from the
+        # fixture, so DON'T rewrite Select options onto a Link field — that
+        # leaves Link + options 'VFY\nHTY' and breaks every transaction_type
+        # link. Only touch it while it's still a Select.
+        if frappe.db.get_value("Custom Field", cf_name, "fieldtype") != "Select":
+            continue
         frappe.db.set_value("Custom Field", cf_name, {
             "options": "VFY\nHTY",
             "default": "VFY",
