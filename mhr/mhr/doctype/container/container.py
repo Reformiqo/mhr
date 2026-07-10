@@ -451,6 +451,13 @@ class Container(Document):
             batch_doc.custom_warehouse = specs["warehouse"]
             # batch.custom_net_weight = batch.qty
             batch_doc.custom_lot_no = self.lot_no
+            # MI1-I63 (reopen, 2026-06-29): copy Gross Weight from the
+            # Batch Items row onto the Batch master. Without this, Batch.
+            # custom_gross_weight stays at its default 0, and the
+            # fetch_from on DN Item + the HTY 6-up barcode both read 0
+            # (Raj's complaint). Batch Items.custom_gross_weight is
+            # captured during Container Inward; it MUST propagate here.
+            batch_doc.custom_gross_weight = flt(batch.get("custom_gross_weight") or 0)
             batch_doc.save(ignore_permissions=True)
             batch_doc.submit()
             frappe.db.commit()

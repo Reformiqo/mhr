@@ -12,3 +12,4 @@ mhr.patches.v1_0.backfill_address_links_from_delivery_stops
 mhr.patches.v1_0.convert_transaction_type_to_link
 mhr.patches.v1_0.seed_job_work_received_stock_entry_type
 mhr.patches.v1_0.backfill_batch_transaction_type
+mhr.patches.v1_0.backfill_batch_gross_weight_from_batch_items

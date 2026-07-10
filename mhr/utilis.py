@@ -1398,6 +1398,12 @@ def create_batches(container):
             batch_doc.custom_pulp = specs["pulp"]
             batch_doc.custom_fsc = container_doc.fsc
             batch_doc.custom_lot_no = container_doc.lot_no
+            # MI1-I63 (reopen, 2026-06-29): propagate Gross Weight from
+            # Batch Items row onto Batch master — same reason as the
+            # duplicate copy in Container.create_batches. Without this,
+            # DN Item's custom_gross_weight fetch_from and the HTY 6-up
+            # barcode both read 0.
+            batch_doc.custom_gross_weight = flt(batch.get("custom_gross_weight") or 0)
             batch_doc.save(ignore_permissions=True)
             batch_doc.submit()
     create_purchase_receipt(container_doc.name)
