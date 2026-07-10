@@ -13,9 +13,11 @@ in the global scope. When HTY & VFY's HTY branch called get_all_batches
 it silently invoked the SPARSE version → the HTY modal showed `-` for
 Mfg Date / Batch Qty / SBN / Container No / Warehouse.
 
-Fix: rename the sparse one to `get_batches_for_lot_cone_dialog` so it
-no longer collides. Also move it into the Mhr module so this ships via
-fixtures.
+Fix in P4: rename the sparse one to `get_batches_for_lot_cone_dialog`
+so it no longer collides. Later, P5 (VFY double-modal) fully disabled
+the older script — its VFY handler duplicated HTY & VFY's VFY branch
+and both were firing on custom_container_no. P4's rename still stands
+for defence-in-depth in case the script gets re-enabled.
 """
 import json
 import os
@@ -35,8 +37,9 @@ def _script(name):
 
 
 class TestSparseGetAllBatchesRenamed(FrappeTestCase):
-    """The sparse Lot/Cone-chooser fetcher must no longer be called
-    `get_all_batches` — that name is HTY & VFY's."""
+    """Regardless of whether the script is enabled, the rename must
+    hold — a future admin re-enabling this script must not resurrect
+    the global-scope collision."""
 
     @classmethod
     def setUpClass(cls):
@@ -53,7 +56,7 @@ class TestSparseGetAllBatchesRenamed(FrappeTestCase):
 
     def test_no_get_all_batches_definition_in_sparse_script(self):
         """The old definition would silently shadow HTY & VFY's full-
-        fields fetcher and cause the HTY modal to render sparse rows."""
+        fields fetcher if this script is ever re-enabled."""
         self.assertNotIn(
             "async function get_all_batches(container_no)",
             self.src,
@@ -74,8 +77,8 @@ class TestSparseGetAllBatchesRenamed(FrappeTestCase):
         )
 
     def test_caller_updated(self):
-        """The VFY branch inside this same script must call the renamed
-        function; leaving it on the old name would ReferenceError."""
+        """Leaving the caller on the old name would ReferenceError if
+        the script is ever re-enabled."""
         self.assertIn(
             "await get_batches_for_lot_cone_dialog(frm.doc.custom_container_no)",
             self.src,
@@ -89,11 +92,13 @@ class TestSparseGetAllBatchesRenamed(FrappeTestCase):
 
     def test_hty_early_return_preserved(self):
         """The earlier MI1 fix's HTY early-return must still be at the
-        top of the async custom_container_no handler."""
+        top of the async custom_container_no handler in case the script
+        ever gets re-enabled."""
         self.assertIn(
             "if ((frm.doc.transaction_type || '').toUpperCase() === 'HTY') return",
             self.src,
-            "HTY early-return must remain — this script's popup is VFY-only.",
+            "HTY early-return must remain — defence-in-depth if the "
+            "script is re-enabled.",
         )
 
 
@@ -148,8 +153,8 @@ class TestHtyVfyGetAllBatchesUnchanged(FrappeTestCase):
 
 
 class TestOnlyOneGlobalGetAllBatchesDefinition(FrappeTestCase):
-    """Cross-script pin: across ALL enabled Client Scripts on Delivery
-    Note in fixtures, exactly ONE must define
+    """Cross-script pin: across all ENABLED Client Scripts on Delivery
+    Note in fixtures, exactly ONE may define
     `async function get_all_batches(container_no)`. More than one =
     silent shadow in the global scope again."""
 
