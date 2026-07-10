@@ -8,7 +8,7 @@ from collections import defaultdict
 
 
 def execute(filters=None):
-    columns = get_columns()
+    columns = get_columns(filters)
     data = get_data(filters)
     # MI1-I39 P2-C: HTY transaction_type filter via shared helper.
     from mhr.utilis import filter_rows_by_transaction_type
@@ -16,8 +16,15 @@ def execute(filters=None):
     return columns, data
 
 
-def get_columns():
-    return [
+def get_columns(filters=None):
+    # MI1-I64 reopen (Raj 2026-06-29): drop Merge No + Cross Section
+    # in HTY. Also swap Pulp/Glue → Type/Product labels to match the
+    # rework already in Balance Report + Container Report + DN.
+    filters = filters or {}
+    is_hty = (filters.get("transaction_type") == "HTY")
+    pulp_label = _("Type") if is_hty else _("Pulp")
+    glue_label = _("Product") if is_hty else _("Glue")
+    columns = [
         # --- Identity ---
         {"label": _("Date"), "fieldname": "Date", "fieldtype": "Data", "width": 100},
         {"label": _("Container No"), "fieldname": "Container Number", "fieldtype": "Data", "width": 130},
@@ -25,21 +32,28 @@ def get_columns():
         {"label": _("Lot Number"), "fieldname": "Lot Number", "fieldtype": "Data", "width": 110},
         {"label": _("Grade"), "fieldname": "Grade", "fieldtype": "Data", "width": 90},
         {"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 70},
-        {"label": _("Merge No"), "fieldname": "Merge No", "fieldtype": "Data", "width": 100},
+    ]
+    if not is_hty:
+        columns.append({"label": _("Merge No"), "fieldname": "Merge No", "fieldtype": "Data", "width": 100})
+    columns += [
         # --- Specifications ---
-        {"label": _("Pulp"), "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
+        {"label": pulp_label, "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
         {"label": _("Lusture"), "fieldname": "Lusture", "fieldtype": "Data", "width": 90},
-        {"label": _("Glue"), "fieldname": "Glue", "fieldtype": "Data", "width": 90},
+        {"label": glue_label, "fieldname": "Glue", "fieldtype": "Data", "width": 90},
         # --- Stock ---
         {"label": _("Balance Qty"), "fieldname": "Balance", "fieldtype": "Data", "width": 110},
         {"label": _("Balance Box"), "fieldname": "Balance Box", "fieldtype": "Data", "width": 100},
+    ]
+    if not is_hty:
+        columns.append({"label": _("Cross Section"), "fieldname": "Cross Section", "fieldtype": "Data", "width": 110})
+    columns += [
         # --- Additional Info ---
-        {"label": _("Cross Section"), "fieldname": "Cross Section", "fieldtype": "Data", "width": 110},
         {"label": _("Production Date"), "fieldname": "Production Date", "fieldtype": "Data", "width": 120},
         {"label": _("Notes"), "fieldname": "Notes", "fieldtype": "Data", "width": 150},
         {"label": _("Location"), "fieldname": "Location", "fieldtype": "Data", "width": 100},
         {"label": _("sort_order"), "fieldname": "sort_order", "fieldtype": "Int", "width": 0, "hidden": 1},
     ]
+    return columns
 
 
 def strip_prefix(val):

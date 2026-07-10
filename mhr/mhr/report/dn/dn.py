@@ -21,11 +21,13 @@ def execute(filters=None):
 
 
 def get_columns(filters):
+    # MI1-I64 reopen (Raj 2026-06-29): drop Merge No in HTY (same rule
+    # as Balance Report — Merge No is a VFY-only concept).
     is_hty = (filters.get("transaction_type") == "HTY")
     pulp_label = _("Type") if is_hty else _("Pulp")
     glue_label = _("Product") if is_hty else _("Glue")
     lusture_label = _("Colour") if is_hty else _("Lusture")
-    return [
+    columns = [
         {"label": _("Status"), "fieldname": "status", "fieldtype": "Data", "width": 110},
         {"label": _("ID"), "fieldname": "id", "fieldtype": "Data", "width": 180},
         {"label": _("Challan"), "fieldname": "challan", "fieldtype": "Data", "width": 110},
@@ -36,7 +38,10 @@ def get_columns(filters):
         {"label": lusture_label, "fieldname": "lusture", "fieldtype": "Data", "width": 90},
         {"label": _("Grade"), "fieldname": "grade", "fieldtype": "Data", "width": 80},
         {"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 100, "precision": 3},
-        {"label": _("Merge No"), "fieldname": "merge_no", "fieldtype": "Data", "width": 90},
+    ]
+    if not is_hty:
+        columns.append({"label": _("Merge No"), "fieldname": "merge_no", "fieldtype": "Data", "width": 90})
+    columns += [
         {"label": _("Lot No"), "fieldname": "lot_no", "fieldtype": "Data", "width": 110},
         # Item Length is varchar on Batch (custom_total_item_length) —
         # was Int when sourced from COUNT(dni.name); now per-row from
@@ -51,6 +56,7 @@ def get_columns(filters):
         {"label": _("Driver Name"), "fieldname": "driver_name", "fieldtype": "Data", "width": 140},
         {"label": _("Remark"), "fieldname": "remark", "fieldtype": "Small Text", "width": 200},
     ]
+    return columns
 
 
 def get_data(filters):
