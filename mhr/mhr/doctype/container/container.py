@@ -458,6 +458,17 @@ class Container(Document):
             # (Raj's complaint). Batch Items.custom_gross_weight is
             # captured during Container Inward; it MUST propagate here.
             batch_doc.custom_gross_weight = flt(batch.get("custom_gross_weight") or 0)
+            # MI1 (Raj 2026-07-10, HTY DN Select-Batch popup): batch_qty
+            # and manufacturing_date were also never copied — the HTY
+            # batch picker showed both as '-' on every row (screenshot
+            # on MCZFT-01). Same class as the Gross Weight miss above.
+            #   batch.qty → Batch.batch_qty
+            #   Container.posting_date → Batch.manufacturing_date
+            #     (Container Inward date is the closest thing MHR
+            #      captures to a "manufactured on" date.)
+            batch_doc.batch_qty = flt(batch.get("qty") or 0)
+            if self.posting_date:
+                batch_doc.manufacturing_date = getdate(self.posting_date)
             batch_doc.save(ignore_permissions=True)
             batch_doc.submit()
             frappe.db.commit()

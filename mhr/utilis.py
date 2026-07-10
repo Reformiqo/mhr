@@ -1404,6 +1404,13 @@ def create_batches(container):
             # DN Item's custom_gross_weight fetch_from and the HTY 6-up
             # barcode both read 0.
             batch_doc.custom_gross_weight = flt(batch.get("custom_gross_weight") or 0)
+            # MI1 (Raj 2026-07-10) — mirror the batch_qty +
+            # manufacturing_date copy in Container.create_batches so
+            # the two paths stay in sync. HTY Select-Batch popup was
+            # showing '-' for both columns before this.
+            batch_doc.batch_qty = flt(batch.get("qty") or 0)
+            if container_doc.posting_date:
+                batch_doc.manufacturing_date = getdate(container_doc.posting_date)
             batch_doc.save(ignore_permissions=True)
             batch_doc.submit()
     create_purchase_receipt(container_doc.name)
