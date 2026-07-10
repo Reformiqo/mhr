@@ -79,15 +79,21 @@ class TestBackfillPatch(FrappeTestCase):
         src = inspect.getsource(p)
         self.assertIn("CHUNK_SIZE", src,
             "Patch must chunk to stay safe on the 295k-row tabBatch.")
+        # Iterates by Container (small table) to avoid MAX_JOIN_SIZE on
+        # a big three-way join.
+        self.assertIn('FROM `tabContainer`', src,
+            "Patch must iterate over tabContainer (smaller than a "
+            "295k-row join).")
         # Only touches empty targets — idempotent.
         self.assertIn(
-            "b.batch_qty IS NULL OR b.batch_qty = 0", src,
+            'master.get("batch_qty")', src,
             "Patch must guard so it only touches Batches whose "
-            "batch_qty is 0 / NULL.",
+            "batch_qty is 0 / NULL / falsy.",
         )
-        # Joins Container so posting_date is available for manufacturing_date.
-        self.assertIn("INNER JOIN `tabContainer`", src,
-            "Patch must join tabContainer for posting_date lookup.")
+        self.assertIn(
+            'master.get("manufacturing_date")', src,
+            "Same guard for manufacturing_date.",
+        )
 
 
 class TestPriorFixesStillPresent(FrappeTestCase):
