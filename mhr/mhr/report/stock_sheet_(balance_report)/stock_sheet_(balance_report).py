@@ -23,11 +23,13 @@ def get_columns(filters=None):
     # MI1-I64 (rework): labels swap with Transaction Type filter.
     # HTY -> Type/Product; VFY (or no filter) -> Pulp/Glue. Fieldnames
     # stay capitalised "Pulp"/"Glue" so the row dicts always resolve.
+    # MI1-I64 reopen (Raj 2026-06-29): also DROP the Merge No + Cross
+    # Section columns entirely when in HTY mode (they're VFY-only).
     filters = filters or {}
     is_hty = (filters.get("transaction_type") == "HTY")
     pulp_label = "Type" if is_hty else "Pulp"
     glue_label = "Product" if is_hty else "Glue"
-    return [
+    columns = [
         # --- Identity ---
         {"label": _("Date"), "fieldname": "Date", "fieldtype": "Data", "width": 100},
         {"label": _("Container No"), "fieldname": "Container Number", "fieldtype": "Data", "width": 130},
@@ -35,7 +37,10 @@ def get_columns(filters=None):
         {"label": _("Lot Number"), "fieldname": "Lot Number", "fieldtype": "Data", "width": 110},
         {"label": _("Grade"), "fieldname": "Grade", "fieldtype": "Data", "width": 90},
         {"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 70},
-        {"label": _("Merge No"), "fieldname": "Merge No", "fieldtype": "Data", "width": 100},
+    ]
+    if not is_hty:
+        columns.append({"label": _("Merge No"), "fieldname": "Merge No", "fieldtype": "Data", "width": 100})
+    columns += [
         # --- Specifications ---
         {"label": _(pulp_label), "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
         {"label": _("Lusture"), "fieldname": "Lusture", "fieldtype": "Data", "width": 90},
@@ -51,14 +56,18 @@ def get_columns(filters=None):
         {"label": _("Buyer"), "fieldname": "Buyers", "fieldtype": "Data", "width": 180},
         {"label": _("Sales Person"), "fieldname": "Sales Person", "fieldtype": "Data", "width": 130},
         {"label": _("Lifting Terms"), "fieldname": "Lifting Terms", "fieldtype": "Data", "width": 110},
+    ]
+    if not is_hty:
+        columns.append({"label": _("Cross Section"), "fieldname": "Cross Section", "fieldtype": "Data", "width": 110})
+    columns += [
         # --- Additional Info ---
-        {"label": _("Cross Section"), "fieldname": "Cross Section", "fieldtype": "Data", "width": 110},
         {"label": _("Production Date"), "fieldname": "Production Date", "fieldtype": "Data", "width": 120},
         {"label": _("Notes"), "fieldname": "Notes", "fieldtype": "Data", "width": 150},
         {"label": _("Location"), "fieldname": "Location", "fieldtype": "Data", "width": 100},
         {"label": _("Accepted Warehouse"), "fieldname": "Accepted Warehouse", "fieldtype": "Data", "width": 150},
         {"label": _("sort_order"), "fieldname": "sort_order", "fieldtype": "Int", "width": 0, "hidden": 1},
     ]
+    return columns
 
 
 def strip_prefix(val):
