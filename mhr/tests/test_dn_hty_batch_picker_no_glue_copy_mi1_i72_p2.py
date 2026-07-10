@@ -100,8 +100,11 @@ class TestNoGlueToProductCopy(FrappeTestCase):
     def test_prior_batch_metadata_copies_preserved(self):
         """Regression: the legitimate header copies from last_batch —
         custom_glue / custom_pulp / custom_lusture / custom_grade /
-        custom_lot_no / custom_fsc / custom_cone / custom_denier — must
-        survive."""
+        custom_lot_no / custom_fsc / custom_cone — must survive.
+
+        Note: custom_denier moved to direct doc assignment in MI1-I72 P3
+        (it fired the async custom_denier handler and opened a second
+        modal); tested separately."""
         for expected in (
             "frm.set_value('custom_glue',    last_batch.custom_glue",
             "frm.set_value('custom_pulp',    last_batch.custom_pulp",
@@ -110,7 +113,6 @@ class TestNoGlueToProductCopy(FrappeTestCase):
             "frm.set_value('custom_lot_no',  last_batch.custom_lot_no",
             "frm.set_value('custom_fsc',     last_batch.custom_fsc",
             "frm.set_value('custom_cone',    last_batch.custom_cone",
-            "frm.set_value('custom_denier',  last_batch.item",
         ):
             self.assertIn(expected, self.src,
                 f"Legitimate copy {expected!r} must remain — only the "
