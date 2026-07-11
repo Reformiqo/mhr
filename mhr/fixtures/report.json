@@ -219,7 +219,7 @@
   "modified": "2026-01-19 16:05:01.842119",
   "module": "Mhr",
   "name": "DELIVERY CHALLAN",
-  "prepared_report": 0,
+  "prepared_report": 1,
   "query": null,
   "ref_doctype": "Delivery Trip",
   "reference_report": null,

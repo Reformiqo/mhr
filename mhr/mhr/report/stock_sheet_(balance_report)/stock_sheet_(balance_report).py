@@ -10,6 +10,9 @@ from collections import defaultdict
 
 def execute(filters=None):
     filters = filters or {}
+    # MI1-I61 (Raj 2026-06-27): scope by 'HTY User' / 'VFY User' role.
+    from mhr.utilis import enforce_role_scoped_transaction_type
+    filters = enforce_role_scoped_transaction_type(filters)
     # MI1-I64 (rework): pass filters so column labels can swap with Transaction Type.
     columns = get_columns(filters)
     data = get_data(filters)

@@ -2341,6 +2341,39 @@ def get_container_nos_by_transaction_type(transaction_type):
     return {r[0] for r in rows}
 
 
+def enforce_role_scoped_transaction_type(filters):
+    """MI1-I61 (Raj 2026-06-27): if the user has 'HTY User' but not 'VFY
+    User', force filters.transaction_type='HTY' regardless of what they
+    picked in the filter panel. Same for VFY. This runs at the top of
+    every mhr report's execute() — it OVERWRITES the user-supplied
+    transaction_type value, so a VFY-only user cannot see HTY data by
+    tweaking the filter.
+
+    Bypasses (full access):
+      * Administrator
+      * Any user with 'System Manager'
+      * Any user with BOTH 'HTY User' and 'VFY User' (deliberate super-user)
+
+    Mutates `filters` in place AND returns it so call sites can chain.
+    """
+    filters = filters or {}
+    user = frappe.session.user if hasattr(frappe, "session") else None
+    if user == "Administrator":
+        return filters
+    roles = set(frappe.get_roles(user)) if user else set()
+    if "System Manager" in roles:
+        return filters
+    is_hty = "HTY User" in roles
+    is_vfy = "VFY User" in roles
+    if is_hty and is_vfy:
+        return filters
+    if is_hty:
+        filters["transaction_type"] = "HTY"
+    elif is_vfy:
+        filters["transaction_type"] = "VFY"
+    return filters
+
+
 def filter_rows_by_transaction_type(rows, filters, container_field):
     """Apply an HTY transaction_type post-aggregate filter to a list of
     report rows. `container_field` is the row dict key carrying the
