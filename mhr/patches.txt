@@ -14,3 +14,5 @@ mhr.patches.v1_0.seed_job_work_received_stock_entry_type
 mhr.patches.v1_0.backfill_batch_transaction_type
 mhr.patches.v1_0.backfill_batch_gross_weight_from_batch_items
 mhr.patches.v1_0.backfill_batch_qty_and_mfg_date
+mhr.patches.v1_0.heal_dn_item_gross_weight_from_batch
+mhr.patches.v1_0.heal_stock_entry_supplier_batch_no
