@@ -17,3 +17,4 @@ mhr.patches.v1_0.backfill_batch_qty_and_mfg_date
 mhr.patches.v1_0.heal_dn_item_gross_weight_from_batch
 mhr.patches.v1_0.heal_stock_entry_supplier_batch_no
 mhr.patches.v1_0.create_hty_vfy_roles
+mhr.patches.v1_0.heal_sbb_posting_date_from_voucher

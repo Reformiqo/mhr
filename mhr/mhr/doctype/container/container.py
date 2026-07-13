@@ -581,6 +581,12 @@ class Container(Document):
                     },
                 )
 
+            # MI1 (Raj 2026-07-13): SBB posting_date must be set — erpnext's
+            # time-conditioned batch availability query silently drops rows
+            # with NULL posting_date, so downstream DN submits see the
+            # batch as having 0 stock and throw "-qty" negative stock.
+            sb_bundle.posting_date = self.posting_date or frappe.utils.today()
+            sb_bundle.posting_time = frappe.utils.nowtime()
             sb_bundle.save()
             frappe.db.commit()
             return sb_bundle.name
