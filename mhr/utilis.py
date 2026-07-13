@@ -766,20 +766,27 @@ def get_delivery_note_batch(
         filters["custom_container_no"] = container_no
     if supplier_batch_no:
         filters["custom_supplier_batch_no"] = supplier_batch_no
-    if glue:
-        filters["custom_glue"] = glue
-    if pulp:
-        filters["custom_pulp"] = pulp
-    if fsc:
-        filters["custom_fsc"] = fsc
-    if lusture:
-        filters["custom_lusture"] = lusture
-    if grade:
-        filters["custom_grade"] = grade
-    if cone and is_return is False:
-        filters["custom_cone"] = cone
-    if denier and is_return is False:
-        filters["item_name"] = denier
+
+    # MI1-I78 P5 (Raj 2026-07-13): when supplier_batch_no is supplied it's
+    # specific enough to uniquely identify a batch within a container/lot.
+    # Skip the spec (glue/pulp/lusture/grade/fsc/cone/denier) filters —
+    # otherwise a mismatched header cone (from a previously-picked batch)
+    # blocks the lookup entirely and the user sees "not fetching".
+    if not supplier_batch_no:
+        if glue:
+            filters["custom_glue"] = glue
+        if pulp:
+            filters["custom_pulp"] = pulp
+        if fsc:
+            filters["custom_fsc"] = fsc
+        if lusture:
+            filters["custom_lusture"] = lusture
+        if grade:
+            filters["custom_grade"] = grade
+        if cone and is_return is False:
+            filters["custom_cone"] = cone
+        if denier and is_return is False:
+            filters["item_name"] = denier
 
     # Check if at least one filter is applied
     if filters:
