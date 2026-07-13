@@ -793,6 +793,16 @@ def get_delivery_note_batch(
         if frappe.db.exists("Batch", filters):
             item = frappe.get_doc("Batch", filters)
 
+            # MI1-I78 P7 (Raj 2026-07-13): also resolve the warehouse
+            # where this batch physically has stock. The SE/DN's default
+            # source warehouse is company-driven (Meher Creations →
+            # Vadod - MC), but a batch inwarded under Meher International
+            # lives in Vadod - MI. Without the correct s_warehouse the
+            # newly-appended items row triggers "negative stock" on
+            # submit. Prefer the warehouse with the largest positive
+            # balance for this batch.
+            resolved_warehouse = _resolve_batch_warehouse(item.name)
+
             return {
                 "item_code": item.item,
                 "item_name": item.item_name,
@@ -809,7 +819,38 @@ def get_delivery_note_batch(
                 "pulp": item.custom_pulp,
                 "fsc": item.custom_fsc,
                 "notes": item.custom_notes,
+                "warehouse": resolved_warehouse,
             }
+
+
+def _resolve_batch_warehouse(batch_no):
+    """MI1-I78 P7 helper: return the warehouse holding the largest
+    positive balance for the given batch. Reads from Serial and Batch
+    Bundle since batchwise valuation batches don't index on
+    tabStock Ledger Entry.batch_no.
+
+    Returns None if the batch isn't inwarded anywhere yet.
+    """
+    if not batch_no:
+        return None
+    rows = frappe.db.sql(
+        """
+        SELECT sbb.warehouse, SUM(sbe.qty) AS balance
+        FROM `tabSerial and Batch Bundle` sbb
+        INNER JOIN `tabSerial and Batch Entry` sbe ON sbe.parent = sbb.name
+        WHERE sbe.batch_no = %s
+          AND sbb.docstatus = 1
+          AND sbb.is_cancelled = 0
+          AND sbb.type_of_transaction IN ('Inward', 'Outward')
+        GROUP BY sbb.warehouse
+        HAVING balance > 0
+        ORDER BY balance DESC
+        LIMIT 1
+        """,
+        (batch_no,),
+        as_dict=True,
+    )
+    return rows[0]["warehouse"] if rows else None
 
 
 @frappe.whitelist()
