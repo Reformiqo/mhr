@@ -8,6 +8,27 @@ frappe.ui.form.on("Container", {
                 }
             };
         });
+        // MI1-I80 (Raj 2026-07-14): scope each Item Specification Link
+        // field to its own specification_type so the Product dropdown
+        // shows only Product specs, Colour shows only Colour specs, etc.
+        // Without this, all 8 dropdowns showed every Item Specification
+        // regardless of type — and newly-created Product/Colour/Type
+        // records were buried under the existing Glue/Lusture/etc rows.
+        const spec_type_by_field = {
+            glue:    "Glue",
+            pulp:    "Pulp",
+            lusture: "Lusture",
+            grade:   "Grade",
+            fsc:     "FSC",
+            product: "Product",
+            type:    "Type",
+            colour:  "Colour",
+        };
+        for (const [field, spec_type] of Object.entries(spec_type_by_field)) {
+            frm.set_query(field, function() {
+                return { filters: { specification_type: spec_type } };
+            });
+        }
     },
     company: function(frm) {
         frm.set_value("set_warehouse", "");
