@@ -18,7 +18,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Specification Type",
-   "options": "Glue\nLusture\nGrade\nPulp\nFSC\nCross Section",
+   "options": "Glue\nLusture\nGrade\nPulp\nFSC\nCross Section\nProduct\nType\nColour",
    "reqd": 1
   },
   {
@@ -35,7 +35,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-24 00:17:52.368583",
+ "modified": "2026-07-14 08:30:00.000000",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Item Specification",
