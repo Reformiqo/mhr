@@ -854,6 +854,93 @@ def _resolve_batch_warehouse(batch_no):
 
 
 @frappe.whitelist()
+def get_container_batches_with_stock(container_no):
+    """MI1-I71 reopen (Raj 2026-07-13): return batches for a container
+    that still have positive available stock.
+
+    Root cause of the "Batch has negative stock" error on DN submit
+    when the user picks a batch from the HTY / VFY 'Select Batch'
+    popup: the popup lists ALL batches under the container, including
+    ones that were already fully delivered. Users pick a zero-stock
+    batch → append → submit → ERPNext throws BatchNegativeStockError.
+
+    This helper joins Batch → Serial and Batch Bundle to compute the
+    net balance per (batch, warehouse) pair, and returns only rows
+    where the sum > 0. The client uses this in place of
+    frappe.client.get_list for the popup fetch so zero-stock batches
+    never appear.
+
+    Returned dict keys mirror what get_all_batches in the HTY & VFY
+    Client Script already reads:
+        name, custom_lot_no, custom_cone, custom_glue, custom_pulp,
+        custom_lusture, custom_grade, custom_fsc, item, item_name,
+        manufacturing_date, batch_qty, stock_uom, custom_supplier_batch_no,
+        custom_container_no, custom_warehouse
+    plus:
+        available_qty, warehouse (the warehouse holding the balance)
+    """
+    if not container_no:
+        return []
+
+    # Aggregate net balance per (batch, warehouse) from SBB entries.
+    # HAVING balance > 0 drops fully-delivered / never-inwarded rows.
+    balances = frappe.db.sql(
+        """
+        SELECT sbe.batch_no, sbb.warehouse, SUM(sbe.qty) AS balance
+        FROM `tabSerial and Batch Bundle` sbb
+        INNER JOIN `tabSerial and Batch Entry` sbe ON sbe.parent = sbb.name
+        INNER JOIN `tabBatch` b ON b.name = sbe.batch_no
+        WHERE b.custom_container_no = %s
+          AND sbb.docstatus = 1
+          AND sbb.is_cancelled = 0
+          AND sbb.type_of_transaction IN ('Inward', 'Outward')
+        GROUP BY sbe.batch_no, sbb.warehouse
+        HAVING balance > 0
+        """,
+        (container_no,),
+        as_dict=True,
+    )
+    if not balances:
+        return []
+
+    # One batch may have positive balance in multiple warehouses; the
+    # popup renders one row per batch, so collapse to the warehouse
+    # holding the largest positive balance.
+    by_batch = {}
+    for row in balances:
+        cur = by_batch.get(row["batch_no"])
+        if cur is None or row["balance"] > cur["balance"]:
+            by_batch[row["batch_no"]] = row
+
+    batch_names = list(by_batch.keys())
+    if not batch_names:
+        return []
+
+    # Fetch the batch metadata in one shot.
+    batches = frappe.get_all(
+        "Batch",
+        filters={"name": ["in", batch_names]},
+        fields=[
+            "name", "custom_lot_no", "custom_cone", "custom_glue",
+            "custom_pulp", "custom_lusture", "custom_grade", "custom_fsc",
+            "item", "item_name", "manufacturing_date", "batch_qty",
+            "stock_uom", "custom_supplier_batch_no",
+            "custom_container_no", "custom_warehouse",
+        ],
+        order_by="name asc",
+    )
+
+    # Attach the resolved warehouse + available qty from the SBB
+    # aggregate, then return.
+    for b in batches:
+        entry = by_batch.get(b["name"])
+        if entry:
+            b["available_qty"] = entry["balance"]
+            b["warehouse"] = entry["warehouse"]
+    return batches
+
+
+@frappe.whitelist()
 def get_item_batch(batch):
     if not frappe.db.exists("Batch", batch):
         return {"error": "Batch not found"}
