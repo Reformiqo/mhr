@@ -19,3 +19,4 @@ mhr.patches.v1_0.heal_stock_entry_supplier_batch_no
 mhr.patches.v1_0.create_hty_vfy_roles
 mhr.patches.v1_0.heal_sbb_posting_date_from_voucher
 mhr.patches.v1_0.reheal_batch_transaction_type_2026_07_14
+mhr.patches.v1_0.grant_hty_vfy_roles_on_mhr_reports
