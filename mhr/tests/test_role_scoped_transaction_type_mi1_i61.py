@@ -1,17 +1,20 @@
-"""MI1-I61 (Raj 2026-06-27) — restrict data visibility by user role.
+"""MI1-I61 (Raj 2026-06-27) + MI1-I80 (Raj 2026-07-15) — restrict
+report data visibility based on the caller's User Permission for
+Transaction Type.
 
-Users assigned the 'HTY User' role must only see HTY records; 'VFY User'
-role must only see VFY records. The Transaction Type filter on every
-mhr report was letting single-mode users see the other mode's data by
-tweaking the filter.
+Semantics per Raj's spec:
+  * Case 1 — User Permission [Allow=Transaction Type, For=HTY] only
+    → mhr reports force transaction_type='HTY'
+  * Case 2 — User Permission [Allow=Transaction Type, For=VFY] only
+    → mhr reports force transaction_type='VFY'
+  * Case 3 — Both HTY and VFY permissions → no forcing
+  * Case 4 — No Transaction Type permission → no forcing (default)
 
-Fix: mhr.utilis.enforce_role_scoped_transaction_type() OVERWRITES
-filters.transaction_type based on the calling user's roles, and every
-mhr report calls it at the top of execute(). Admin / System Manager /
-users with BOTH roles retain full access.
+Bypass regardless:
+  * Administrator
+  * Any user with 'System Manager'
 """
 import inspect
-import os
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -38,43 +41,41 @@ class TestEnforceHelperExists(FrappeTestCase):
         )
 
     def test_admin_bypasses(self):
-        """Administrator must not have the transaction_type forced."""
+        """Administrator must never have the transaction_type forced."""
         from mhr.utilis import enforce_role_scoped_transaction_type
-        prev_user = frappe.session.user
+        prev = frappe.session.user
         try:
             frappe.set_user("Administrator")
             f = enforce_role_scoped_transaction_type({"transaction_type": "HTY"})
-            self.assertEqual(f.get("transaction_type"), "HTY",
-                "Administrator must not be forced — HTY input stays HTY.")
+            self.assertEqual(f.get("transaction_type"), "HTY")
             f = enforce_role_scoped_transaction_type({"transaction_type": "VFY"})
-            self.assertEqual(f.get("transaction_type"), "VFY",
-                "Administrator must not be forced — VFY input stays VFY.")
+            self.assertEqual(f.get("transaction_type"), "VFY")
             f = enforce_role_scoped_transaction_type({})
             self.assertEqual(f.get("transaction_type"), None,
-                "Administrator can see all — no forced default.")
+                "Administrator sees no forced default when no filter.")
         finally:
-            frappe.set_user(prev_user)
+            frappe.set_user(prev)
 
-    def test_helper_mutates_in_place_and_returns(self):
-        """The function should mutate the input dict AND return it, so
-        both call styles work."""
-        from mhr.utilis import enforce_role_scoped_transaction_type
-        prev_user = frappe.session.user
-        try:
-            frappe.set_user("Administrator")
-            src = {"foo": "bar"}
-            out = enforce_role_scoped_transaction_type(src)
-            self.assertIs(out, src,
-                "Helper must return the same dict object (mutating in place).")
-        finally:
-            frappe.set_user(prev_user)
+    def test_helper_reads_user_permission_not_role(self):
+        """MI1-I80: switched from role-based to User Permission-based."""
+        from mhr import utilis
+        src = inspect.getsource(utilis.enforce_role_scoped_transaction_type)
+        self.assertIn(
+            "tabUser Permission",
+            src,
+            "Helper must query the tabUser Permission table (not roles) "
+            "per Raj's 2026-07-15 spec.",
+        )
+        self.assertIn(
+            "allow = 'Transaction Type'",
+            src,
+            "Helper must scope the query to allow='Transaction Type'.",
+        )
 
 
 class TestReportsCallEnforce(FrappeTestCase):
-    """Structural pin — every mhr report's execute() body must call
-    enforce_role_scoped_transaction_type. If someone adds a new mhr
-    report without wiring the enforcement, the report becomes a bypass
-    surface for the role restriction."""
+    """Every mhr report must call the enforce helper at execute() top —
+    otherwise the report becomes a bypass surface."""
 
     def test_each_report_calls_enforce(self):
         missing = []
@@ -85,42 +86,21 @@ class TestReportsCallEnforce(FrappeTestCase):
                 missing.append(mod_name)
         self.assertEqual(
             missing, [],
-            f"These mhr reports skip the MI1-I61 role enforcement — data "
-            f"leak surface: {missing}",
+            f"These mhr reports skip the enforcement: {missing}",
         )
 
 
-class TestRolesCreatedByPatch(FrappeTestCase):
+class TestUserPermissionBehavior(FrappeTestCase):
+    """End-to-end: create test users with each permission config and
+    verify enforce_role_scoped_transaction_type honours Raj's four cases."""
 
-    def test_hty_user_role_exists(self):
-        self.assertTrue(
-            frappe.db.exists("Role", "HTY User"),
-            "'HTY User' role must exist — created by the "
-            "create_hty_vfy_roles patch.",
-        )
+    USER_HTY = "mi1i80-hty@example.com"
+    USER_VFY = "mi1i80-vfy@example.com"
+    USER_BOTH = "mi1i80-both@example.com"
+    USER_NONE = "mi1i80-none@example.com"
 
-    def test_vfy_user_role_exists(self):
-        self.assertTrue(
-            frappe.db.exists("Role", "VFY User"),
-            "'VFY User' role must exist — created by the "
-            "create_hty_vfy_roles patch.",
-        )
-
-    def test_patch_registered(self):
-        path = os.path.join(frappe.get_app_path("mhr"), "patches.txt")
-        body = open(path).read()
-        self.assertIn(
-            "mhr.patches.v1_0.create_hty_vfy_roles",
-            body,
-            "create_hty_vfy_roles patch must be in patches.txt.",
-        )
-
-
-class TestEnforceBehaviorWithRoles(FrappeTestCase):
-    """Create a test user with only 'HTY User' role and verify the
-    enforcement forces transaction_type='HTY' regardless of input."""
-
-    def _make_user(self, email, roles):
+    @classmethod
+    def _make_user(cls, email):
         if frappe.db.exists("User", email):
             frappe.delete_doc("User", email, ignore_permissions=True, force=1)
         u = frappe.new_doc("User")
@@ -129,60 +109,93 @@ class TestEnforceBehaviorWithRoles(FrappeTestCase):
         u.enabled = 1
         u.new_password = "Test@1234"
         u.send_welcome_email = 0
-        for r in roles:
-            u.append("roles", {"role": r})
         u.insert(ignore_permissions=True)
         return u.name
 
-    def test_hty_only_user_gets_hty_forced(self):
+    @classmethod
+    def _grant(cls, user, for_value):
+        # Skip if a Transaction Type doc with for_value doesn't exist.
+        if not frappe.db.exists("Transaction Type", for_value):
+            return
+        up = frappe.new_doc("User Permission")
+        up.user = user
+        up.allow = "Transaction Type"
+        up.for_value = for_value
+        up.apply_to_all_doctypes = 1
+        up.insert(ignore_permissions=True)
+
+    def setUp(self):
+        for u in (self.USER_HTY, self.USER_VFY, self.USER_BOTH, self.USER_NONE):
+            self._make_user(u)
+        self._grant(self.USER_HTY, "HTY")
+        self._grant(self.USER_VFY, "VFY")
+        self._grant(self.USER_BOTH, "HTY")
+        self._grant(self.USER_BOTH, "VFY")
+        frappe.db.commit()
+
+    def tearDown(self):
+        for u in (self.USER_HTY, self.USER_VFY, self.USER_BOTH, self.USER_NONE):
+            # Delete User Permissions first.
+            for up in frappe.db.get_all("User Permission", filters={"user": u}, fields=["name"]):
+                frappe.delete_doc("User Permission", up["name"], ignore_permissions=True, force=1)
+            if frappe.db.exists("User", u):
+                frappe.delete_doc("User", u, ignore_permissions=True, force=1)
+        frappe.db.commit()
+
+    def test_case_1_hty_only_forces_hty(self):
         from mhr.utilis import enforce_role_scoped_transaction_type
         prev = frappe.session.user
         try:
-            uname = self._make_user("mi1i61-hty@example.com", ["HTY User"])
-            frappe.set_user(uname)
-            # User tries to see VFY data — enforcement flips to HTY.
+            frappe.set_user(self.USER_HTY)
+            # User attempts to view VFY — must be forced to HTY.
             f = enforce_role_scoped_transaction_type({"transaction_type": "VFY"})
             self.assertEqual(
                 f.get("transaction_type"), "HTY",
-                "HTY-only user's 'VFY' filter must be overridden to 'HTY'.",
+                "Case 1 — HTY-only user's VFY filter must be overridden.",
             )
-            # No filter at all → default to HTY.
+            # No filter → default forced to HTY.
             f = enforce_role_scoped_transaction_type({})
-            self.assertEqual(
-                f.get("transaction_type"), "HTY",
-                "HTY-only user without a filter must default to HTY.",
-            )
+            self.assertEqual(f.get("transaction_type"), "HTY",
+                "Case 1 — HTY-only user with no filter must default to HTY.")
         finally:
             frappe.set_user(prev)
 
-    def test_vfy_only_user_gets_vfy_forced(self):
+    def test_case_2_vfy_only_forces_vfy(self):
         from mhr.utilis import enforce_role_scoped_transaction_type
         prev = frappe.session.user
         try:
-            uname = self._make_user("mi1i61-vfy@example.com", ["VFY User"])
-            frappe.set_user(uname)
+            frappe.set_user(self.USER_VFY)
             f = enforce_role_scoped_transaction_type({"transaction_type": "HTY"})
-            self.assertEqual(
-                f.get("transaction_type"), "VFY",
-                "VFY-only user's 'HTY' filter must be overridden to 'VFY'.",
-            )
+            self.assertEqual(f.get("transaction_type"), "VFY",
+                "Case 2 — VFY-only user's HTY filter must be overridden.")
         finally:
             frappe.set_user(prev)
 
-    def test_both_roles_user_keeps_choice(self):
-        """A user with BOTH roles is treated as full access — no override."""
+    def test_case_3_both_permissions_no_forcing(self):
         from mhr.utilis import enforce_role_scoped_transaction_type
         prev = frappe.session.user
         try:
-            uname = self._make_user(
-                "mi1i61-both@example.com", ["HTY User", "VFY User"],
-            )
-            frappe.set_user(uname)
+            frappe.set_user(self.USER_BOTH)
             f = enforce_role_scoped_transaction_type({"transaction_type": "HTY"})
             self.assertEqual(f.get("transaction_type"), "HTY",
-                "Dual-role user's HTY choice must NOT be overridden.")
+                "Case 3 — dual-permission user's HTY pick must survive.")
             f = enforce_role_scoped_transaction_type({"transaction_type": "VFY"})
             self.assertEqual(f.get("transaction_type"), "VFY",
-                "Dual-role user's VFY choice must NOT be overridden.")
+                "Case 3 — dual-permission user's VFY pick must survive.")
+        finally:
+            frappe.set_user(prev)
+
+    def test_case_4_no_permission_no_forcing(self):
+        from mhr.utilis import enforce_role_scoped_transaction_type
+        prev = frappe.session.user
+        try:
+            frappe.set_user(self.USER_NONE)
+            # No permission → filters pass through unchanged.
+            f = enforce_role_scoped_transaction_type({"transaction_type": "HTY"})
+            self.assertEqual(f.get("transaction_type"), "HTY",
+                "Case 4 — no-permission user's HTY pick must survive.")
+            f = enforce_role_scoped_transaction_type({})
+            self.assertEqual(f.get("transaction_type"), None,
+                "Case 4 — no-permission user with no filter must see all.")
         finally:
             frappe.set_user(prev)

@@ -2477,17 +2477,23 @@ def get_container_nos_by_transaction_type(transaction_type):
 
 
 def enforce_role_scoped_transaction_type(filters):
-    """MI1-I61 (Raj 2026-06-27): if the user has 'HTY User' but not 'VFY
-    User', force filters.transaction_type='HTY' regardless of what they
-    picked in the filter panel. Same for VFY. This runs at the top of
-    every mhr report's execute() — it OVERWRITES the user-supplied
-    transaction_type value, so a VFY-only user cannot see HTY data by
+    """MI1-I61 (2026-06-27) + MI1-I80 (Raj 2026-07-15): if the user has a
+    Frappe User Permission with allow='Transaction Type' and a single
+    for_value ('HTY' or 'VFY'), force filters.transaction_type to that
+    value. This runs at the top of every mhr report's execute() — it
+    OVERWRITES the user-supplied transaction_type value, so a
+    permission-restricted user cannot see the other mode's data by
     tweaking the filter.
 
-    Bypasses (full access):
+    Behaviour per Raj's spec:
+      * Case 1 — permission for 'HTY' only  → force transaction_type='HTY'
+      * Case 2 — permission for 'VFY' only  → force transaction_type='VFY'
+      * Case 3 — permissions for both       → no forcing (dual-scope user)
+      * Case 4 — no Transaction Type permission → no forcing (default)
+
+    Bypasses (full access) regardless of User Permission:
       * Administrator
       * Any user with 'System Manager'
-      * Any user with BOTH 'HTY User' and 'VFY User' (deliberate super-user)
 
     Mutates `filters` in place AND returns it so call sites can chain.
     """
@@ -2498,13 +2504,30 @@ def enforce_role_scoped_transaction_type(filters):
     roles = set(frappe.get_roles(user)) if user else set()
     if "System Manager" in roles:
         return filters
-    is_hty = "HTY User" in roles
-    is_vfy = "VFY User" in roles
-    if is_hty and is_vfy:
+    if not user:
         return filters
-    if is_hty:
+
+    # Read User Permission rows for Transaction Type. Frappe stores these
+    # in `tabUser Permission` keyed on (user, allow, for_value).
+    allowed = frappe.db.sql_list(
+        """SELECT for_value
+           FROM `tabUser Permission`
+           WHERE user = %s
+             AND allow = 'Transaction Type'
+             AND (apply_to_all_doctypes = 1 OR apply_to_all_doctypes IS NULL)""",
+        (user,),
+    ) or []
+    allowed_set = {v for v in allowed if v}
+
+    # Case 4: no Transaction Type permission → no restriction.
+    # Case 3: user has permission for BOTH HTY and VFY → no restriction.
+    if not allowed_set or {"HTY", "VFY"}.issubset(allowed_set):
+        return filters
+
+    # Case 1 / 2: user has exactly one Transaction Type permitted → force it.
+    if "HTY" in allowed_set:
         filters["transaction_type"] = "HTY"
-    elif is_vfy:
+    elif "VFY" in allowed_set:
         filters["transaction_type"] = "VFY"
     return filters
 
