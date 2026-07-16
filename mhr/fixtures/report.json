@@ -26,6 +26,18 @@
     "parent": "Container Report",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "Container Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Container Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    },
    {
@@ -66,6 +78,18 @@
   "report_script": null,
   "report_type": "Script Report",
   "roles": [
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Updated Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
    {
     "parent": "Updated Meher Creation",
     "parentfield": "roles",
@@ -181,6 +205,18 @@
     "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT SIMPLE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
@@ -227,6 +263,18 @@
   "report_script": null,
   "report_type": "Script Report",
   "roles": [
+   {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "DELIVERY CHALLAN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
    {
     "parent": "DELIVERY CHALLAN",
     "parentfield": "roles",
@@ -348,6 +396,18 @@
     "parent": "STOCK SHEET (BALANCE REPORT)",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "STOCK SHEET (BALANCE REPORT)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
@@ -459,6 +519,18 @@
     "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "STOCK SHEETS (INWARD CONELESS STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
@@ -505,6 +577,18 @@
   "report_script": null,
   "report_type": "Custom Report",
   "roles": [
+   {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "22",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
    {
     "parent": "22",
     "parentfield": "roles",
@@ -584,6 +668,18 @@
     "parent": "Meher Creation Updated",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "Meher Creation Updated",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "All"
    },
    {
@@ -630,6 +726,18 @@
   "report_script": null,
   "report_type": "Script Report",
   "roles": [
+   {
+    "parent": "Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Meher Creation",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
    {
     "parent": "Meher Creation",
     "parentfield": "roles",
@@ -727,6 +835,18 @@
     "parent": "STOCK SHEET (INWARD CONE WISE)",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "STOCK SHEET (INWARD CONE WISE)",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
@@ -798,6 +918,18 @@
   "report_script": null,
   "report_type": "Query Report",
   "roles": [
+   {
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "STOCK SHEET (INWARD CONE WISE) v2",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
    {
     "parent": "STOCK SHEET (INWARD CONE WISE) v2",
     "parentfield": "roles",
@@ -913,6 +1045,18 @@
     "parent": "STOCK SHEETS (INWARD REST STOCK )",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "STOCK SHEETS (INWARD REST STOCK )",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Item Manager"
    },
    {
@@ -963,6 +1107,18 @@
     "parent": "HTY Master Report",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "HTY Master Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    },
    {
@@ -1009,6 +1165,18 @@
   "report_script": null,
   "report_type": "Script Report",
   "roles": [
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Delivery Trip Simplified",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
    {
     "parent": "Delivery Trip Simplified",
     "parentfield": "roles",
@@ -1075,6 +1243,18 @@
     "parent": "Delivery Note Lot-Wise",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "Delivery Note Lot-Wise",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Delivery Note Lot-Wise",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock Manager"
    },
    {
@@ -1137,6 +1317,18 @@
     "parent": "Subcontractor Material Tracking",
     "parentfield": "roles",
     "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "Subcontractor Material Tracking",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Subcontractor Material Tracking",
+    "parentfield": "roles",
+    "parenttype": "Report",
     "role": "Stock User"
    },
    {
@@ -1177,6 +1369,18 @@
   "report_script": null,
   "report_type": "Script Report",
   "roles": [
+   {
+    "parent": "DN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   },
+   {
+    "parent": "DN",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
    {
     "parent": "DN",
     "parentfield": "roles",
