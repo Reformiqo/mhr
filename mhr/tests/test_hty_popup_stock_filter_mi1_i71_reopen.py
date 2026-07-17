@@ -137,19 +137,34 @@ class TestStockAwareBatchFetch(FrappeTestCase):
         )
 
 
-class TestGetAllBatchesByItemUntouched(FrappeTestCase):
-    """The custom_denier flow uses a sibling helper
-    (get_all_batches_by_item) — pin that MI1-I71 reopen didn't
-    accidentally rewire it too."""
+class TestGetAllBatchesByItemAlsoRoutesThroughServer(FrappeTestCase):
+    """MI1-I71 (Raj 2026-07-17): the SIBLING helper
+    (get_all_batches_by_item) was also rewired — see
+    test_hty_popup_clamped_batch_qty_mi1_i71.py for the full pin.
 
-    def test_get_all_batches_by_item_still_uses_get_list(self):
+    The earlier MI1-I71 reopen (2026-07-13) only fixed the container-
+    scoped fetcher, but the same stale-batch_qty bug still hit the
+    item-scoped (custom_denier) path. Both paths now route through
+    server helpers so `batch_qty` reflects SBB balance, not the raw
+    Batch master value.
+    """
+
+    def test_get_all_batches_by_item_routes_through_server_helper(self):
         src = _hty_vfy_script()
         start = src.find("async function get_all_batches_by_item(item)")
         self.assertGreater(start, -1)
-        self.assertIn(
+        body = src[start:start + 1500]
+        self.assertNotIn(
             "method: 'frappe.client.get_list'",
-            src[start:start + 1500],
-            "get_all_batches_by_item must retain its existing paging "
-            "get_list call — MI1-I71 reopen only rewired the "
-            "container-scoped fetcher.",
+            body,
+            "get_all_batches_by_item must NOT use raw frappe.client.get_list "
+            "— that returned the stale Batch master `batch_qty` which "
+            "over-drafted partially-consumed batches on Submit. Route via "
+            "mhr.note.get_hty_batches_by_item (MI1-I71, 2026-07-17).",
+        )
+        self.assertIn(
+            "mhr.note.get_hty_batches_by_item",
+            body,
+            "get_all_batches_by_item must call mhr.note.get_hty_batches_by_item "
+            "(the clamp-aware server endpoint).",
         )

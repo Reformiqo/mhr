@@ -123,20 +123,50 @@ class TestHtyVfyGetAllBatchesUnchanged(FrappeTestCase):
 
     def test_full_fields_list_covers_modal_columns(self):
         """The modal renders Mfg Date, Batch Qty, Stock UOM, Supplier
-        Batch No, Container No, Warehouse — the fetch must include all
-        of them or the modal renders sparse rows again."""
+        Batch No, Container No, Warehouse — the fetchers must include
+        all of them or the modal renders sparse rows again.
+
+        MI1-I71 (Raj 2026-07-17): the field list lives on the SERVER now
+        (get_all_batches → mhr.utilis.get_container_batches_with_stock,
+        get_all_batches_by_item → mhr.note.get_hty_batches_by_item) so
+        `batch_qty` can be clamped to SBB balance before returning.
+        The defence pin now points at both server helpers.
+        """
+        import inspect
+        from mhr.note import get_hty_batches_by_item
+        from mhr.utilis import get_container_batches_with_stock
+
+        src_item = inspect.getsource(get_hty_batches_by_item)
+        src_container = inspect.getsource(get_container_batches_with_stock)
+
+        # Container helper drops custom_warehouse (it resolves the
+        # authoritative warehouse from SBB). Everything else must be there.
         for f in (
-            "'manufacturing_date'",
-            "'batch_qty'",
-            "'stock_uom'",
-            "'custom_supplier_batch_no'",
-            "'custom_container_no'",
-            "'custom_warehouse'",
+            '"manufacturing_date"',
+            '"batch_qty"',
+            '"stock_uom"',
+            '"custom_supplier_batch_no"',
+            '"custom_container_no"',
         ):
-            self.assertIn(f, self.src,
-                f"get_all_batches must request {f} — it's rendered by "
-                "show_hty_batch_dialog and dropping it would revert the "
-                "P4 bug (sparse HTY modal).")
+            self.assertIn(f, src_container,
+                f"get_container_batches_with_stock must request {f} — "
+                "it's rendered by show_hty_batch_dialog and dropping it "
+                "would revert the P4 bug (sparse HTY modal).")
+
+        # Item-scoped endpoint fetches the full column set including
+        # custom_warehouse (no SBB-driven substitute there).
+        for f in (
+            '"manufacturing_date"',
+            '"batch_qty"',
+            '"stock_uom"',
+            '"custom_supplier_batch_no"',
+            '"custom_container_no"',
+            '"custom_warehouse"',
+        ):
+            self.assertIn(f, src_item,
+                f"get_hty_batches_by_item must request {f} — it's "
+                "rendered by show_hty_batch_dialog and dropping it "
+                "would revert the P4 bug (sparse HTY modal).")
 
     def test_show_hty_batch_dialog_reads_those_fields(self):
         for expr in (

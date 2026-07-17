@@ -1,4 +1,45 @@
 import frappe
+from frappe.utils import cint
+
+
+@frappe.whitelist()
+def get_hty_batches_by_item(item, limit_start=0, limit_page_length=50):
+    """MI1-I71 (Raj 2026-07-17): HTY popup's item-scoped batch source.
+    Replaces a JS `frappe.client.get_list('Batch', ...)` call so the
+    'Batch Qty' column reflects the CURRENT available balance (from
+    Serial and Batch Bundle), not the stale Batch master value that
+    drifts after partial consumption.
+
+    Preserves the client's page_size-based pagination contract: caller
+    keeps requesting pages until an empty page comes back. Zero-balance
+    rows are kept in the response (batch_qty=0) so pagination math stays
+    correct across depleted-page boundaries; the popup's Select handler
+    is the layer that skips 0-qty picks.
+    """
+    if not item:
+        return []
+
+    batches = frappe.get_all(
+        "Batch",
+        filters={"item": item},
+        fields=[
+            "name", "custom_glue", "custom_pulp", "custom_lusture",
+            "custom_grade", "custom_lot_no", "custom_fsc", "custom_cone",
+            "item", "item_name", "manufacturing_date", "cross_section",
+            "batch_qty", "stock_uom", "expiry_date", "supplier",
+            "custom_supplier_batch_no", "custom_container_no",
+            "custom_merge_no", "custom_warehouse",
+        ],
+        limit_start=cint(limit_start),
+        limit_page_length=cint(limit_page_length),
+        order_by="name asc",
+    )
+    if not batches:
+        return []
+
+    _clamp_batch_qty_to_available(batches, False)
+    return batches
+
 
 @frappe.whitelist()
 def fetch_batches(

@@ -937,6 +937,12 @@ def get_container_batches_with_stock(container_no):
         if entry:
             b["available_qty"] = entry["balance"]
             b["warehouse"] = entry["warehouse"]
+            # MI1-I71 (Raj 2026-07-17): the HTY popup renders
+            # `batch_qty` in the 'Batch Qty' column, and the Select
+            # handler writes it into the DN row's qty. Overwrite the
+            # stale Batch master value with the current SBB balance
+            # so both the display and the row qty match reality.
+            b["batch_qty"] = entry["balance"]
     return batches
 
 
