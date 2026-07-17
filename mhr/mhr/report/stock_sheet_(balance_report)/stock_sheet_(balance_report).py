@@ -80,13 +80,39 @@ def strip_prefix(val):
     return val or ""
 
 
+def get_external_job_work_warehouses():
+    """MI1-I82 (Raj 2026-07-16): return the set of Warehouse names
+    flagged as External Job Work Warehouses (non-company job-work
+    warehouses via the custom_external_job_work_warehouse Check field).
+
+    Stock in these warehouses stays in the system for transactions
+    (Stock Entry, Send to Subcontractor, Material Transfer, etc.) but
+    must NOT count as company stock in this report — the flag causes
+    their SLE / SBE rows to be excluded from the balance aggregation.
+
+    Returns an empty set when the custom field hasn't been installed
+    yet (pre-migration state) so this remains safe on old fixtures.
+    """
+    if not frappe.db.has_column("Warehouse", "custom_external_job_work_warehouse"):
+        return set()
+    return set(frappe.db.sql_list(
+        """SELECT name FROM `tabWarehouse`
+           WHERE custom_external_job_work_warehouse = 1"""
+    ))
+
+
 def get_batch_balances(batch_ids):
-    """Get stock balance per batch from SLE + SBE, queried in chunks."""
+    """Get stock balance per batch from SLE + SBE, queried in chunks.
+
+    MI1-I82 (Raj 2026-07-16): entries in External Job Work warehouses
+    are excluded so their stock does not count as company balance.
+    """
     if not batch_ids:
         return {}
 
     balance_map = {}
     CHUNK = 2000
+    external_wh = get_external_job_work_warehouses()
 
     SLE = frappe.qb.DocType("Stock Ledger Entry")
     SBE = frappe.qb.DocType("Serial and Batch Entry")
@@ -96,7 +122,7 @@ def get_batch_balances(batch_ids):
         chunk = batch_ids[i : i + CHUNK]
 
         # Direct SLE entries (older method - batch_no on SLE itself)
-        rows = (
+        sle_q = (
             frappe.qb.from_(SLE)
             .select(SLE.batch_no, Sum(SLE.actual_qty).as_("balance"))
             .where(SLE.docstatus == 1)
@@ -107,13 +133,16 @@ def get_batch_balances(batch_ids):
                 | (SLE.serial_and_batch_bundle == "")
             )
             .groupby(SLE.batch_no)
-        ).run(as_dict=True)
+        )
+        if external_wh:
+            sle_q = sle_q.where(SLE.warehouse.notin(list(external_wh)))
+        rows = sle_q.run(as_dict=True)
 
         for r in rows:
             balance_map[r.batch_no] = balance_map.get(r.batch_no, 0) + flt(r.balance)
 
         # Bundle SBE entries (ERPNext v15+ method)
-        rows = (
+        sbe_q = (
             frappe.qb.from_(SBE)
             .inner_join(SBB)
             .on(SBB.name == SBE.parent)
@@ -122,7 +151,10 @@ def get_batch_balances(batch_ids):
             .where(SBB.is_cancelled == 0)
             .where(SBE.batch_no.isin(chunk))
             .groupby(SBE.batch_no)
-        ).run(as_dict=True)
+        )
+        if external_wh:
+            sbe_q = sbe_q.where(SBB.warehouse.notin(list(external_wh)))
+        rows = sbe_q.run(as_dict=True)
 
         for r in rows:
             balance_map[r.batch_no] = balance_map.get(r.batch_no, 0) + flt(r.balance)
