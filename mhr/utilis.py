@@ -291,16 +291,22 @@ def make_receive_from_subcontractor(source_name):
             "uom": src_item.uom,
             "stock_uom": src_item.stock_uom,
             "conversion_factor": src_item.conversion_factor or 1,
-            "batch_no": src_item.batch_no,
+            # MI1-I50 reopen (Raj 2026-07-17): batch_no is BLANK — a NEW
+            # Batch is auto-generated on submit from
+            # (container_no + lot_no + supplier_batch_no) via
+            # `create_receive_batches`. The received material is treated
+            # as a distinct new batch, not a re-import of the sent batch.
+            "batch_no": "",
             "serial_no": src_item.serial_no,
             "use_serial_batch_fields": src_item.get("use_serial_batch_fields") or 0,
-            # MI1-I50 (2026-06-23 follow-up): warehouses STAY THE SAME as
-            # the source Send entry (Raj's request — see his screenshot
-            # comparison). Earlier I reversed them assuming the receive
-            # had to flow subcontractor -> internal, but Raj's workflow
-            # records the receipt against the original direction.
-            "s_warehouse": src_item.s_warehouse,
-            "t_warehouse": src_item.t_warehouse,
+            # MI1-I50 reopen (Raj 2026-07-17): warehouses flip so the
+            # material comes BACK from the subcontractor:
+            #   Source WH = source Send's Target WH (subcontractor)
+            #   Target WH = BLANK — user picks manually before submit
+            # Prior iteration (2026-06-23) kept both warehouses the same
+            # as the Send entry; today's spec overrides that.
+            "s_warehouse": src_item.t_warehouse,
+            "t_warehouse": "",
             "allow_zero_valuation_rate": src_item.get("allow_zero_valuation_rate") or 0,
             "basic_rate": src_item.basic_rate or 0,
         }
@@ -344,18 +350,120 @@ def _subcontract_source_name(doc):
 
 
 def _subcontract_match_key(item):
-    """(item_code, batch_no) — the join key between Receive and Source rows.
+    """(item_code, container_no, lot_no, supplier_batch_no) — the join key
+    between Receive and Source rows.
+
+    MI1-I50 reopen (Raj 2026-07-17): the Receive entry now carries a NEWLY
+    generated batch (see `create_receive_batches`) so the old (item_code,
+    batch_no) key stopped matching. The container / lot / supplier-batch
+    triplet is stable across both sides — it's exactly the trio Raj
+    identifies each pending job-work row by — so we match on that instead.
 
     Source-built receipts mirror source rows 1:1, but the user can edit qty
     or add rows. We aggregate by this key on both sides so multi-row source
     + edited receipt still reconciles correctly."""
-    return (item.item_code, (item.batch_no or ""))
+    return (
+        item.item_code,
+        (item.get("custom_container_no") or ""),
+        (item.get("custom_lot_no") or ""),
+        (item.get("custom_supplier_batch_no") or ""),
+    )
+
+
+def _receive_batch_id(item):
+    """MI1-I50 reopen (Raj 2026-07-17): construct the auto-generated Batch
+    ID for a Receive-from-Subcontractor row:
+
+        Container No - Lot No - Supplier Batch No
+
+    e.g. `MCJC-1111 + 01012001 + 3182` → `MCJC-1111-01012001-3182`.
+
+    Returns None when any of the three fields is missing — the caller
+    (create_receive_batches) treats that as a hard validation error so
+    the user can't submit a Receive entry with an unbatchable row."""
+    container = (item.get("custom_container_no") or "").strip()
+    lot = (item.get("custom_lot_no") or "").strip()
+    supplier_batch = (item.get("custom_supplier_batch_no") or "").strip()
+    if not (container and lot and supplier_batch):
+        return None
+    return f"{container}-{lot}-{supplier_batch}"
+
+
+@frappe.whitelist()
+def create_receive_batches(doc, method=None):
+    """MI1-I50 reopen (Raj 2026-07-17): before_submit hook on Stock Entry.
+    For every row on a Receive-from-Subcontractor entry with an empty
+    batch_no, generate a NEW Batch named
+    `container_no-lot_no-supplier_batch_no` and assign it to the row.
+
+    Fast-no-op on every Stock Entry that isn't a Receive entry
+    (`custom_original_send_entry` empty). Runs on before_submit, not
+    validate, so re-saving a draft with different container/lot/supplier-
+    batch values doesn't lock in the FIRST batch derivation.
+
+    Validation:
+      * All three fields (container, lot, supplier batch) must be set on
+        every row that needs a batch — otherwise we can't derive the ID.
+      * If the derived Batch already exists → hard block (Raj's spec:
+        "prevent duplicate creation and display an appropriate
+        validation message"). A duplicate ID usually means someone
+        already submitted the same receive earlier.
+    """
+    source_name = _subcontract_source_name(doc)
+    if not source_name:
+        return
+
+    for row in doc.items:
+        if row.batch_no:
+            # User pre-set an explicit batch — leave it alone.
+            continue
+        batch_id = _receive_batch_id(row)
+        if not batch_id:
+            frappe.throw(_(
+                "Cannot generate Batch for item <b>{0}</b>: Container No, "
+                "Lot No and Supplier Batch No must all be set before "
+                "submitting a Receive-from-Subcontractor entry."
+            ).format(row.item_code))
+        if frappe.db.exists("Batch", batch_id):
+            frappe.throw(_(
+                "Batch <b>{0}</b> already exists — a Receive entry for the "
+                "same Container/Lot/Supplier-Batch combination was likely "
+                "already submitted. Delete the duplicate row or amend the "
+                "existing Receive."
+            ).format(batch_id))
+        batch = frappe.new_doc("Batch")
+        batch.batch_id = batch_id
+        batch.item = row.item_code
+        batch.batch_qty = flt(row.qty)
+        # Carry the identifier custom fields onto the new Batch so all
+        # downstream reports / dropdowns can find it via the same trio.
+        if hasattr(batch, "custom_container_no"):
+            batch.custom_container_no = row.get("custom_container_no") or ""
+        if hasattr(batch, "custom_lot_no"):
+            batch.custom_lot_no = row.get("custom_lot_no") or ""
+        if hasattr(batch, "custom_supplier_batch_no"):
+            batch.custom_supplier_batch_no = row.get("custom_supplier_batch_no") or ""
+        if hasattr(batch, "custom_cone"):
+            batch.custom_cone = row.get("custom_cone") or 0
+        batch.insert(ignore_permissions=True)
+        row.batch_no = batch.name
+        # Force use_serial_batch_fields so ERPNext writes the batch onto
+        # the SLE row directly (rather than requiring a SBB, which would
+        # need a separate submission cycle we're inside of).
+        row.use_serial_batch_fields = 1
 
 
 @frappe.whitelist()
 def validate_subcontract_receipt(doc, method=None):
     """MI1-I50 P3: on a Receive entry's validate, refuse over-receipts beyond
-    pending * (1 + custom_overreceipt_tolerance_pct / 100) per (item, batch).
+    pending * (1 + custom_overreceipt_tolerance_pct / 100) per
+    (item, container_no, lot_no, supplier_batch_no).
+
+    MI1-I50 reopen (Raj 2026-07-17): the join key switched from
+    (item, batch) to the container/lot/supplier-batch triplet because the
+    Receive entry now carries a NEWLY generated batch (see
+    `create_receive_batches`), so `(item, batch)` no longer maps onto
+    the source rows.
 
     Runs on every Stock Entry but no-ops unless custom_original_send_entry is
     set. Tolerance defaults to 0 (strict) when the source field is empty."""
@@ -393,13 +501,19 @@ def validate_subcontract_receipt(doc, method=None):
         pend = pending.get(key, 0.0)
         max_allowed = pend * (1.0 + tolerance_pct / 100.0)
         if inc > max_allowed + _SUBCONTRACT_QTY_EPSILON:
-            item_code, batch = key
+            # MI1-I50 reopen (2026-07-17): key is now
+            # (item_code, container_no, lot_no, supplier_batch_no).
+            item_code, container_no, lot_no, supplier_batch_no = key
+            row_label = (
+                f"container {container_no or '—'} / lot {lot_no or '—'} / "
+                f"supplier batch {supplier_batch_no or '—'}"
+            )
             frappe.throw(_(
-                "Over-receipt blocked for item <b>{0}</b> (batch {1}): "
+                "Over-receipt blocked for item <b>{0}</b> ({1}): "
                 "pending {2}, tolerance {3}%, but this entry is taking {4}. "
                 "Either reduce the qty on this row or raise "
                 "<b>Over-Receipt Tolerance</b> on the source Send entry."
-            ).format(item_code, batch or "—",
+            ).format(item_code, row_label,
                      round(pend, 3), tolerance_pct, round(inc, 3)))
 
 

@@ -180,6 +180,13 @@ doc_events = {
             # MI1-I50 P3: refuse over-receipts beyond the source's tolerance.
             "mhr.utilis.validate_subcontract_receipt",
         ],
+        "before_submit": [
+            # MI1-I50 reopen (Raj 2026-07-17): generate a new Batch per row
+            # on Receive-from-Subcontractor entries — batch_no comes in
+            # blank from make_receive_from_subcontractor, and the derived
+            # ID is `container_no-lot_no-supplier_batch_no`.
+            "mhr.utilis.create_receive_batches",
+        ],
         "on_submit": [
             "mhr.utilis.update_batch_warehouse_on_stock_entry",
             # MI1-I50 P3: push received qty back onto the source Send entry

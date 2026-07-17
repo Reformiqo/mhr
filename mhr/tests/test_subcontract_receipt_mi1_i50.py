@@ -70,24 +70,44 @@ class TestSourceValidation(FrappeTestCase):
         self.assertIn("'Send to Subcontractor'", src,
             "Server method must reject sources with the wrong purpose.")
 
-    def test_warehouses_stay_the_same(self):
-        """Pin (Raj 2026-06-23 follow-up): the new entry's warehouses
-        STAY THE SAME as the source Send entry — do NOT reverse.
-        Earlier we reversed assuming the receive flowed subcontractor
-        -> internal, but Raj's workflow records the receipt against
-        the original direction."""
+    def test_warehouse_mapping(self):
+        """Pin (Raj 2026-07-17 reopen): the Receive entry's warehouses
+        FLIP so material comes BACK from the subcontractor:
+          Source WH = source Send's Target WH (the subcontractor WH)
+          Target WH = BLANK (user picks manually before submit)
+
+        Earlier iterations either fully-reversed (pre-2026-06-23) or
+        kept both the same (2026-06-23 → 2026-07-17). The current spec
+        is: source-flipped, target-blank."""
         import inspect
         from mhr import utilis
         src = inspect.getsource(utilis.make_receive_from_subcontractor)
-        self.assertIn('"s_warehouse": src_item.s_warehouse', src,
-            "Receive entry's s_warehouse must = source's s_warehouse (same).")
-        self.assertIn('"t_warehouse": src_item.t_warehouse', src,
-            "Receive entry's t_warehouse must = source's t_warehouse (same).")
-        # Guard against the old reversed pattern slipping back in.
-        self.assertNotIn('"s_warehouse": src_item.t_warehouse', src,
-            "Old reversed pattern must NOT come back.")
-        self.assertNotIn('"t_warehouse": src_item.s_warehouse', src,
-            "Old reversed pattern must NOT come back.")
+        self.assertIn('"s_warehouse": src_item.t_warehouse', src,
+            "Receive entry's s_warehouse must = source's t_warehouse "
+            "(the subcontractor WH).")
+        self.assertIn('"t_warehouse": ""', src,
+            "Receive entry's t_warehouse must be blank — the user picks "
+            "the target WH manually per Raj's 2026-07-17 spec.")
+        # Guard against the previous 'both same' pattern.
+        self.assertNotIn('"s_warehouse": src_item.s_warehouse', src,
+            "Old 'both same' pattern must NOT come back.")
+        self.assertNotIn('"t_warehouse": src_item.t_warehouse', src,
+            "Old 'both same' pattern must NOT come back.")
+
+    def test_batch_no_is_blank_on_created_rows(self):
+        """MI1-I50 reopen (Raj 2026-07-17): batch_no on the created
+        Receive rows must be BLANK — a new Batch is auto-generated on
+        submit by create_receive_batches from
+        (container_no + lot_no + supplier_batch_no)."""
+        import inspect
+        from mhr import utilis
+        src = inspect.getsource(utilis.make_receive_from_subcontractor)
+        self.assertIn('"batch_no": ""', src,
+            "Receive rows must be created with batch_no blank — "
+            "create_receive_batches fills them at before_submit time.")
+        self.assertNotIn('"batch_no": src_item.batch_no', src,
+            "Old 'copy source batch' pattern must NOT come back — Raj's "
+            "spec is a NEW batch derived from container/lot/supplier-batch.")
 
     def test_stock_entry_type_is_job_work_received(self):
         """Pin: type is 'Job Work Received' (custom Stock Entry Type
