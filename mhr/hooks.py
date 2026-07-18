@@ -148,6 +148,9 @@ doc_events = {
             "mhr.utilis.set_delivery_note_user",
             "mhr.utilis.set_return_cone_from_original",
             "mhr.utilis.calculate_delivery_note_totals",
+            # MI1-I83 (Raj 2026-07-18): auto-populate custom_notes from
+            # the linked VFY Container's `notes` field when empty.
+            "mhr.utilis.fetch_notes_from_container",
             # "mhr.utilis.validate_delivery_note_batches",
             # "mhr.utilis.validate_batch_container_match",
         ]

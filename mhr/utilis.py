@@ -1821,6 +1821,42 @@ def set_delivery_note_user(doc, method=None):
     doc.prepared_by = frappe.session.user
 
 
+def fetch_notes_from_container(doc, method=None):
+    """MI1-I83 (Raj 2026-07-18): auto-populate the DN's `custom_notes`
+    field from the linked Container Inward's `notes` when creating a
+    VFY Delivery Note.
+
+    Why not a `fetch_from` on the custom field? Because DN's
+    `custom_container_no` is a Data field (not a Link), so Frappe's
+    `fetch_from` doesn't apply — we resolve the Container manually via
+    (container_no, transaction_type='VFY') lookup.
+
+    Rules:
+      * Scope: VFY only. HTY DNs are untouched per Raj's spec.
+      * If `custom_notes` already has a value, preserve it (the user
+        may have typed an override, OR the existing
+        `custom_batch.custom_notes` fetch_from may have populated it
+        from a Batch that also had notes — either way, first non-empty
+        value wins).
+      * If Container.notes is empty, do nothing (leave DN blank).
+      * Existing fetches of other Container details are unaffected.
+    """
+    if (doc.get("transaction_type") or "").upper() != "VFY":
+        return
+    if doc.get("custom_notes"):
+        return
+    container_no = doc.get("custom_container_no")
+    if not container_no:
+        return
+    notes = frappe.db.get_value(
+        "Container",
+        {"container_no": container_no, "transaction_type": "VFY"},
+        "notes",
+    )
+    if notes:
+        doc.custom_notes = notes
+
+
 def calculate_delivery_note_totals(doc, method=None):
     total_cone = 0
     for item in doc.items:
