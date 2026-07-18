@@ -79,6 +79,13 @@ def fetch_batches(
     if denier and is_return is False:
         filters["item_name"] = denier
 
+    # MI1-I85 (Raj 2026-07-18): don't return zero-cone batches from the
+    # Fetch Batches flow — they hit the DN as qty=0 child rows that
+    # can't be submitted anyway. Skip on return receipts (returns are
+    # allowed to reference depleted-cone batches).
+    if is_return is False:
+        filters["custom_cone"] = filters.get("custom_cone") or [">", 0]
+
     if filters:
         batches = frappe.get_all("Batch", filters=filters, fields=["name", "item", "item_name", "batch_qty", "stock_uom", "custom_supplier_batch_no", "custom_cone", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_fsc", "custom_lot_no", "custom_container_no", "custom_notes"], limit=limit)
 
@@ -90,6 +97,14 @@ def fetch_batches(
         # (from Serial and Batch Bundle), so the row lands with a qty
         # that will actually submit.
         _clamp_batch_qty_to_available(batches, is_return)
+
+        # MI1-I85 (Raj 2026-07-18): drop batches whose clamped qty is
+        # 0 — they'd become zero-quantity DN rows which can never
+        # submit. On return receipts (is_return=True), the clamp isn't
+        # applied, so batch_qty stays as the master value; keep those.
+        if is_return is False:
+            batches = [b for b in batches if float(b.get("batch_qty") or 0) > 0]
+
         return batches
     else:
         return []
