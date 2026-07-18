@@ -332,7 +332,18 @@ fixtures = [
      {"doctype": "Client Script", "filters": [["module", "in", ("Mhr")]]},
      {"doctype": "Custom Field", "filters": [["module", "in", ("Mhr")]]},
      {"doctype": "Report", "filters": [["module", "in", ("Mhr")]]},
-     {"doctype": "Property Setter", "filters": [["module", "in", ("Mhr")]]},
+     # MI1-I84 (Raj 2026-07-18): NEVER include naming_series options in
+     # the Property Setter fixture. Users add custom Document Naming
+     # Series through Document Naming Settings; if we re-export the
+     # naming_series.options Property Setter, `bench migrate` on prod
+     # overwrites the DB value on every deploy and wipes those user
+     # additions. The 4 offenders (Delivery Trip / Delivery Note /
+     # Stock Entry / Sales Order) were removed from the JSON in the
+     # same commit — this filter keeps them out of future exports.
+     {"doctype": "Property Setter", "filters": [
+         ["module", "in", ("Mhr")],
+         ["field_name", "!=", "naming_series"],
+     ]},
      # MI1-I39 — HTY Batch Label print format ships via fixtures so the
      # new HTY-mode Print Batch flow works on every bench after migrate.
      {"doctype": "Print Format", "filters": [["module", "in", ("Mhr")]]},
