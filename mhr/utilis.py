@@ -320,6 +320,17 @@ def make_receive_from_subcontractor(source_name):
     if not appended:
         frappe.throw(_("Nothing to receive — all items on this Send entry are already fully received."))
 
+    # MI1-I50 reopen (Raj 2026-07-17): the draft is created with blank
+    # t_warehouse on every row — user picks Target manually per spec.
+    # ERPNext's Stock Entry.validate() runs its own validate_warehouse()
+    # which throws "Target warehouse is mandatory for row 1" (this is
+    # NOT a generic mandatory-field check, so ignore_mandatory doesn't
+    # help — verified via smoke test). We skip validate() on this one
+    # insert so the draft materialises with blank targets; the user
+    # then sees the same error on their first Save, which is exactly
+    # the prompt to fill Target. On Save + Submit the full validation
+    # chain (mhr hooks included) fires normally.
+    receipt.flags.ignore_validate = True
     receipt.insert(ignore_permissions=True)
     return {"name": receipt.name}
 

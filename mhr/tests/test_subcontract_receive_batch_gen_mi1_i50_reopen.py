@@ -216,6 +216,44 @@ class TestMatchKeyContainerLotSupplierBatch(FrappeTestCase):
         )
 
 
+class TestDraftInsertsWithBlankTarget(FrappeTestCase):
+    """MI1-I50 reopen (Raj 2026-07-17): the draft must actually persist
+    with blank t_warehouse. Regression pin against a real bug we hit
+    2026-07-18: an earlier iteration used `ignore_mandatory=True`, but
+    Stock Entry's own `validate_warehouse()` throws BEFORE the mandatory
+    check runs — so the insert() failed with "Target warehouse is
+    mandatory for row 1" and the button appeared to do nothing.
+    """
+
+    def test_insert_uses_ignore_validate_flag(self):
+        src = inspect.getsource(_read_module().make_receive_from_subcontractor)
+        self.assertIn(
+            "flags.ignore_validate = True",
+            src,
+            "make_receive_from_subcontractor must set "
+            "receipt.flags.ignore_validate = True BEFORE .insert() — "
+            "otherwise Stock Entry.validate_warehouse throws "
+            "'Target warehouse is mandatory for row 1' and the draft "
+            "never materialises. Verified with a real smoke test — "
+            "ignore_mandatory alone is NOT enough (that check is not a "
+            "generic mandatory-field check).",
+        )
+
+    def test_insert_does_not_use_ignore_mandatory_alone(self):
+        """Regression pin: `ignore_mandatory=True` was tried first and
+        did NOT work. Keeping both is fine, but if someone drops
+        ignore_validate and keeps only ignore_mandatory, the draft
+        insert will fail again. Guard against that regression."""
+        src = inspect.getsource(_read_module().make_receive_from_subcontractor)
+        if "flags.ignore_mandatory = True" in src:
+            self.assertIn(
+                "flags.ignore_validate = True",
+                src,
+                "ignore_mandatory alone doesn't cover ERPNext's "
+                "validate_warehouse — must also set ignore_validate.",
+            )
+
+
 class TestScopeGuard(FrappeTestCase):
     """Rule 5 in Raj's spec: this customization applies ONLY when
     Stock Entry Type = Send to Subcontractor + Receipt via the Create ->
