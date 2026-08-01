@@ -892,11 +892,21 @@ def get_delivery_note_batch(
     if supplier_batch_no:
         filters["custom_supplier_batch_no"] = supplier_batch_no
 
+    # MI1-I89 (Raj 2026-07-20): cone filter ALWAYS applies — supersedes
+    # the MI1-I78 P5 leniency below. Raj's expected behaviour: if the
+    # header custom_batch is an 8-cone batch (which sets custom_cone=8),
+    # a supplier_batch_no lookup must NOT return a 12-cone batch. To
+    # switch to a 12-cone batch the user picks a new custom_batch first,
+    # which updates header cone → matching SBNs then resolve.
+    if cone and is_return is False:
+        filters["custom_cone"] = cone
+
     # MI1-I78 P5 (Raj 2026-07-13): when supplier_batch_no is supplied it's
-    # specific enough to uniquely identify a batch within a container/lot.
-    # Skip the spec (glue/pulp/lusture/grade/fsc/cone/denier) filters —
-    # otherwise a mismatched header cone (from a previously-picked batch)
-    # blocks the lookup entirely and the user sees "not fetching".
+    # specific enough (together with the always-on cone filter above) to
+    # uniquely identify a batch within a container/lot. Skip the OTHER
+    # spec filters (glue/pulp/lusture/grade/fsc/denier) — otherwise a
+    # mismatched header spec (from a previously-picked batch) blocks the
+    # lookup entirely and the user sees "not fetching".
     if not supplier_batch_no:
         if glue:
             filters["custom_glue"] = glue
@@ -908,8 +918,6 @@ def get_delivery_note_batch(
             filters["custom_lusture"] = lusture
         if grade:
             filters["custom_grade"] = grade
-        if cone and is_return is False:
-            filters["custom_cone"] = cone
         if denier and is_return is False:
             filters["item_name"] = denier
 
