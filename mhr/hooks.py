@@ -35,6 +35,14 @@ doctype_js = {
     # copies stacked their error msgprints and each hit the server
     # twice on every field change. The Client Script (which carries
     # Raj's newer popup + VFY-only gate) is the sole owner now.
+    #
+    # MI1-I90: the HTY side is the app's, not a Client Script's. It is a
+    # SEPARATE file from the deleted sales_order.js and does not bring it
+    # back — every handler here returns early unless transaction_type is
+    # 'HTY', which is exactly the branch the VFY-gated "Sales Order
+    # Booking" Client Script declines to handle. The two never both act
+    # on the same document.
+    "Sales Order": "public/js/sales_order_hty.js",
     # MI1-I26 — Submit in Background button on Stock Entry to avoid
     # gunicorn HTTP request-timeouts on large transfers (e.g. 245
     # batches in one Material Transfer).
@@ -208,7 +216,12 @@ doc_events = {
         ],
     },
     "Sales Order": {
-        "validate": "mhr.utilis.validate_so_available_qty",
+        "validate": [
+            "mhr.utilis.validate_so_available_qty",
+            # MI1-I90 — HTY naming series + HTY-batch enforcement. No-op
+            # unless transaction_type == 'HTY'.
+            "mhr.sales_order_hty.validate_hty_sales_order",
+        ],
     },
     "Delivery Trip": {
         "validate": [

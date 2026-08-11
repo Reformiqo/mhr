@@ -63,7 +63,35 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Stock Entry.validate` → `mhr.utilis.update_stock_entry`, `mhr.utilis.validate_hty_stock_entry`, `mhr.utilis.validate_subcontract_receipt` (MI1-I50 P3)
 - `Stock Entry.on_submit` → `mhr.utilis.update_batch_warehouse_on_stock_entry`, `mhr.utilis.apply_subcontract_receipt` (MI1-I50 P3)
 - `Stock Entry.on_cancel` → `mhr.utilis.revert_batch_warehouse_on_stock_entry`, `mhr.utilis.revert_subcontract_receipt` (MI1-I50 P3)
-- `Sales Order.validate` → `mhr.utilis.validate_so_available_qty`
+- `Sales Order.validate` → `mhr.utilis.validate_so_available_qty`, `mhr.sales_order_hty.validate_hty_sales_order` (MI1-I90)
+
+### Sales Order HTY mode (MI1-I90)
+
+Delivery Note's HTY behaviour, ported onto Sales Order. Lives entirely in the
+app — no Desk Client Script / Server Script — and every entry point returns
+early unless `transaction_type == 'HTY'`, so VFY Sales Orders and Delivery
+Note in all modes are untouched.
+
+- Fields: `mhr/patches/v1_0/add_sales_order_hty_fields.py` creates a `custom_hty_tab`
+  Tab Break (visible only in HTY) plus the ported spec / fetch fields, and three
+  HTY fields on Sales Order Item (`custom_supplier_batch_no`, `custom_sr_no`,
+  `custom_gross_weight`). `transaction_type`, `custom_container_no`,
+  `custom_lot_no` and `custom_cone` already existed and are reused in place.
+- Client: `public/js/sales_order_hty.js` — mode toggle, naming-series switch,
+  batch dropdown filters, 4-step "Pick Containers by Lot" picker, the Select
+  Batch popup (container / denier triggers), count-driven Fetch Batches, barcode
+  scan, total cone. Loaded **after** `sales_order.js` via the `doctype_js` list.
+- Server: `mhr/sales_order_hty.py` — the validate hook plus four whitelisted
+  endpoints (`get_company_hty_defaults`, `get_so_rows_for_containers`,
+  `get_hty_batches_for_container_no`, `get_container_spec_for_batch`).
+- The patch disables the Desk Client Script `MI1-I39 — Sales Order HTY Mode`,
+  which this file supersedes.
+
+**Company has no `default_price_list` field.** ERPNext does not scope Price
+Lists by Company. The old Client Script queried it anyway and every HTY Sales
+Order threw `Field not permitted in query: default_price_list`. Resolve selling
+price lists through `get_company_hty_defaults` (Company override → Customer →
+Customer Group → Selling Settings), never with a direct client-side query.
 
 ### Subcontract receipt flow (MI1-I50)
 
@@ -94,12 +122,13 @@ fast-no-op for every other Stock Entry. Flow:
 
 ### Client-side JS hooks
 
-- `doctype_js = { "Sales Order": "public/js/sales_order.js", "Stock Entry": "public/js/stock_entry.js" }`
+- `doctype_js = { "Sales Order": ["public/js/sales_order.js", "public/js/sales_order_hty.js"], "Stock Entry": "public/js/stock_entry.js" }`
+- Sales Order takes a **list**; `sales_order_hty.js` must stay last because it re-registers `set_query` on the batch fields and relies on winning over the VFY handlers.
 - Stock Entry button "Submit in Background" added for **MI1-I26** to dodge gunicorn HTTP timeouts on large transfers (e.g. 245 batches in one Material Transfer).
 
 ### Whitelisted endpoints
 
-`mhr/print.py`, `mhr/batch.py`, `mhr/container.py`, `mhr/note.py`, `mhr/sales_order.py`. All HTTP-callable functions must keep `@frappe.whitelist()` and validate permissions explicitly — don't rely on the decorator alone.
+`mhr/print.py`, `mhr/batch.py`, `mhr/container.py`, `mhr/note.py`, `mhr/sales_order.py`, `mhr/sales_order_hty.py`. All HTTP-callable functions must keep `@frappe.whitelist()` and validate permissions explicitly — don't rely on the decorator alone.
 
 ## After making changes
 
