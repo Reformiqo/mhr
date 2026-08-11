@@ -29,7 +29,13 @@ app_license = "mit"
 
 # include js in doctype views
 doctype_js = {
-    "Sales Order": "public/js/sales_order.js",
+    # MI1-I90 — sales_order_hty.js MUST stay last in this list: it
+    # re-registers set_query on the batch fields and relies on winning
+    # over the VFY handlers loaded before it.
+    "Sales Order": [
+        "public/js/sales_order.js",
+        "public/js/sales_order_hty.js",
+    ],
     # MI1-I26 — Submit in Background button on Stock Entry to avoid
     # gunicorn HTTP request-timeouts on large transfers (e.g. 245
     # batches in one Material Transfer).
@@ -203,7 +209,12 @@ doc_events = {
         ],
     },
     "Sales Order": {
-        "validate": "mhr.utilis.validate_so_available_qty",
+        "validate": [
+            "mhr.utilis.validate_so_available_qty",
+            # MI1-I90 — HTY naming series + HTY-batch enforcement. No-op
+            # unless transaction_type == 'HTY'.
+            "mhr.sales_order_hty.validate_hty_sales_order",
+        ],
     },
     "Delivery Trip": {
         "validate": [

@@ -13,6 +13,10 @@ frappe.ui.form.on('Sales Order', {
     },
 
     custom_container_no: function(frm) {
+        // MI1-I90: HTY mode has its own container handler (the Select Batch
+        // popup in sales_order_hty.js). Without this guard both fire and the
+        // user gets the lot/daniar prompt stacked under the batch dialog.
+        if (frm.doc.transaction_type === 'HTY') return;
         let container_no = frm.doc.custom_container_no;
         if (!container_no) {
             frm.set_value('custom_lot_no', '');
