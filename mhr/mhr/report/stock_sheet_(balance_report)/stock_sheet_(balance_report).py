@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import add_days, flt, getdate
 from frappe.query_builder.functions import Sum
 from collections import defaultdict
 
@@ -283,7 +283,11 @@ def get_data(filters=None):
     if fdt:
         query = query.where(Batch.creation >= fdt)
     if tdt:
-        query = query.where(Batch.creation <= tdt)
+        # MI1-I91: Batch.creation is a DATETIME, so `creation <= '2026-08-11'`
+        # resolves to `<= 2026-08-11 00:00:00` and silently drops every batch
+        # created *today*. Compare against the start of the next day so To Date
+        # is inclusive of the whole day, which is what the filter label implies.
+        query = query.where(Batch.creation < add_days(getdate(tdt), 1))
 
     if container:
         query = query.where(Batch.custom_container_no == container)
@@ -412,7 +416,23 @@ def get_data(filters=None):
                 else:
                     groups[key]["bookings"].append(dict(bk))
 
-    # Step 4: Filter - cone > 0, balance_box > 0, balance > 0
+    # Step 4: Filter - balance_box > 0, balance > 0, and cone > 0 for VFY only.
+    #
+    # MI1-I91 (2026-08-11): HTY carries non-coned material — Chips and Waste
+    # are issued in Bags, so `custom_cone` is legitimately 0. The blanket
+    # `cone > 0` guard was throwing those rows away before they reached the
+    # report, which hid 4,046 of the 4,943 HTY batches: "Chips" never appeared
+    # in the Product column AND its stock never appeared, because the row did
+    # not exist at all.
+    #
+    # Decided per row from the row's own Container rather than from the
+    # Transaction Type filter, so the rule still holds on the unfiltered
+    # ("All") view. VFY rows keep the original guard byte-for-byte — a yarn
+    # batch with no cones is still junk and stays hidden.
+    from mhr.utilis import get_container_nos_by_transaction_type
+
+    hty_containers = get_container_nos_by_transaction_type("HTY") or set()
+
     main_rows = []
     for g in groups.values():
         try:
@@ -420,7 +440,11 @@ def get_data(filters=None):
         except (ValueError, TypeError):
             cone_num = 0
 
-        if cone_num > 0 and g["balance_box"] > 0 and flt(g["balance"]) > 0:
+        is_hty_row = (g["container_no"] or "") in hty_containers
+        if not is_hty_row and cone_num <= 0:
+            continue
+
+        if g["balance_box"] > 0 and flt(g["balance"]) > 0:
             g["sort_order"] = 0
             g["report_date"] = g["batch_date"].strftime("%d/%m/%Y")
             g["available_qty"] = round(flt(g["balance"]) - flt(g["booked_qty"]), 2)

@@ -2,6 +2,35 @@
 // For license information, please see license.txt
 
 frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
+	// MI1-I91 (2026-08-11): pre-fill the date range so the boxes are never
+	// blank, WITHOUT changing which rows the report returns.
+	//
+	// fdt/tdt filter Batch.creation, so a fiscal-year default would hide every
+	// batch created before 01-Apr — i.e. most of the stock actually on hand.
+	// Seeding From Date with the earliest Batch on the site keeps the output
+	// identical to the old blank-filter behaviour.
+	//
+	// Skipped entirely when a range already arrived from the route / a saved
+	// filter, so drill-throughs and bookmarks are not overwritten.
+	onload: function (report) {
+		if (
+			frappe.query_report.get_filter_value("fdt") ||
+			frappe.query_report.get_filter_value("tdt")
+		) {
+			return;
+		}
+		frappe.call({
+			method: "mhr.utilis.get_earliest_batch_date",
+			callback: function (r) {
+				// Both set in one call so the report refreshes once, not twice.
+				frappe.query_report.set_filter_value({
+					fdt: r.message || frappe.datetime.add_years(frappe.datetime.get_today(), -10),
+					tdt: frappe.datetime.get_today(),
+				});
+			},
+		});
+	},
+
 	"filters": [
 		{
 			"fieldname": "fdt",
