@@ -160,22 +160,29 @@ def get_item_batch(batch):
 
 @frappe.whitelist()
 def get_container_details(container_no):
-    """Fetch unique lot_no and item combinations from all Container docs with the same container_no."""
-    if not frappe.db.exists("Container", container_no):
+    """Fetch unique lot_no + item combinations from every submitted
+    Container doc whose `container_no` field matches the argument.
+
+    MI1 2026-07-20 fix: the earlier implementation treated the argument
+    as a doc NAME (`frappe.db.exists("Container", container_no)`), which
+    fails for the real-world usage — Sales Order's custom_container_no
+    is a plain Data field holding the container_no FIELD VALUE (e.g.
+    `TRADING YARN`), not the doc name (e.g. `TRADING YARN-7893`). Now
+    we resolve directly by field, so any user-typed container_no that
+    matches at least one submitted Container returns its lots.
+    """
+    if not container_no:
         return []
 
-    # Get the container_no field value from the selected doc
-    actual_container_no = frappe.db.get_value("Container", container_no, "container_no")
-    if not actual_container_no:
-        return []
-
-    # Find all submitted Container docs with the same container_no
+    # Find all submitted Container docs whose container_no matches.
     containers = frappe.get_all(
         "Container",
-        filters={"container_no": actual_container_no, "docstatus": 1},
+        filters={"container_no": container_no, "docstatus": 1},
         fields=["lot_no", "item"],
         order_by="creation desc",
     )
+    if not containers:
+        return []
 
     # For containers missing item, try to get from batches
     for c in containers:

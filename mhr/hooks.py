@@ -29,7 +29,12 @@ app_license = "mit"
 
 # include js in doctype views
 doctype_js = {
-    "Sales Order": "public/js/sales_order.js",
+    # MI1 2026-07-20: the former public/js/sales_order.js was a
+    # duplicate of the "Sales Order Booking" Client Script's handlers
+    # (both fired on custom_container_no/custom_fetch_by/etc.). Two
+    # copies stacked their error msgprints and each hit the server
+    # twice on every field change. The Client Script (which carries
+    # Raj's newer popup + VFY-only gate) is the sole owner now.
     # MI1-I26 — Submit in Background button on Stock Entry to avoid
     # gunicorn HTTP request-timeouts on large transfers (e.g. 245
     # batches in one Material Transfer).
