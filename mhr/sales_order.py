@@ -106,9 +106,12 @@ def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, box
                 result.append(b)
         return result
 
-    # Weight mode: pick full batches (no partial) until total >= requested weight
-    # Sort by weight descending to pick fewest batches
-    batches.sort(key=lambda b: flt(b.batch_qty), reverse=True)
+    # Weight mode (MI1 2026-07-20): fetch ONLY complete batches. Skip
+    # any batch whose full available qty would push the running total
+    # over the requested weight — never partial-fetch a batch. Batches
+    # are walked in their natural order (custom_supplier_batch_no asc
+    # from the get_all above) so smaller subsequent batches still get
+    # a chance to fill in if a bigger one had to be skipped.
     result = []
     total_weight = 0
     for b in batches:
@@ -116,6 +119,10 @@ def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, box
             break
         available = _get_available_qty(b.name, b.batch_qty)
         if available <= 0:
+            continue
+        if total_weight + available > qty:
+            # Full batch would exceed target — skip; do not partial-fetch.
+            # To include this batch, user must raise the entered weight.
             continue
         b["available_qty"] = available
         b["allotted_qty"] = available
