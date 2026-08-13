@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate
+from frappe.utils import add_days, date_diff, flt, getdate, today
 from frappe.query_builder.functions import Sum
 from collections import defaultdict
 
@@ -68,6 +68,10 @@ def get_columns(filters=None):
         {"label": _("Notes"), "fieldname": "Notes", "fieldtype": "Data", "width": 150},
         {"label": _("Location"), "fieldname": "Location", "fieldtype": "Data", "width": 100},
         {"label": _("Accepted Warehouse"), "fieldname": "Accepted Warehouse", "fieldtype": "Data", "width": 150},
+        # MI1-I94 (Raj 2026-08-13): Aging = days from batch/container
+        # posting date to the day the report is generated. Blank on
+        # total rows (they aggregate mixed dates).
+        {"label": _("Aging"), "fieldname": "Aging", "fieldtype": "Int", "width": 80},
         {"label": _("sort_order"), "fieldname": "sort_order", "fieldtype": "Int", "width": 0, "hidden": 1},
     ]
     return columns
@@ -546,7 +550,31 @@ def get_data(filters=None):
         "cone": sum(int(r["cone"]) if r["cone"] else 0 for r in main_rows),
     }
 
-    # Step 8: Format output — expand booking rows
+    # Step 8: Format output — one FULL row per Sales Order allocation.
+    #
+    # MI1-I94 (Raj 2026-08-13): every Sales Order booked against a
+    # container/lot now renders as its own COMPLETE row (was: first SO
+    # got a full row; subsequent SOs got sparse sub-rows with blank
+    # Balance / Item / etc.). Per Raj:
+    #   * `Booked Qty` (Buyer Qty field) — this SO's booking (unchanged)
+    #   * `Total Booked` (Booked Qty field) — this SO's booking too
+    #     (was: sum of every SO on the group — combined across SOs)
+    #   * `Available Qty` — Balance minus THIS SO's booking (was:
+    #     progressive across all bookings — treated the whole group
+    #     as one allocation stack)
+    #   * `Buyer` / `Sales Person` / `Lifting Terms` from this SO
+    #   * `Balance`, `Item`, `Container`, etc. repeat on every SO row
+    #     so each row is self-contained.
+    # Aging (also new in MI1-I94): today − batch_date in days, on
+    # detail rows only. Totals leave it blank.
+    today_date = getdate(today())
+
+    def _aging_for(row):
+        bd = row.get("batch_date")
+        if not bd:
+            return ""
+        return date_diff(today_date, bd)
+
     result = []
     for row in all_rows:
         so = row["sort_order"]
@@ -573,11 +601,12 @@ def get_data(filters=None):
             "Notes": row.get("notes", "") if so == 0 else "",
             "Location": row.get("location", "") if so == 0 else "",
             "Accepted Warehouse": row.get("accepted_warehouse", "") if so == 0 else "",
+            "Aging": _aging_for(row) if so == 0 else "",
             "sort_order": so,
         }
 
         if so != 0 or not bookings:
-            # Total/grand-total rows, or detail rows with no bookings
+            # Total/grand-total rows, or detail rows with no bookings.
             base["Sales Order"] = ""
             base["Buyers"] = ""
             base["Sales Person"] = ""
@@ -585,51 +614,23 @@ def get_data(filters=None):
             base["Lifting Terms"] = ""
             result.append(base)
         else:
-            # Progressive available qty: start from balance, deduct each booking
-            running_available = flt(row["balance"])
-
-            # First booking row — include all stock data
-            first = bookings[0]
-            first_row = dict(base)
-            running_available -= flt(first["booked_qty"])
-            first_row["Available Qty"] = round(running_available, 2)
-            first_row["Sales Order"] = first["sales_order"]
-            first_row["Buyers"] = first["buyer"]
-            first_row["Sales Person"] = first["sales_person"]
-            first_row["Buyer Qty"] = round(flt(first["booked_qty"]), 2) if first["booked_qty"] else ""
-            first_row["Lifting Terms"] = first["lifting_terms"]
-            result.append(first_row)
-
-            # Subsequent booking rows — show progressive available qty
-            for bk in bookings[1:]:
-                running_available -= flt(bk["booked_qty"])
-                result.append({
-                    "Date": "",
-                    "Container Number": "",
-                    "Item": "",
-                    "Pulp": "",
-                    "Lusture": "",
-                    "Glue": "",
-                    "Grade": "",
-                    "Balance": "",
-                    "Lot Number": "",
-                    "Balance Box": "",
-                    "Cone": "",
-                    "Booked Qty": "",
-                    "Available Qty": round(running_available, 2),
-                    "Sales Order": bk["sales_order"],
-                    "Buyers": bk["buyer"],
-                    "Sales Person": bk["sales_person"],
-                    "Buyer Qty": round(flt(bk["booked_qty"]), 2) if bk["booked_qty"] else "",
-                    "Lifting Terms": bk["lifting_terms"],
-                    "Merge No": "",
-                    "Cross Section": "",
-                    "Production Date": "",
-                    "Notes": "",
-                    "Location": "",
-                    "Accepted Warehouse": "",
-                    "sort_order": -1,  # sub-booking row
-                })
+            # Per-SO expansion: one FULL row per booking. Each row is
+            # self-contained — Balance / Item / Container / Aging /
+            # etc. repeat, and Booked/Total Booked/Available are
+            # independent (not progressive) so each SO row reads as
+            # its own allocation view.
+            balance = flt(row["balance"])
+            for bk in bookings:
+                bk_qty = flt(bk["booked_qty"])
+                so_row = dict(base)
+                so_row["Booked Qty"] = round(bk_qty, 2)        # "Total Booked" column
+                so_row["Buyer Qty"] = round(bk_qty, 2) if bk_qty else ""  # "Booked Qty" column
+                so_row["Available Qty"] = round(balance - bk_qty, 2)
+                so_row["Sales Order"] = bk.get("sales_order", "")
+                so_row["Buyers"] = bk.get("buyer", "")
+                so_row["Sales Person"] = bk.get("sales_person", "")
+                so_row["Lifting Terms"] = bk.get("lifting_terms", "")
+                result.append(so_row)
 
     # Append report-level grand total row
     result.append({
@@ -657,6 +658,7 @@ def get_data(filters=None):
         "Notes": "",
         "Location": "",
         "Accepted Warehouse": "",
+        "Aging": "",
         "sort_order": 3,
     })
 
