@@ -22,11 +22,16 @@ frappe.query_reports["STOCK SHEET (BALANCE REPORT)"] = {
 		frappe.call({
 			method: "mhr.utilis.get_earliest_batch_date",
 			callback: function (r) {
-				// Both set in one call so the report refreshes once, not twice.
-				frappe.query_report.set_filter_value({
-					fdt: r.message || frappe.datetime.add_years(frappe.datetime.get_today(), -10),
-					tdt: frappe.datetime.get_today(),
-				});
+				// Set both in one call so the report refreshes once, not twice.
+				const values = { tdt: frappe.datetime.get_today() };
+				// Only seed From Date when the server actually found a batch.
+				// On a site with no batches there is nothing meaningful to
+				// seed, and leaving it blank preserves the old behaviour —
+				// safer than guessing a date that would filter rows out.
+				if (r && r.message) {
+					values.fdt = r.message;
+				}
+				frappe.query_report.set_filter_value(values);
 			},
 		});
 	},
