@@ -15,10 +15,14 @@ def execute(filters=None):
     filters = enforce_role_scoped_transaction_type(filters)
     # MI1-I64 (rework): pass filters so column labels can swap with Transaction Type.
     columns = get_columns(filters)
+    # MI1-I99 (2026-08-17): transaction_type is applied INSIDE get_data now, on
+    # the batch query, so the lot / container / grand totals are summed from the
+    # filtered set. The old post-aggregate filter_rows_by_transaction_type() call
+    # lived here and matched on "Container Number", which every total row leaves
+    # blank — it therefore deleted the Grand Total and every subtotal whenever a
+    # Transaction Type was selected. The shared helper is untouched; other
+    # reports still use it.
     data = get_data(filters)
-    # MI1-I39 P2-C: HTY transaction_type filter via shared helper.
-    from mhr.utilis import filter_rows_by_transaction_type
-    data = filter_rows_by_transaction_type(data, filters, container_field="Container Number")
     return columns, data
 
 
@@ -260,6 +264,7 @@ def get_data(filters=None):
     lot_no = filters.get("lot_no")
     cone = filters.get("cone")
     company = filters.get("company")
+    transaction_type = filters.get("transaction_type")
 
 
     # Step 1: Query filtered batches
@@ -300,7 +305,25 @@ def get_data(filters=None):
     if cone:
         query = query.where(Batch.custom_cone == cone)
 
-    # Filter by company via Container doctype
+    # Container-scoped filters (company + transaction type).
+    #
+    # MI1-I99 (2026-08-17): transaction_type used to be applied AFTER the rows
+    # were built, by filtering the finished list in execute(). Two things went
+    # wrong with that:
+    #   1. Every total row carries a blank "Container Number" (see Step 8), and
+    #      the post-filter kept only rows whose container was in the allowed
+    #      set — so the Grand Total, and every lot / container subtotal,
+    #      silently vanished the moment a Transaction Type was picked.
+    #   2. Even when visible, the totals had been summed over the UNfiltered
+    #      rows, so they did not describe what the user was looking at.
+    # Restricting the batch query up front fixes both: every downstream tier
+    # (Step 5 lot totals, Step 6 container totals, Step 7b grand total) is now
+    # computed from exactly the rows the report renders.
+    #
+    # Both filters narrow the same column, so they are intersected into a
+    # single IN clause rather than stacked — idx_custom_container_no covers it.
+    allowed_containers = None
+
     if company:
         Container = frappe.qb.DocType("Container")
         company_containers = (
@@ -309,9 +332,22 @@ def get_data(filters=None):
             .where(Container.docstatus == 1)
             .where(Container.company == company)
         ).run(pluck="container_no")
-        if not company_containers:
+        allowed_containers = {c for c in company_containers if c}
+
+    if transaction_type:
+        from mhr.utilis import get_container_nos_by_transaction_type
+
+        tt_containers = get_container_nos_by_transaction_type(transaction_type) or set()
+        allowed_containers = (
+            tt_containers
+            if allowed_containers is None
+            else (allowed_containers & tt_containers)
+        )
+
+    if allowed_containers is not None:
+        if not allowed_containers:
             return []
-        query = query.where(Batch.custom_container_no.isin(company_containers))
+        query = query.where(Batch.custom_container_no.isin(list(allowed_containers)))
 
     batches = query.run(as_dict=True)
     if not batches:
@@ -650,7 +686,12 @@ def get_data(filters=None):
         "Sales Order": "",
         "Buyers": "",
         "Sales Person": "",
-        "Buyer Qty": "",
+        # MI1-I99: the "Booked Qty" COLUMN is fieldname `Buyer Qty`, and
+        # "Total Booked" is fieldname `Booked Qty` — the two are crossed over
+        # (see get_columns). This was left blank, so one of the five requested
+        # Qty columns had no grand total. Step 8 writes the same per-SO figure
+        # into both fields, so both total to report_total["booked_qty"].
+        "Buyer Qty": report_total["booked_qty"],
         "Lifting Terms": "",
         "Merge No": "",
         "Cross Section": "",

@@ -100,15 +100,22 @@ class TestContainerReportTransactionTypeFilter(FrappeTestCase):
 
 
 class TestStockSheetReportsTransactionTypeFilter(FrappeTestCase):
-    """The 4 stock_sheet reports must also use the shared helper with the
+    """The stock_sheet reports must also use the shared helper with the
     right per-report container_field key. Different reports use
     'Container Number' vs 'Container No' — getting that key wrong
     silently breaks the filter (returns 0 rows for HTY, all rows for
-    VFY)."""
+    VFY).
+
+    MI1-I99 (2026-08-17): STOCK SHEET (BALANCE REPORT) is deliberately NOT in
+    this list any more. It is the only one of these reports that emits its own
+    subtotal and grand-total rows, and those rows carry a blank
+    'Container Number' — so the post-aggregate helper deleted every one of them
+    the moment a Transaction Type was picked, and the totals it did produce had
+    been summed before the filter ran. That report now restricts its batch query
+    up front instead; see TestBalanceReportFiltersAtQueryLevel below."""
 
     # (module_path, expected_container_field)
     WIRINGS = [
-        ("mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report)",         "Container Number"),
         ("mhr.mhr.report.stock_sheet_(balance_report_simple).stock_sheet_(balance_report_simple)", "Container Number"),
         ("mhr.mhr.report.stock_sheet_(inward_cone_wise).stock_sheet_(inward_cone_wise)",     "Container Number"),
         ("mhr.mhr.report.stock_sheets_(inward_coneless_stock_).stock_sheets_(inward_coneless_stock_)", "Container No"),
@@ -132,6 +139,114 @@ class TestStockSheetReportsTransactionTypeFilter(FrappeTestCase):
                     f"{modpath} must pass container_field={expected_field!r} — "
                     "the row dict uses this exact key.",
                 )
+
+
+class TestBalanceReportFiltersAtQueryLevel(FrappeTestCase):
+    """MI1-I99 — STOCK SHEET (BALANCE REPORT) filters transaction_type on the
+    batch query, not on the finished rows, so its lot / container / grand
+    totals are summed from the filtered set and survive the filter."""
+
+    MODPATH = "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report)"
+
+    def setUp(self):
+        import importlib
+
+        self.mod = importlib.import_module(self.MODPATH)
+
+    def test_execute_does_not_post_filter_rows(self):
+        """The post-aggregate helper drops every row with a blank container —
+        which is exactly what the total rows are."""
+        src = inspect.getsource(self.mod.execute)
+        self.assertNotIn(
+            "data = filter_rows_by_transaction_type(",
+            src,
+            "The balance report must not post-filter its rows — that deletes "
+            "the Grand Total and every subtotal.",
+        )
+
+    def test_get_data_restricts_by_transaction_type(self):
+        src = inspect.getsource(self.mod.get_data)
+        self.assertIn(
+            "get_container_nos_by_transaction_type",
+            src,
+            "get_data must narrow the batch query by transaction_type so the "
+            "totals describe the filtered set.",
+        )
+        self.assertIn(
+            "custom_container_no.isin",
+            src,
+            "The transaction_type restriction belongs on the batch query.",
+        )
+
+    def test_blank_filter_is_noop(self):
+        cols_a, rows_a = self.mod.execute({})
+        cols_b, rows_b = self.mod.execute({"transaction_type": ""})
+        self.assertEqual(
+            len(rows_a), len(rows_b),
+            "Empty transaction_type must behave exactly like no filter.",
+        )
+
+    def test_grand_total_survives_transaction_type_filter(self):
+        for tt in ("VFY", "HTY"):
+            with self.subTest(transaction_type=tt):
+                _cols, rows = self.mod.execute({"transaction_type": tt})
+                if not rows:
+                    self.skipTest(f"No {tt} stock on this site.")
+                totals = [r for r in rows if r.get("sort_order") == 3]
+                self.assertEqual(
+                    len(totals), 1,
+                    f"Exactly one Grand Total row must survive a {tt} filter.",
+                )
+
+    def test_grand_total_matches_the_filtered_detail_rows(self):
+        """The whole point of MI1-I99: totals describe what is on screen."""
+        for tt in ("", "VFY", "HTY"):
+            with self.subTest(transaction_type=tt):
+                _cols, rows = self.mod.execute({"transaction_type": tt} if tt else {})
+                totals = [r for r in rows if r.get("sort_order") == 3]
+                if not rows or not totals:
+                    self.skipTest(f"No rows for transaction_type={tt!r}.")
+                grand = totals[0]
+
+                # Detail rows repeat Balance once per Sales Order allocation
+                # (MI1-I94), so reconcile on unique group keys, not raw sums.
+                seen = set()
+                expected_boxes = 0
+                for r in rows:
+                    if r.get("sort_order"):
+                        continue
+                    key = (r.get("Container Number"), r.get("Lot Number"), r.get("Cone"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    expected_boxes += int(r.get("Balance Box") or 0)
+                self.assertEqual(
+                    int(grand.get("Balance Box") or 0), expected_boxes,
+                    "Grand Total Balance Box must equal the filtered detail rows.",
+                )
+
+    def test_all_qty_columns_are_totalled(self):
+        _cols, rows = self.mod.execute({})
+        totals = [r for r in rows if r.get("sort_order") == 3]
+        if not totals:
+            self.skipTest("No stock on this site.")
+        grand = totals[0]
+        # Labels are crossed over: "Booked Qty" is fieldname `Buyer Qty`,
+        # "Total Booked" is fieldname `Booked Qty`.
+        for fieldname, label in (
+            ("Balance", "Balance Qty"),
+            ("Buyer Qty", "Booked Qty"),
+            ("Balance Box", "Balance Box"),
+            ("Booked Qty", "Total Booked"),
+            ("Available Qty", "Available Qty"),
+        ):
+            with self.subTest(column=label):
+                self.assertNotEqual(
+                    grand.get(fieldname), "",
+                    f"Grand Total must carry a value for the {label!r} column "
+                    f"(fieldname {fieldname!r}).",
+                )
+                self.assertIsNotNone(grand.get(fieldname))
 
 
 class TestDeliveryChallanTransactionTypeFilter(FrappeTestCase):
