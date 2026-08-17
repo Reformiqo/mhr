@@ -1839,30 +1839,56 @@ def fetch_notes_from_container(doc, method=None):
     `fetch_from` doesn't apply — we resolve the Container manually via
     (container_no, transaction_type='VFY') lookup.
 
+    MI1-I101 (2026-08-17): extended to HTY. The original was VFY-only per
+    the MI1-I83 spec; HTY Delivery Notes now need the same behaviour, and
+    the Container is resolved against the DN's OWN transaction_type so the
+    two modes never read each other's inwards.
+
     Rules:
-      * Scope: VFY only. HTY DNs are untouched per Raj's spec.
+      * Scope: VFY and HTY. Any other value is ignored.
       * If `custom_notes` already has a value, preserve it (the user
         may have typed an override, OR the existing
         `custom_batch.custom_notes` fetch_from may have populated it
         from a Batch that also had notes — either way, first non-empty
-        value wins).
+        value wins). The on-change client handler is what REPLACES the
+        value when the user actively switches container.
       * If Container.notes is empty, do nothing (leave DN blank).
       * Existing fetches of other Container details are unaffected.
     """
-    if (doc.get("transaction_type") or "").upper() != "VFY":
+    tt = (doc.get("transaction_type") or "VFY").upper()
+    if tt not in ("VFY", "HTY"):
         return
     if doc.get("custom_notes"):
         return
-    container_no = doc.get("custom_container_no")
-    if not container_no:
-        return
-    notes = frappe.db.get_value(
-        "Container",
-        {"container_no": container_no, "transaction_type": "VFY"},
-        "notes",
-    )
+    notes = resolve_container_notes(doc.get("custom_container_no"), tt)
     if notes:
         doc.custom_notes = notes
+
+
+def resolve_container_notes(container_no, transaction_type):
+    """Container Inward `notes` for a (container_no, transaction_type) pair.
+
+    MI1-I101: `container_no` is NOT unique — one number maps to many Container
+    documents (e.g. MZB-32 has six). In practice siblings agree on `notes`, but
+    the previous `frappe.db.get_value` let the database pick an arbitrary row,
+    and it did not exclude drafts. Resolve deterministically instead: submitted
+    Containers only, most recent inward wins.
+    """
+    if not container_no:
+        return None
+    tt = (transaction_type or "VFY").upper()
+    rows = frappe.get_all(
+        "Container",
+        filters={
+            "container_no": container_no,
+            "transaction_type": tt,
+            "docstatus": 1,
+        },
+        fields=["notes"],
+        order_by="posting_date desc, modified desc",
+        limit=1,
+    )
+    return (rows[0].get("notes") or None) if rows else None
 
 
 def calculate_delivery_note_totals(doc, method=None):
