@@ -372,5 +372,16 @@
   "name": "MI1-I31 — Delivery Stop Address Auto-Fetch",
   "script": "// MI1-I31 — auto-fetch the customer's primary Address Name + the\n// short-text display when a Delivery Stop's customer is set or changes.\n// Mirrors ERPNext's standard Customer → Address default lookup.\n\nfunction mi1_i31_fetch_default_address(frm, cdt, cdn) {\n    const row = locals[cdt][cdn];\n    if (!row || !row.customer) return;\n    if (row.address) return;  // user already chose one — don't clobber\n\n    frappe.call({\n        method: 'frappe.contacts.doctype.address.address.get_default_address',\n        args: { name: row.customer, doctype: 'Customer' },\n        callback: function (r) {\n            const addr = r && r.message;\n            if (!addr) return;\n            frappe.model.set_value(cdt, cdn, 'address', addr);\n            // Hydrate the display text via the helper Frappe uses on\n            // standard address-text fields.\n            frappe.call({\n                method: 'frappe.contacts.doctype.address.address.get_address_display',\n                args: { address_dict: addr },\n                callback: function (rr) {\n                    if (rr && rr.message) {\n                        frappe.model.set_value(cdt, cdn, 'customer_address', rr.message);\n                    }\n                },\n            });\n        },\n    });\n}\n\nfrappe.ui.form.on('Delivery Stop', {\n    customer: mi1_i31_fetch_default_address,\n});",
   "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Delivery Note",
+  "enabled": 1,
+  "modified": "2026-08-17 11:20:00.000000",
+  "module": "Mhr",
+  "name": "MI1-I101 — Delivery Note Container Notes",
+  "script": "// MI1-I101 (2026-08-17): pull Container Inward `notes` into the Delivery\n// Note's custom_notes the moment a Container No is picked or changed.\n//\n// The server hook (mhr.utilis.fetch_notes_from_container) also does this, but\n// only at save time and only when custom_notes is EMPTY — it deliberately\n// preserves whatever is already there. This handler is the other half: an\n// explicit container change is a user action, so it REPLACES the value.\n//\n// Scope: HTY only. VFY keeps the MI1-I83 save-time behaviour untouched.\n// Returns are inert, matching MI1-I93.\nfrappe.ui.form.on('Delivery Note', {\n    custom_container_no: function (frm) {\n        if (frm.doc.is_return) return;                                  // MI1-I93\n        if ((frm.doc.transaction_type || '') !== 'HTY') return;\n        if (!frm.doc.custom_container_no) return;\n        frappe.call({\n            method: 'mhr.note.get_container_notes',\n            args: {\n                container_no: frm.doc.custom_container_no,\n                transaction_type: frm.doc.transaction_type,\n            },\n            callback: function (r) {\n                // Blank result means this container carries no notes — leave\n                // whatever the user has rather than wiping it.\n                if (r && r.message) {\n                    frm.set_value('custom_notes', r.message);\n                }\n            },\n        });\n    },\n});\n",
+  "view": "Form"
  }
 ]

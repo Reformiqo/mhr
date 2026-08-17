@@ -161,3 +161,17 @@ def _clamp_batch_qty_to_available(batches, is_return):
         available = float(entry["balance"])
         b["batch_qty"] = min(original, available) if original > 0 else available
         b["warehouse"] = entry["warehouse"]
+
+
+@frappe.whitelist()
+def get_container_notes(container_no, transaction_type=None):
+    """MI1-I101: Container Inward `notes` for the Delivery Note form.
+
+    Backs the on-change handler so `custom_notes` refreshes the moment the
+    user picks or switches a Container No, instead of only being backfilled
+    at save time by mhr.utilis.fetch_notes_from_container.
+    """
+    frappe.has_permission("Delivery Note", "write", throw=True)
+    from mhr.utilis import resolve_container_notes
+
+    return resolve_container_notes(container_no, transaction_type) or ""
