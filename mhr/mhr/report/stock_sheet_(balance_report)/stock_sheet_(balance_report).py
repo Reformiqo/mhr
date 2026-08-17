@@ -43,14 +43,35 @@ def get_columns(filters=None):
         {"label": _("Item"), "fieldname": "Item", "fieldtype": "Data", "width": 120},
         {"label": _("Lot Number"), "fieldname": "Lot Number", "fieldtype": "Data", "width": 110},
         {"label": _("Grade"), "fieldname": "Grade", "fieldtype": "Data", "width": 90},
-        {"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 70},
     ]
+    # MI1-I97 (2026-08-17): surface Colour in HTY mode, right after Grade.
+    #
+    # No new data is needed — create_batches() already folds the HTY specs into
+    # the canonical Batch columns:
+    #     Container.product -> Batch.custom_glue
+    #     Container.colour  -> Batch.custom_lusture     <-- Colour lives here
+    #     Container.type    -> Batch.custom_pulp
+    # so `Lusture` has carried the Colour value for HTY all along (verified:
+    # MCCA-108 batches hold custom_lusture = "Colour-RAW WHITE", which
+    # strip_prefix renders as "RAW WHITE"). MI1-I64 relabelled Pulp -> Type and
+    # Glue -> Product for HTY but missed this third pair, so the value was
+    # showing under a "Lusture" heading.
+    #
+    # In HTY the field is emitted once, here, as "Colour". In VFY it stays in
+    # its original slot below with its original label — that column list is
+    # byte-identical to before.
+    if is_hty:
+        columns.append({"label": _("Colour"), "fieldname": "Lusture", "fieldtype": "Data", "width": 110})
+    columns.append({"label": _("Cone"), "fieldname": "Cone", "fieldtype": "Data", "width": 70})
     if not is_hty:
         columns.append({"label": _("Merge No"), "fieldname": "Merge No", "fieldtype": "Data", "width": 100})
     columns += [
         # --- Specifications ---
         {"label": _(pulp_label), "fieldname": "Pulp", "fieldtype": "Data", "width": 90},
-        {"label": _("Lusture"), "fieldname": "Lusture", "fieldtype": "Data", "width": 90},
+    ]
+    if not is_hty:
+        columns.append({"label": _("Lusture"), "fieldname": "Lusture", "fieldtype": "Data", "width": 90})
+    columns += [
         {"label": _(glue_label), "fieldname": "Glue", "fieldtype": "Data", "width": 90},
         # --- Stock ---
         {"label": _("Balance Qty"), "fieldname": "Balance", "fieldtype": "Data", "width": 110},
