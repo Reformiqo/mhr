@@ -78,13 +78,15 @@ class TestHTYColourColumn(FrappeTestCase):
 class TestVFYColumnsUnchanged(FrappeTestCase):
 	"""The hard rule: other transaction types remain unaffected."""
 
+	# Aging moved between Date and Container No on 2026-08-18. Everything else
+	# in the VFY head is unchanged.
 	EXPECTED_HEAD = [
-		"Date", "Container No", "Item", "Lot Number", "Grade", "Cone",
+		"Date", "Aging", "Container No", "Item", "Lot Number", "Grade", "Cone",
 		"Merge No", "Pulp", "Lusture", "Glue",
 	]
 
 	def test_vfy_column_order_is_unchanged(self):
-		self.assertEqual(_labels({"transaction_type": "VFY"})[:10], self.EXPECTED_HEAD)
+		self.assertEqual(_labels({"transaction_type": "VFY"})[:11], self.EXPECTED_HEAD)
 
 	def test_blank_filter_matches_vfy(self):
 		"""No filter behaves as VFY — same as before MI1-I97."""

@@ -177,8 +177,10 @@ class TestReportExecutesAndAgingFires(FrappeTestCase):
         _cols, data = _mod().execute({"container": cn})
         for r in data:
             if r.get("sort_order") in (1, 2, 3):
-                self.assertEqual(
-                    r.get("Aging"), "",
+                # None, not "" — the column is an Int and frappe's Int
+                # formatter only renders blank for null (cint("") is 0).
+                self.assertIsNone(
+                    r.get("Aging"),
                     f"Total rows (sort_order={r.get('sort_order')}) must "
                     f"leave Aging blank; got {r.get('Aging')!r}.",
                 )

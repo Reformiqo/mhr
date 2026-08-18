@@ -39,6 +39,13 @@ def get_columns(filters=None):
     columns = [
         # --- Identity ---
         {"label": _("Date"), "fieldname": "Date", "fieldtype": "Data", "width": 100},
+        # MI1-I94 (Raj 2026-08-13): Aging = days from batch/container posting
+        # date to the day the report is generated. Blank on total rows (they
+        # aggregate mixed dates) and blank when the batch is same-day, so the
+        # column reads as "how long has this been sitting" rather than a wall
+        # of zeros. Sits between Date and Container No (2026-08-18) — it is
+        # read together with the date, not with the warehouse columns.
+        {"label": _("Aging"), "fieldname": "Aging", "fieldtype": "Int", "width": 80},
         {"label": _("Container No"), "fieldname": "Container Number", "fieldtype": "Data", "width": 130},
         {"label": _("Item"), "fieldname": "Item", "fieldtype": "Data", "width": 120},
         {"label": _("Lot Number"), "fieldname": "Lot Number", "fieldtype": "Data", "width": 110},
@@ -93,10 +100,6 @@ def get_columns(filters=None):
         {"label": _("Notes"), "fieldname": "Notes", "fieldtype": "Data", "width": 150},
         {"label": _("Location"), "fieldname": "Location", "fieldtype": "Data", "width": 100},
         {"label": _("Accepted Warehouse"), "fieldname": "Accepted Warehouse", "fieldtype": "Data", "width": 150},
-        # MI1-I94 (Raj 2026-08-13): Aging = days from batch/container
-        # posting date to the day the report is generated. Blank on
-        # total rows (they aggregate mixed dates).
-        {"label": _("Aging"), "fieldname": "Aging", "fieldtype": "Int", "width": 80},
         {"label": _("sort_order"), "fieldname": "sort_order", "fieldtype": "Int", "width": 0, "hidden": 1},
     ]
     return columns
@@ -509,6 +512,12 @@ def get_data(filters=None):
             g["sort_order"] = 0
             g["report_date"] = g["batch_date"].strftime("%d/%m/%Y")
             g["available_qty"] = round(flt(g["balance"]) - flt(g["booked_qty"]), 2)
+            # Identifies which rendered rows came out of this one stock group.
+            # Step 8 emits one full row per Sales Order booking, repeating
+            # Balance / Balance Box / Cone on each, so the browser needs a way
+            # to count those group-level figures once when it re-totals the
+            # rows left over by a column filter (see the report's .js).
+            g["group_key"] = len(main_rows)
             main_rows.append(g)
 
     if not main_rows:
@@ -627,10 +636,20 @@ def get_data(filters=None):
     today_date = getdate(today())
 
     def _aging_for(row):
+        """Days on hand, or None.
+
+        None (not "") is what renders as an empty cell: the column is an Int,
+        and frappe's Int formatter only short-circuits on null — cint("") is 0,
+        so an empty string would print "0".
+
+        A same-day batch is 0 days old and prints blank too (2026-08-18): the
+        column is scanned for stock that has been sitting, and a column of
+        zeros on the freshest rows just adds noise.
+        """
         bd = row.get("batch_date")
         if not bd:
-            return ""
-        return date_diff(today_date, bd)
+            return None
+        return date_diff(today_date, bd) or None
 
     result = []
     for row in all_rows:
@@ -658,8 +677,11 @@ def get_data(filters=None):
             "Notes": row.get("notes", "") if so == 0 else "",
             "Location": row.get("location", "") if so == 0 else "",
             "Accepted Warehouse": row.get("accepted_warehouse", "") if so == 0 else "",
-            "Aging": _aging_for(row) if so == 0 else "",
+            "Aging": _aging_for(row) if so == 0 else None,
             "sort_order": so,
+            # Not a column — a marker the report's .js reads off the row dict
+            # to re-total the Qty columns after a datatable column filter.
+            "_group_key": row.get("group_key") if so == 0 else None,
         }
 
         if so != 0 or not bookings:
@@ -720,8 +742,9 @@ def get_data(filters=None):
         "Notes": "",
         "Location": "",
         "Accepted Warehouse": "",
-        "Aging": "",
+        "Aging": None,
         "sort_order": 3,
+        "_group_key": None,
     })
 
     return result

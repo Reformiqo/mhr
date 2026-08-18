@@ -1,21 +1,24 @@
 """MI1-I91 — STOCK SHEET (BALANCE REPORT) fixes.
 
-Two defects, both reported by Raj on 2026-08-11:
+Chips never appeared in the Product column, and its stock never appeared
+either — because the row was dropped before rendering by a blanket `cone > 0`
+guard. Chips ships in Bags, so cone is legitimately 0 on 4,046 of the site's
+4,943 HTY batches.
 
-  (a) From Date / To Date opened blank.
-  (b) Chips never appeared in the Product column, and its stock never
-      appeared either — because the row was dropped before rendering by a
-      blanket `cone > 0` guard. Chips ships in Bags, so cone is legitimately
-      0 on 4,046 of the site's 4,943 HTY batches.
+The hard requirement: VFY output must not change.
 
-The hard requirement on both: VFY output must not change.
+MI1-I91 also pre-filled From Date / To Date, seeded from the earliest Batch.
+That was reverted on 2026-08-18 — the boxes open blank again, meaning "every
+batch", and the seeding helper went with it. The range behaviour that survived
+the revert (a blank range and a full range return the same rows; To Date covers
+the whole day) is still pinned below.
 """
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate
 
-from mhr.utilis import get_container_nos_by_transaction_type, get_earliest_batch_date
+from mhr.utilis import get_container_nos_by_transaction_type
 
 REPORT = "STOCK SHEET (BALANCE REPORT)"
 
@@ -58,57 +61,35 @@ def _find_zero_cone_container(transaction_type):
 
 
 # ---------------------------------------------------------------------------
-# (a) date defaults
+# (a) date range
 # ---------------------------------------------------------------------------
 
 
-class TestEarliestBatchDate(FrappeTestCase):
-	def setUp(self):
-		frappe.cache().delete_value("mhr:earliest_batch_date")
-
-	def tearDown(self):
-		frappe.cache().delete_value("mhr:earliest_batch_date")
-
-	def test_returns_iso_date_string(self):
-		if not frappe.db.count("Batch"):
-			self.skipTest("No Batch rows on this site.")
-		value = get_earliest_batch_date()
-		self.assertIsNotNone(value)
-		# Must be a plain YYYY-MM-DD string — the Date control rejects a datetime.
-		self.assertRegex(value, r"^\d{4}-\d{2}-\d{2}$")
-
-	def test_matches_the_actual_minimum(self):
-		if not frappe.db.count("Batch"):
-			self.skipTest("No Batch rows on this site.")
-		actual = frappe.db.sql("SELECT MIN(creation) FROM `tabBatch`")[0][0]
-		self.assertEqual(get_earliest_batch_date(), str(getdate(actual)))
-
-	def test_is_cached(self):
-		if not frappe.db.count("Batch"):
-			self.skipTest("No Batch rows on this site.")
-		first = get_earliest_batch_date()
-		self.assertEqual(frappe.cache().get_value("mhr:earliest_batch_date"), first)
-
-	def test_default_range_returns_same_rows_as_blank(self):
-		"""The whole point of option 1: pre-filling the boxes must not change
-		which rows come back."""
+class TestFullRangeMatchesBlankRange(FrappeTestCase):
+	def test_full_range_returns_same_rows_as_blank(self):
+		"""Blank boxes mean "every batch". Typing the widest possible range by
+		hand must therefore return exactly the same rows."""
 		container = _find_zero_cone_container("HTY") or frappe.db.get_value(
 			"Batch", {"custom_container_no": ["!=", ""]}, "custom_container_no"
 		)
 		if not container:
 			self.skipTest("No batches with a container number on this site.")
 
+		earliest = frappe.db.sql("SELECT MIN(creation) FROM `tabBatch`")[0][0]
+		if not earliest:
+			self.skipTest("No Batch rows on this site.")
+
 		blank = _run({"container": container})
-		seeded = _run(
+		full = _run(
 			{
 				"container": container,
-				"fdt": get_earliest_batch_date(),
+				"fdt": str(getdate(earliest)),
 				"tdt": frappe.utils.today(),
 			}
 		)
 		self.assertEqual(
-			len(blank), len(seeded),
-			"Seeding fdt/tdt with earliest-batch -> today must not drop rows.",
+			len(blank), len(full),
+			"earliest-batch -> today must return the same rows as a blank range.",
 		)
 
 
