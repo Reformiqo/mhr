@@ -2865,31 +2865,3 @@ def get_hty_batches_for_containers(container_names):
             }
         )
     return payload
-
-
-@frappe.whitelist()
-def get_earliest_batch_date():
-    """MI1-I91: the oldest Batch.creation date on the site, as YYYY-MM-DD.
-
-    Backs the STOCK SHEET (BALANCE REPORT) From Date default. The filter is
-    pre-filled purely so the box is never blank — seeding it with the earliest
-    batch keeps the report's row set identical to the old blank-filter
-    behaviour, instead of silently hiding pre-period stock the way a fiscal
-    year default would.
-
-    Cached for a day: this is a MIN() over 100K+ Batch rows and the answer
-    only moves when the oldest batch is deleted.
-    """
-    cache_key = "mhr:earliest_batch_date"
-    cached = frappe.cache().get_value(cache_key)
-    if cached:
-        return cached
-
-    row = frappe.db.sql("SELECT MIN(creation) FROM `tabBatch`")
-    earliest = row[0][0] if row and row[0] else None
-    if not earliest:
-        return None
-
-    value = str(getdate(earliest))
-    frappe.cache().set_value(cache_key, value, expires_in_sec=86400)
-    return value
