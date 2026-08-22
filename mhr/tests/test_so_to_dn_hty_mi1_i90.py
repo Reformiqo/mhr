@@ -445,3 +445,44 @@ class TestBatchFetchFromParity(FrappeTestCase):
 		with open(path, encoding="utf-8") as f:
 			source = f.read()
 		self.assertIn("frm.set_query('custom_batch'", source)
+
+
+class TestPatchIsRerunnable(FrappeTestCase):
+	"""frappe records the whole patches.txt line in Patch Log and skips
+	anything already there (frappe/modules/patch_handler.py :: executed), so
+	editing a patch that has already run is a silent no-op on every existing
+	site. That is exactly how the fetch_from declarations, custom_cone_copy
+	and custom_qty_manual_edit all failed to appear after a migrate.
+	"""
+
+	LINE_PREFIX = "mhr.patches.v1_0.add_sales_order_hty_fields"
+
+	def _line(self):
+		path = frappe.get_app_path("mhr", "patches.txt")
+		with open(path, encoding="utf-8") as f:
+			for raw in f:
+				line = raw.strip()
+				if line.startswith(self.LINE_PREFIX):
+					return line
+		return None
+
+	def test_patch_is_listed(self):
+		self.assertIsNotNone(self._line(), "Patch missing from patches.txt.")
+
+	def test_patch_carries_a_version_suffix(self):
+		line = self._line()
+		self.assertIn(
+			"#", line,
+			"Add a `#<version>` suffix so the patch re-runs on sites that already "
+			"ran an earlier version of it. Without one, any field added or changed "
+			"here never reaches an existing site.",
+		)
+		self.assertTrue(
+			line.split("#", 1)[1].strip(),
+			"The suffix must not be empty.",
+		)
+
+	def test_patch_module_is_importable(self):
+		line = self._line()
+		module = line.split("#", 1)[0].strip()
+		self.assertTrue(callable(frappe.get_attr(module + ".execute")))

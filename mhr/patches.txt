@@ -20,4 +20,9 @@ mhr.patches.v1_0.create_hty_vfy_roles
 mhr.patches.v1_0.heal_sbb_posting_date_from_voucher
 mhr.patches.v1_0.reheal_batch_transaction_type_2026_07_14
 mhr.patches.v1_0.grant_hty_vfy_roles_on_mhr_reports
-mhr.patches.v1_0.add_sales_order_hty_fields
+# The `#...` suffix is part of the patch's identity — frappe stores the whole
+# string in Patch Log and skips anything already recorded
+# (frappe/modules/patch_handler.py :: executed). Bump it whenever this patch's
+# field definitions change, or migrate will silently skip the new ones on every
+# site that already ran the old version.
+mhr.patches.v1_0.add_sales_order_hty_fields #2026-08-22-fetch-from
