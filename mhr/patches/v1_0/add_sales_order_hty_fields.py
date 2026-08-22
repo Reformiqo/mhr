@@ -228,7 +228,17 @@ SALES_ORDER_ITEM_FIELDS = [
 # The Desk Client Script this app file supersedes. Its label swap, naming
 # series switch and company-aware filters now live in
 # public/js/sales_order_hty.js. Leaving both enabled would double-register
-# the transaction_type handler and the set_query calls.
+# the transaction_type handler and the set_query calls — and worse, that
+# script's `company` handler reads Company.default_price_list, a field
+# ERPNext does not have, so it throws "Field not permitted in query:
+# default_price_list" the moment transaction_type is set to HTY.
+#
+# The REAL switch is `"enabled": 0` in mhr/fixtures/client_script.json.
+# `bench migrate` runs patches inside run_schema_updates() and only then
+# calls post_schema_updates() -> sync_fixtures(), so a fixture still saying
+# `"enabled": 1` re-enables the script seconds after this patch disables it
+# — on every single migrate. The DB write below is kept as a safety net for
+# sites that do not re-sync fixtures, and is idempotent.
 SUPERSEDED_CLIENT_SCRIPT = "MI1-I39 — Sales Order HTY Mode"
 
 

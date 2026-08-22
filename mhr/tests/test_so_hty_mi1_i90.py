@@ -185,6 +185,30 @@ class TestSalesOrderHTYWiring(FrappeTestCase):
 			f"{name} must be disabled — its logic now lives in the app.",
 		)
 
+	def test_superseded_client_script_is_disabled_in_the_fixture(self):
+		"""The DB value above is not enough on its own.
+
+		`bench migrate` runs patches first and calls sync_fixtures() afterwards
+		(frappe/migrate.py :: post_schema_updates), so a fixture that still says
+		`"enabled": 1` re-enables the script seconds after the patch disables it
+		— every migrate, forever. That is exactly how the
+		"Field not permitted in query: default_price_list" error came back after
+		the first MI1-I90 deploy.
+		"""
+		import json
+
+		path = frappe.get_app_path("mhr", "fixtures", "client_script.json")
+		with open(path, encoding="utf-8") as f:
+			records = json.load(f)
+
+		match = [r for r in records if r.get("name") == "MI1-I39 — Sales Order HTY Mode"]
+		self.assertEqual(len(match), 1, "Expected exactly one fixture record.")
+		self.assertEqual(
+			match[0].get("enabled"), 0,
+			"The fixture is what migrate actually applies. Disabling this script "
+			"only in the patch does not stick.",
+		)
+
 	def test_company_aware_behaviour_was_carried_over(self):
 		"""Nothing the superseded Client Script did may be lost."""
 		path = frappe.get_app_path("mhr", "public", "js", "sales_order_hty.js")
