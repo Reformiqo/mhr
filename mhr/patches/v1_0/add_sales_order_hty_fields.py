@@ -18,6 +18,21 @@ Two Delivery Note fieldnames are renamed on Sales Order to follow the
     DN `count`          -> SO `custom_count`
     DN `fetch_batches`  -> SO `custom_fetch_batches`
 
+Picking a Batch fills the form in, and that is metadata rather than code:
+on Delivery Note twelve fields declare `fetch_from = custom_batch.<x>`, so
+frappe populates them as soon as the Batch link resolves. No Client Script
+is involved — which is why the first cut of this patch created the fields
+but left the form inert. The same nine declarations are made here, plus
+three on fields Sales Order already had (see
+SHARED_FIELDS_GAINING_FETCH_FROM).
+
+`custom_product`, `custom_type`, `custom_colour` and `custom_cross_section`
+are deliberately NOT fetched from the Batch — they belong to the Container,
+and sales_order_hty.js resolves them through
+mhr.sales_order_hty.get_container_spec_for_batch. A container_no lookup is
+ambiguous (one number maps to many Container docs), so it has to go via the
+batch's own Batch Items row.
+
 Idempotent: create_custom_fields(update=True) upserts, so re-running on
 an already-patched site is a no-op.
 """
@@ -63,6 +78,8 @@ SALES_ORDER_FIELDS = [
 	),
 	_f(
 		fieldname="custom_denier",
+		fetch_from="custom_batch.item",
+		fetch_if_empty=0,
 		label="Denier",
 		fieldtype="Link",
 		options="Item",
@@ -70,6 +87,8 @@ SALES_ORDER_FIELDS = [
 	),
 	_f(
 		fieldname="custom_glue",
+		fetch_from="custom_batch.custom_glue",
+		fetch_if_empty=0,
 		label="Glue",
 		fieldtype="Data",
 		insert_after="custom_denier",
@@ -82,6 +101,8 @@ SALES_ORDER_FIELDS = [
 	),
 	_f(
 		fieldname="custom_pulp",
+		fetch_from="custom_batch.custom_pulp",
+		fetch_if_empty=0,
 		label="Pulp",
 		fieldtype="Data",
 		insert_after="custom_product",
@@ -99,6 +120,8 @@ SALES_ORDER_FIELDS = [
 	),
 	_f(
 		fieldname="custom_lusture",
+		fetch_from="custom_batch.custom_lusture",
+		fetch_if_empty=0,
 		label="Lusture",
 		fieldtype="Data",
 		insert_after="custom_hty_cb_1",
@@ -111,18 +134,24 @@ SALES_ORDER_FIELDS = [
 	),
 	_f(
 		fieldname="custom_grade",
+		fetch_from="custom_batch.custom_grade",
+		fetch_if_empty=0,
 		label="Grade",
 		fieldtype="Data",
 		insert_after="custom_colour",
 	),
 	_f(
 		fieldname="custom_fsc",
+		fetch_from="custom_batch.custom_fsc",
+		fetch_if_empty=0,
 		label="FSC",
 		fieldtype="Data",
 		insert_after="custom_grade",
 	),
 	_f(
 		fieldname="custom_merge_no",
+		fetch_from="custom_batch.custom_merge_no",
+		fetch_if_empty=0,
 		label="Merge No",
 		fieldtype="Data",
 		insert_after="custom_fsc",
@@ -153,6 +182,8 @@ SALES_ORDER_FIELDS = [
 	),
 	_f(
 		fieldname="custom_warehouse",
+		fetch_from="custom_batch.custom_warehouse",
+		fetch_if_empty=0,
 		label="Location",
 		fieldtype="Data",
 		read_only=1,
@@ -160,6 +191,8 @@ SALES_ORDER_FIELDS = [
 	),
 	_f(
 		fieldname="custom_notes",
+		fetch_from="custom_batch.custom_notes",
+		fetch_if_empty=0,
 		label="Notes",
 		fieldtype="Data",
 		insert_after="custom_warehouse",
@@ -251,6 +284,45 @@ SALES_ORDER_ITEM_FIELDS = [
 ]
 
 
+# Three fields Sales Order already had, gaining only the Delivery Note's
+# `fetch_from`. This is what makes picking a Batch fill the form in — on
+# Delivery Note that behaviour is not script at all, it is field metadata:
+# twelve of its fields declare `fetch_from = custom_batch.<something>`, so
+# frappe populates them the moment the Batch link resolves.
+#
+# NO `insert_after` here on purpose. These three sit on the Details tab and
+# are what the VFY "Sales Order Booking" flow writes to; moving them would
+# rearrange a form VFY users depend on.
+#
+# Safe for VFY: frappe only fetches when the source link has a value
+# (frappe/model/base_document.py :: get_invalid_links -> `if docname:`), and
+# custom_batch lives on the HTY tab, which VFY never renders. An empty
+# custom_batch fetches nothing and clears nothing.
+SHARED_FIELDS_GAINING_FETCH_FROM = [
+	_f(
+		fieldname="custom_container_no",
+		label="Container No",
+		fieldtype="Data",
+		fetch_from="custom_batch.custom_container_no",
+		fetch_if_empty=0,
+	),
+	_f(
+		fieldname="custom_lot_no",
+		label="Lot No",
+		fieldtype="Data",
+		fetch_from="custom_batch.custom_lot_no",
+		fetch_if_empty=0,
+	),
+	_f(
+		fieldname="custom_cone",
+		label="Cone",
+		fieldtype="Int",
+		fetch_from="custom_batch.custom_cone",
+		fetch_if_empty=0,
+	),
+]
+
+
 # The Desk Client Script this app file supersedes. Its label swap, naming
 # series switch and company-aware filters now live in
 # public/js/sales_order_hty.js. Leaving both enabled would double-register
@@ -271,7 +343,7 @@ SUPERSEDED_CLIENT_SCRIPT = "MI1-I39 — Sales Order HTY Mode"
 def execute():
 	create_custom_fields(
 		{
-			"Sales Order": SALES_ORDER_FIELDS,
+			"Sales Order": SALES_ORDER_FIELDS + SHARED_FIELDS_GAINING_FETCH_FROM,
 			"Sales Order Item": SALES_ORDER_ITEM_FIELDS,
 		},
 		update=True,

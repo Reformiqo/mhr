@@ -360,3 +360,88 @@ class TestConeToQtyOnSalesOrder(FrappeTestCase):
 		idx = source.find("function so_hty_apply_selected_batches(")
 		self.assertGreater(idx, -1)
 		self.assertIn("custom_cone_copy: data.custom_cone,", source[idx : idx + 3000])
+
+
+class TestBatchFetchFromParity(FrappeTestCase):
+	"""Picking a Batch must fill the Sales Order in, exactly as it does on
+	Delivery Note.
+
+	That behaviour is field metadata, not script: Delivery Note declares
+	`fetch_from = custom_batch.<x>` on twelve fields. Creating the same fields
+	on Sales Order without those declarations left the form inert — the Batch
+	link opened its popup and then nothing happened.
+	"""
+
+	# Sourced from the Batch. The Container-sourced ones (product, type,
+	# colour, cross_section) are resolved by get_container_spec_for_batch
+	# instead, because a container_no lookup is ambiguous.
+	EXPECTED = {
+		"custom_container_no": "custom_batch.custom_container_no",
+		"custom_lot_no": "custom_batch.custom_lot_no",
+		"custom_cone": "custom_batch.custom_cone",
+		"custom_denier": "custom_batch.item",
+		"custom_glue": "custom_batch.custom_glue",
+		"custom_pulp": "custom_batch.custom_pulp",
+		"custom_lusture": "custom_batch.custom_lusture",
+		"custom_grade": "custom_batch.custom_grade",
+		"custom_fsc": "custom_batch.custom_fsc",
+		"custom_merge_no": "custom_batch.custom_merge_no",
+		"custom_warehouse": "custom_batch.custom_warehouse",
+		"custom_notes": "custom_batch.custom_notes",
+	}
+
+	def test_sales_order_declares_the_same_fetch_from_as_delivery_note(self):
+		so_meta = frappe.get_meta("Sales Order")
+		for fieldname, fetch_from in self.EXPECTED.items():
+			with self.subTest(fieldname=fieldname):
+				field = so_meta.get_field(fieldname)
+				self.assertIsNotNone(field, f"Sales Order.{fieldname} missing.")
+				self.assertEqual(
+					field.fetch_from, fetch_from,
+					f"Sales Order.{fieldname} will not populate when a Batch is picked.",
+				)
+
+	def test_delivery_note_is_still_the_reference(self):
+		"""If Delivery Note's own declarations move, the two forms have drifted
+		and the list above is stale."""
+		dn_meta = frappe.get_meta("Delivery Note")
+		for fieldname, fetch_from in self.EXPECTED.items():
+			with self.subTest(fieldname=fieldname):
+				field = dn_meta.get_field(fieldname)
+				self.assertIsNotNone(field)
+				self.assertEqual(field.fetch_from, fetch_from)
+
+	def test_the_batch_link_exists_on_sales_order(self):
+		field = frappe.get_meta("Sales Order").get_field("custom_batch")
+		self.assertIsNotNone(field, "Nothing for fetch_from to read from.")
+		self.assertEqual(field.fieldtype, "Link")
+		self.assertEqual(field.options, "Batch")
+
+	def test_container_sourced_fields_are_not_fetched_from_the_batch(self):
+		"""These come from the Container via get_container_spec_for_batch. A
+		fetch_from here would overwrite the resolved value with a blank."""
+		so_meta = frappe.get_meta("Sales Order")
+		for fieldname in ("custom_product", "custom_type", "custom_colour", "custom_cross_section"):
+			with self.subTest(fieldname=fieldname):
+				field = so_meta.get_field(fieldname)
+				if field is None:
+					continue
+				self.assertFalse(field.fetch_from)
+
+	def test_shared_fields_keep_their_position(self):
+		"""custom_container_no / custom_lot_no / custom_cone are what the VFY
+		'Sales Order Booking' flow writes to. The patch adds fetch_from to them
+		and must not pass insert_after, which would move them off the Details
+		tab and rearrange a form VFY users depend on."""
+		from mhr.patches.v1_0 import add_sales_order_hty_fields as patch
+
+		for entry in patch.SHARED_FIELDS_GAINING_FETCH_FROM:
+			with self.subTest(fieldname=entry["fieldname"]):
+				self.assertNotIn("insert_after", entry)
+				self.assertTrue(entry.get("fetch_from"))
+
+	def test_batch_link_is_filtered_to_hty_stock(self):
+		path = frappe.get_app_path("mhr", "public", "js", "sales_order_hty.js")
+		with open(path, encoding="utf-8") as f:
+			source = f.read()
+		self.assertIn("frm.set_query('custom_batch'", source)
