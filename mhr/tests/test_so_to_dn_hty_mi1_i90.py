@@ -287,3 +287,76 @@ class TestContainerNotesOnSalesOrder(FrappeTestCase):
 		doc = frappe._dict(transaction_type="SOMETHING", custom_container_no="ANY")
 		fetch_notes_from_container(doc)
 		self.assertIsNone(doc.get("custom_notes"))
+
+
+class TestConeToQtyOnSalesOrder(FrappeTestCase):
+	"""The Delivery Note's 'Cone Qty Calcuation' rule, ported to Sales Order:
+
+	    qty = (Batch.batch_qty * custom_cone) / custom_cone_copy
+
+	Both fields use the Delivery Note Item fieldnames so Create > Delivery Note
+	carries them across and neither form re-derives a qty the other settled."""
+
+	FIELDS = ("custom_cone_copy", "custom_qty_manual_edit")
+
+	def test_fields_exist_on_sales_order_item(self):
+		meta = frappe.get_meta("Sales Order Item")
+		for fieldname in self.FIELDS:
+			with self.subTest(fieldname=fieldname):
+				self.assertIsNotNone(meta.get_field(fieldname))
+
+	def test_fieldnames_match_delivery_note_item(self):
+		"""Different names here would mean frappe's mapper drops them, and the
+		Delivery Note would recompute a qty the Sales Order already fixed."""
+		dn_meta = frappe.get_meta("Delivery Note Item")
+		for fieldname in self.FIELDS:
+			with self.subTest(fieldname=fieldname):
+				self.assertIsNotNone(
+					dn_meta.get_field(fieldname),
+					f"Delivery Note Item.{fieldname} missing — the pair is no longer "
+					"symmetric.",
+				)
+
+	def test_fields_are_copyable(self):
+		for doctype in ("Sales Order Item", "Delivery Note Item"):
+			for fieldname in self.FIELDS:
+				with self.subTest(doctype=doctype, fieldname=fieldname):
+					field = frappe.get_meta(doctype).get_field(fieldname)
+					if field is None:
+						continue
+					self.assertFalse(
+						field.no_copy,
+						f"{doctype}.{fieldname} is no_copy — the mapper will drop it.",
+					)
+
+	def test_handlers_are_hty_gated(self):
+		"""VFY Sales Order qty belongs to the 'Sales Order Booking' Client
+		Script and must not be touched by this file."""
+		path = frappe.get_app_path("mhr", "public", "js", "sales_order_hty.js")
+		with open(path, encoding="utf-8") as f:
+			source = f.read()
+
+		idx = source.find("function so_hty_recalc_row_qty(")
+		self.assertGreater(idx, -1, "so_hty_recalc_row_qty missing.")
+		self.assertIn("if (!so_hty_is_hty(frm)) return;", source[idx : idx + 200])
+
+		idx = source.find("frappe.ui.form.on('Sales Order Item', {")
+		self.assertGreater(idx, -1, "Sales Order Item handlers missing.")
+		block = source[idx:]
+		self.assertEqual(
+			block.count("if (!so_hty_is_hty(frm)) return;"), 2,
+			"Both custom_cone and qty must return early on a VFY Sales Order. "
+			"(so_hty_recalc_row_qty carries the third gate and is defined above "
+			"this block.)",
+		)
+
+	def test_new_rows_are_seeded_with_a_cone_copy(self):
+		"""Without this the first cone edit divides by an empty cone_copy and
+		the row jumps to the batch's full quantity."""
+		path = frappe.get_app_path("mhr", "public", "js", "sales_order_hty.js")
+		with open(path, encoding="utf-8") as f:
+			source = f.read()
+
+		idx = source.find("function so_hty_apply_selected_batches(")
+		self.assertGreater(idx, -1)
+		self.assertIn("custom_cone_copy: data.custom_cone,", source[idx : idx + 3000])

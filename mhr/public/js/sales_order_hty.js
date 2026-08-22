@@ -569,6 +569,11 @@ function so_hty_apply_selected_batches(frm, batch_map, selected_names, d) {
             warehouse: data.warehouse || frm.doc.set_warehouse,
             custom_batch_no: data.name,
             custom_cone: data.custom_cone,
+            // The cone the row's qty was derived from. so_hty_recalc_row_qty
+            // divides by it, so seeding it here is what makes a later cone
+            // edit scale the qty instead of replacing it with the batch's
+            // full quantity.
+            custom_cone_copy: data.custom_cone,
             custom_supplier_batch_no: data.custom_supplier_batch_no,
             custom_container_number: data.custom_container_no,
             custom_lot_number: data.custom_lot_no,
@@ -792,8 +797,104 @@ frappe.ui.form.on('Sales Order', {
     },
 });
 
+// ---------------------------------------------------------------------------
+// cone -> qty, the Sales Order half of the Delivery Note's 'Cone Qty
+// Calcuation' Client Script
+// ---------------------------------------------------------------------------
+//
+// Same arithmetic as the Delivery Note:
+//
+//     qty = (Batch.batch_qty * custom_cone) / custom_cone_copy
+//
+// so dropping a row's cone from 6 to 3 halves the ordered quantity instead of
+// leaving the user to work it out. custom_cone_copy is the cone the row was
+// created with, seeded in so_hty_apply_selected_batches.
+//
+// Three differences from the Delivery Note original, all deliberate:
+//
+//   * HTY only. A VFY Sales Order's qty belongs to the "Sales Order Booking"
+//     Client Script and is not touched here.
+//   * Bound through frappe.ui.form.on rather than the grid's jQuery
+//     handlers. Same two triggers (cone changed / qty typed), but no
+//     dependence on the grid's DOM or on data('prev-cone') surviving a
+//     re-render.
+//   * No is_return branch — a Sales Order cannot be a return.
+//
+// custom_qty_manual_edit carries the same meaning as on the Delivery Note: a
+// qty the user typed themselves, which nothing may recompute. Both fields use
+// the Delivery Note Item fieldnames, so Create > Delivery Note carries them
+// across and the two forms agree on what a row's qty means.
+
+function so_hty_recalc_row_qty(frm, cdt, cdn) {
+    if (!so_hty_is_hty(frm)) return;
+
+    const row = locals[cdt] && locals[cdt][cdn];
+    if (!row || !row.custom_batch_no) return;
+
+    // The user typed this qty. Leave it alone.
+    if (row.custom_qty_manual_edit) return;
+
+    const cone = parseFloat(row.custom_cone);
+    const cone_copy = parseFloat(row.custom_cone_copy);
+    if (isNaN(cone) || isNaN(cone_copy) || cone_copy === 0) return;
+
+    frappe.call({
+        method: 'frappe.client.get_value',
+        args: {
+            doctype: 'Batch',
+            filters: { name: row.custom_batch_no },
+            fieldname: 'batch_qty',
+        },
+        callback: function (r) {
+            // Re-check: the user may have typed a qty while this was in flight.
+            if (row.custom_qty_manual_edit) return;
+            if (!r || !r.message || !r.message.batch_qty) return;
+
+            const batch_qty = parseFloat(r.message.batch_qty);
+            if (isNaN(batch_qty)) return;
+
+            frappe.model.set_value(cdt, cdn, 'qty', flt((batch_qty * cone) / cone_copy, 3));
+        },
+    });
+}
+
 frappe.ui.form.on('Sales Order Item', {
     items_add: so_hty_calculate_totals,
     items_remove: so_hty_calculate_totals,
-    custom_cone: so_hty_calculate_totals,
+
+    custom_cone: function (frm, cdt, cdn) {
+        so_hty_calculate_totals(frm);
+        if (!so_hty_is_hty(frm)) return;
+
+        const row = locals[cdt] && locals[cdt][cdn];
+        if (!row) return;
+
+        // A cone edit is an instruction to re-derive the qty, so it clears the
+        // manual-edit flag first — same order as the Delivery Note.
+        if (row.custom_qty_manual_edit) {
+            frappe.model.set_value(cdt, cdn, 'custom_qty_manual_edit', 0);
+        }
+        // A row that arrived without a cone_copy (older document, or a row
+        // added by hand) has nothing to scale against. Anchor it to the cone
+        // it has now, which makes this edit a no-op rather than a jump to the
+        // batch's full quantity.
+        if (!row.custom_cone_copy) {
+            frappe.model.set_value(cdt, cdn, 'custom_cone_copy', row.custom_cone);
+            return;
+        }
+
+        so_hty_recalc_row_qty(frm, cdt, cdn);
+    },
+
+    qty: function (frm, cdt, cdn) {
+        if (!so_hty_is_hty(frm)) return;
+
+        const row = locals[cdt] && locals[cdt][cdn];
+        // Only a row under cone control can be "manually" overridden; without
+        // a batch nothing would have recomputed it anyway.
+        if (!row || !row.custom_batch_no) return;
+        if (row.custom_qty_manual_edit) return;
+
+        frappe.model.set_value(cdt, cdn, 'custom_qty_manual_edit', 1);
+    },
 });

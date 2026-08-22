@@ -222,6 +222,32 @@ SALES_ORDER_ITEM_FIELDS = [
 		fieldtype="Float",
 		insert_after="custom_sr_no",
 	),
+	# The two fields the cone -> qty rule runs on. Same fieldnames as
+	# Delivery Note Item, so Create > Delivery Note carries them across and
+	# neither form re-derives a qty the other already settled.
+	#
+	# Hidden, exactly as on Delivery Note: they are bookkeeping for the
+	# calculation, not something a user fills in.
+	_f(
+		fieldname="custom_cone_copy",
+		label="Cone Copy",
+		fieldtype="Data",
+		hidden=1,
+		no_copy=0,
+		insert_after="custom_gross_weight",
+		description="The cone this row's qty was derived from. qty scales by "
+		"custom_cone / custom_cone_copy.",
+	),
+	_f(
+		fieldname="custom_qty_manual_edit",
+		label="Qty Manual Edit",
+		fieldtype="Check",
+		hidden=1,
+		no_copy=0,
+		insert_after="custom_cone_copy",
+		description="Set when the user types a qty. Blocks the cone -> qty "
+		"recalculation on this row, here and on the Delivery Note made from it.",
+	),
 ]
 
 
