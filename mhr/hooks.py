@@ -221,6 +221,12 @@ doc_events = {
             # MI1-I90 — HTY naming series + HTY-batch enforcement. No-op
             # unless transaction_type == 'HTY'.
             "mhr.sales_order_hty.validate_hty_sales_order",
+            # MI1-I90 — the same Container-notes fetch Delivery Note runs
+            # (MI1-I83, extended to HTY by MI1-I101). The function reads only
+            # transaction_type / custom_container_no / custom_notes, all of
+            # which Sales Order now has, so it is reused verbatim rather than
+            # forked. It writes custom_notes only when the field is empty.
+            "mhr.utilis.fetch_notes_from_container",
         ],
     },
     "Delivery Trip": {

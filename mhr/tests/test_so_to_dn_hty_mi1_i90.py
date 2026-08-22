@@ -240,3 +240,50 @@ class TestDirectDeliveryNoteFlowUntouched(FrappeTestCase):
 			"erpnext.selling.doctype.sales_order.sales_order.make_delivery_note"
 		]
 		self.assertTrue(callable(frappe.get_attr(target)))
+
+
+class TestContainerNotesOnSalesOrder(FrappeTestCase):
+	"""MI1-I90: Sales Order runs the same Container-notes fetch Delivery Note
+	runs (MI1-I83, extended to HTY by MI1-I101), reusing the function verbatim
+	rather than forking it."""
+
+	def test_hook_is_registered_on_sales_order(self):
+		handlers = (frappe.get_hooks("doc_events", app_name="mhr").get("Sales Order") or {}).get(
+			"validate"
+		) or []
+		self.assertIn("mhr.utilis.fetch_notes_from_container", handlers)
+
+	def test_delivery_note_still_runs_it_too(self):
+		"""Sharing the function must not move it off Delivery Note."""
+		handlers = (frappe.get_hooks("doc_events", app_name="mhr").get("Delivery Note") or {}).get(
+			"validate"
+		) or []
+		self.assertIn("mhr.utilis.fetch_notes_from_container", handlers)
+
+	def test_sales_order_has_the_fields_the_function_reads(self):
+		meta = frappe.get_meta("Sales Order")
+		for fieldname in ("transaction_type", "custom_container_no", "custom_notes"):
+			with self.subTest(fieldname=fieldname):
+				self.assertIsNotNone(
+					meta.get_field(fieldname),
+					f"Sales Order.{fieldname} missing — the shared notes hook would "
+					"read None and silently do nothing.",
+				)
+
+	def test_existing_notes_are_never_overwritten(self):
+		from mhr.utilis import fetch_notes_from_container
+
+		doc = frappe._dict(
+			transaction_type="HTY",
+			custom_container_no="ANY",
+			custom_notes="typed by the user",
+		)
+		fetch_notes_from_container(doc)
+		self.assertEqual(doc.custom_notes, "typed by the user")
+
+	def test_other_transaction_types_are_ignored(self):
+		from mhr.utilis import fetch_notes_from_container
+
+		doc = frappe._dict(transaction_type="SOMETHING", custom_container_no="ANY")
+		fetch_notes_from_container(doc)
+		self.assertIsNone(doc.get("custom_notes"))
