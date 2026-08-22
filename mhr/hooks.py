@@ -276,9 +276,16 @@ scheduler_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "mhr.event.get_events"
-# }
+# MI1-I90: the stock "Create > Delivery Note" button on Sales Order routes
+# here. The wrapper delegates the whole mapping to ERPNext and only
+# post-processes it, and returns early unless the Sales Order is HTY — a VFY
+# Sales Order therefore produces byte-for-byte the Delivery Note it produced
+# before, and a Delivery Note created directly never reaches this code.
+override_whitelisted_methods = {
+    "erpnext.selling.doctype.sales_order.sales_order.make_delivery_note": (
+        "mhr.sales_order_to_delivery_note.make_delivery_note"
+    ),
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

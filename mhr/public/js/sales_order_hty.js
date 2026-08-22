@@ -1,13 +1,17 @@
 // MI1-I90 — Sales Order HTY mode.
 //
-// Port of the Delivery Note HTY behaviour onto Sales Order. Loaded after
-// public/js/sales_order.js (see doctype_js in hooks.py), so it wins on any
-// set_query / property it re-registers.
+// Port of the Delivery Note HTY behaviour onto Sales Order. Registered via
+// doctype_js in hooks.py; it is the only app JS on the doctype.
 //
-// HARD RULE, mirroring the Delivery Note work: every handler in this file
-// returns immediately unless transaction_type === 'HTY'. VFY Sales Orders
-// behave exactly as they did before this file existed, and no Delivery Note
-// code is touched.
+// The VFY side belongs to the "Sales Order Booking" Client Script, which
+// gates every one of its handlers on VFY. This file is the mirror image:
+// every handler returns immediately unless transaction_type === 'HTY'. The
+// two therefore never act on the same document, and load order between them
+// does not matter.
+//
+// HARD RULE, mirroring the Delivery Note work: VFY Sales Orders behave
+// exactly as they did before this file existed, and no Delivery Note code is
+// touched.
 //
 // Ported from:
 //   Client Script "HTY & VFY"                        -> Select Batch popup
@@ -76,9 +80,9 @@ function so_hty_apply_mode(frm) {
     }
 
     // The VFY fetch controls live on the main tab and make no sense in HTY.
-    // Only touched when hty is true — in VFY these belong to
-    // toggle_fetch_fields() in sales_order.js, and re-showing them here
-    // would override its custom_fetch_by logic.
+    // Only touched when hty is true — in VFY these belong to the "Sales
+    // Order Booking" Client Script, and re-showing them here would override
+    // its custom_fetch_by logic.
     if (hty) {
         ['custom_fetch_by', 'custom_no_of_boxes', 'custom_quantity_weight'].forEach((f) => {
             if (frm.fields_dict[f]) frm.toggle_display(f, false);
@@ -692,7 +696,8 @@ frappe.ui.form.on('Sales Order', {
     },
 
     custom_container_no: async function (frm) {
-        if (!so_hty_is_hty(frm)) return;      // VFY handler lives in sales_order.js
+        // VFY handler lives in the "Sales Order Booking" Client Script.
+        if (!so_hty_is_hty(frm)) return;
         if (!frm.doc.custom_container_no) {
             so_hty_clear_spec_fields(frm);
             return;

@@ -12,7 +12,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from mhr.sales_order_hty import (
 	HTY_SO_SERIES,
-	_set_total_cone,
 	_strip_label_prefix,
 	get_company_hty_defaults,
 	validate_hty_sales_order,
@@ -148,8 +147,11 @@ class TestSalesOrderHTYWiring(FrappeTestCase):
 			"HTY logic must ship as an app JS file, not a Desk Client Script.",
 		)
 		self.assertEqual(
-			paths[-1], "public/js/sales_order_hty.js",
-			"sales_order_hty.js must load last so its set_query wins.",
+			paths, ["public/js/sales_order_hty.js"],
+			"sales_order_hty.js is the only app JS on Sales Order. The former "
+			"public/js/sales_order.js was deleted upstream because it duplicated "
+			"the 'Sales Order Booking' Client Script — re-registering it here "
+			"would bring those doubled handlers back.",
 		)
 
 	def test_validate_hook_registered(self):
