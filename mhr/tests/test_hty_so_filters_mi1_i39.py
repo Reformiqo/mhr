@@ -9,6 +9,20 @@ In HTY mode the SO Client Script enforces FRD §SO rules:
 
 These tests pin the wiring in the Client Script source; behavior is
 exercised manually via the form (no Frappe server-side hook in Phase 2B).
+
+SUPERSEDED BY MI1-I90 (2026-08-22). This Client Script is now disabled —
+in the fixture, which is what `bench migrate` actually applies — and the
+behaviour it describes lives in the app instead:
+mhr/public/js/sales_order_hty.js and
+mhr.sales_order_hty.get_company_hty_defaults.
+
+The record is kept rather than deleted, so the assertions below still read
+its body and still pass. They document what the script HELD, not what now
+runs. One of them pins `default_price_list`, which was the defect itself:
+Company has no such field, so the query threw "Field not permitted in
+query: default_price_list" the moment anyone set transaction_type to HTY.
+The app replacement resolves the price list from Customer -> Customer Group
+-> Selling Settings; see test_so_hty_mi1_i90.TestCompanyHTYDefaults.
 """
 
 import frappe
