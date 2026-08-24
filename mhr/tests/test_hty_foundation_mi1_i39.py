@@ -43,6 +43,18 @@ HTY_CLIENT_SCRIPTS = [
     ("MI1-I39 — Print Batch HTY Mode",   "Print Batch"),
 ]
 
+# MI1-I90 (2026-08-24): the Sales Order script is superseded by app code
+# (public/js/sales_order_hty.js + mhr.sales_order_hty) and is disabled in
+# mhr/fixtures/client_script.json. It is kept as a record rather than deleted,
+# so the presence / DocType / view / module assertions below still apply to it
+# — only `enabled` differs.
+#
+# It is not merely redundant: its `company` handler read
+# Company.default_price_list, a field ERPNext does not have, so it threw
+# "Field not permitted in query" the moment a Sales Order became HTY. Enabling
+# it again would bring that back.
+SUPERSEDED_CLIENT_SCRIPTS = {"MI1-I39 — Sales Order HTY Mode"}
+
 
 class TestHTYTransactionTypeField(FrappeTestCase):
     """Every DocType in the FRD must carry a `transaction_type` field
@@ -98,8 +110,9 @@ class TestHTYNewFields(FrappeTestCase):
 
 
 class TestHTYClientScripts(FrappeTestCase):
-    """Each HTY-toggling Client Script is present, enabled, and targets
-    the right DocType."""
+    """Each HTY-toggling Client Script is present and targets the right
+    DocType. All are enabled except the ones in SUPERSEDED_CLIENT_SCRIPTS,
+    whose behaviour has moved into the app."""
 
     def test_scripts_present_and_enabled(self):
         for name, dt in HTY_CLIENT_SCRIPTS:
@@ -112,7 +125,14 @@ class TestHTYClientScripts(FrappeTestCase):
                 )
                 self.assertIsNotNone(cs, f"MI1-I39: Client Script {name!r} missing")
                 self.assertEqual(cs.dt, dt, f"{name} must target DocType {dt!r}")
-                self.assertEqual(cs.enabled, 1, f"{name} must be enabled")
+                if name in SUPERSEDED_CLIENT_SCRIPTS:
+                    self.assertEqual(
+                        cs.enabled, 0,
+                        f"{name} is superseded by app code and must stay disabled — "
+                        "re-enabling it restores the Company.default_price_list error.",
+                    )
+                else:
+                    self.assertEqual(cs.enabled, 1, f"{name} must be enabled")
                 self.assertEqual(cs.view, "Form", f"{name} must be a Form-view script")
                 self.assertEqual(cs.module, "Mhr",
                     f"{name} must be in module=Mhr so it ships via fixtures.")

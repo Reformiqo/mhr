@@ -35,6 +35,14 @@ doctype_js = {
     # copies stacked their error msgprints and each hit the server
     # twice on every field change. The Client Script (which carries
     # Raj's newer popup + VFY-only gate) is the sole owner now.
+    #
+    # MI1-I90: the HTY side is the app's, not a Client Script's. It is a
+    # SEPARATE file from the deleted sales_order.js and does not bring it
+    # back — every handler here returns early unless transaction_type is
+    # 'HTY', which is exactly the branch the VFY-gated "Sales Order
+    # Booking" Client Script declines to handle. The two never both act
+    # on the same document.
+    "Sales Order": "public/js/sales_order_hty.js",
     # MI1-I26 — Submit in Background button on Stock Entry to avoid
     # gunicorn HTTP request-timeouts on large transfers (e.g. 245
     # batches in one Material Transfer).
@@ -208,7 +216,18 @@ doc_events = {
         ],
     },
     "Sales Order": {
-        "validate": "mhr.utilis.validate_so_available_qty",
+        "validate": [
+            "mhr.utilis.validate_so_available_qty",
+            # MI1-I90 — HTY naming series + HTY-batch enforcement. No-op
+            # unless transaction_type == 'HTY'.
+            "mhr.sales_order_hty.validate_hty_sales_order",
+            # MI1-I90 — the same Container-notes fetch Delivery Note runs
+            # (MI1-I83, extended to HTY by MI1-I101). The function reads only
+            # transaction_type / custom_container_no / custom_notes, all of
+            # which Sales Order now has, so it is reused verbatim rather than
+            # forked. It writes custom_notes only when the field is empty.
+            "mhr.utilis.fetch_notes_from_container",
+        ],
     },
     "Delivery Trip": {
         "validate": [
@@ -263,9 +282,16 @@ scheduler_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "mhr.event.get_events"
-# }
+# MI1-I90: the stock "Create > Delivery Note" button on Sales Order routes
+# here. The wrapper delegates the whole mapping to ERPNext and only
+# post-processes it, and returns early unless the Sales Order is HTY — a VFY
+# Sales Order therefore produces byte-for-byte the Delivery Note it produced
+# before, and a Delivery Note created directly never reaches this code.
+override_whitelisted_methods = {
+    "erpnext.selling.doctype.sales_order.sales_order.make_delivery_note": (
+        "mhr.sales_order_to_delivery_note.make_delivery_note"
+    ),
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
