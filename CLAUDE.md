@@ -190,6 +190,22 @@ If you add a new fixture type, add it here too with appropriate filters.
 
 Client Scripts for standard / external doctypes (e.g. `Sales Order`, `Stock Entry`, `Delivery Note`) MUST be created as **Client Script** documents in the Desk and exported via fixtures — NOT placed in `public/js/` with `doctype_js` hooks, **unless** the script is large enough to warrant a real file (Sales Order + Stock Entry already are). When in doubt, prefer Desk Client Script + fixture so the script appears under Setup > Client Script and is deployed on `bench migrate`.
 
+**Editing a fixture record means moving its `modified` forward.**
+`frappe/modules/import_file.py :: import_file_by_path` skips any non-DocType
+record whose `modified` in the database is not older than the one in the JSON.
+Sites that already hold the record therefore never see the edit — it applies
+only to fresh installs, which is the worst possible failure mode because local
+testing passes. Bump `modified` in the same commit as the change.
+
+**Never write to the form from a `refresh` handler without checking
+`docstatus`** (MI1-I106). `frm.set_value` marks the form `__unsaved` for *any*
+difference, a rounding artefact included, so a submitted document opens
+reading "Not Saved" with an Update button. `Delivery Note V2` recomputed
+`total_qty` from a raw JS float sum on every refresh: rows of
+500.3 + 526.3 + 179.3 give 1205.8999999999999 while the stored value is
+1205.9. Two rules for any derived total: return early unless
+`docstatus === 0`, and compare at `frm.precision(fieldname)` before writing.
+
 ## Testing — MANDATORY
 
 **Every task MUST be tested with frappe tests before pushing.** No exceptions.
