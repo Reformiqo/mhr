@@ -441,6 +441,11 @@ class Container(Document):
             batch_doc.custom_lusture = specs["lusture"]
             batch_doc.custom_grade = self.grade
             batch_doc.custom_pulp = specs["pulp"]
+            # MI1-I107: HTY gets Colour / Product / Type as plain values, and
+            # its custom_grade loses the 'Grade-' prefix. VFY untouched.
+            from mhr.utilis import apply_hty_spec_values
+
+            apply_hty_spec_values(batch_doc, self)
             batch_doc.custom_fsc = self.fsc
             batch_doc.custom_cross_section = self.cross_section
             batch_doc.custom_notes = self.notes

@@ -73,7 +73,11 @@ def fetch_batches(
     if lusture:
         filters["custom_lusture"] = lusture
     if grade:
-        filters["custom_grade"] = grade
+        # MI1-I107: HTY Batches hold the plain grade, VFY the prefixed
+        # docname; the header may carry either.
+        from mhr.utilis import grade_filter_value
+
+        filters["custom_grade"] = grade_filter_value(grade)
     if cone and is_return is False:
         filters["custom_cone"] = cone
     if denier and is_return is False:
