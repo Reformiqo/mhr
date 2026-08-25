@@ -700,6 +700,132 @@ def strip_prefix(val):
     return s
 
 
+def resolve_spec_value(spec_name):
+    """MI1-I107: the display value of an Item Specification, exactly.
+
+    Container stores its specs as Links, so a Batch inherits the DOCNAME —
+    'Colour-Black', 'Grade-AA'. Reports have always shown the tail by calling
+    strip_prefix() at read time. This resolves it properly instead, because
+    MI1-I107 writes the value into the Batch permanently and a lossy split
+    would be baked into the data.
+
+    strip_prefix() splits on the LAST hyphen, which is wrong for real records
+    on this site:
+
+        'Grade-Off-Grade'       -> 'Grade'      (should be 'Off-Grade')
+        'Grade: .'              -> 'Grade: .'   (colon, so nothing is stripped)
+        'Lusture-Special Silky' -> 'Special Silky', but that record's actual
+                                   value is ' SPECIAL SILKY' — different case
+                                   and a leading space
+
+    Item Specification carries the answer in its own `value` field, so read
+    that, and fall back to strip_prefix() only when no such record exists (a
+    free-typed value, or a spec deleted after the Batch was created).
+
+    Cached per request: create_batches() calls this four times per batch, and
+    a container can carry hundreds.
+    """
+    if not spec_name:
+        return ""
+
+    # frappe.flags is a plain _dict living on frappe.local, so this is scoped
+    # to the request / job and cannot go stale between them. NOT
+    # frappe.local.__dict__ — frappe.local is a werkzeug-style Local whose
+    # __getattribute__ raises AttributeError for __dict__ (frappe/utils/local.py),
+    # which is why frappe's own code reaches for it with getattr().
+    cache = frappe.flags.setdefault("_mhr_spec_value_cache", {})
+    key = str(spec_name)
+    if key in cache:
+        return cache[key]
+
+    value = frappe.db.get_value("Item Specification", key, "value")
+    # `value` can legitimately be '' — only fall back when the record is absent.
+    resolved = strip_prefix(key) if value is None else value
+    cache[key] = resolved
+    return resolved
+
+
+def grade_filter_value(grade):
+    """MI1-I107: a Batch.custom_grade filter that matches both storage forms.
+
+    HTY Batches now hold the plain grade ('AA'); the 445k VFY Batches still
+    hold the Item Specification docname ('Grade-A EVEN'). A Delivery Note or
+    Stock Entry header can be carrying either — a document created before the
+    backfill still has the prefixed value, and its Fetch Batches would find
+    nothing against an exact match.
+
+    Returns an `in` clause covering both forms, so the lookup works whichever
+    side is which. Not a loosening in practice: the two forms are the same
+    grade, and no Batch holds one grade's plain value as another's prefixed
+    name.
+    """
+    if not grade:
+        return None
+
+    raw = str(grade)
+    plain = resolve_spec_value(raw)
+    variants = [v for v in dict.fromkeys([raw, plain]) if v]
+    return variants[0] if len(variants) == 1 else ["in", variants]
+
+
+def hty_aware_specs(container):
+    """The glue / lusture / pulp a Batch should inherit from `container`.
+
+    HTY Containers leave glue / lusture / pulp EMPTY and capture the same three
+    concepts under product / colour / type, so those are folded back into the
+    canonical columns. Both create_batches() paths already did this inline;
+    MI1-I107 lifted it here because heal_orphan_batch_masters did NOT, and was
+    therefore healing HTY Batches with blank specs.
+
+    `container` may be a Container Document or a plain row dict.
+    """
+    if (container.get("transaction_type") or "VFY") == "HTY":
+        return {
+            "glue": container.get("product"),
+            "lusture": container.get("colour"),
+            "pulp": container.get("type"),
+        }
+    return {
+        "glue": container.get("glue"),
+        "lusture": container.get("lusture"),
+        "pulp": container.get("pulp"),
+    }
+
+
+def apply_hty_spec_values(batch_doc, container):
+    """MI1-I107: fill a Batch's HTY spec fields with plain values.
+
+    HTY Containers capture their specs under colour / product / type, and
+    create_batches() folds those into the canonical custom_lusture /
+    custom_glue / custom_pulp columns. Those columns keep the raw Item
+    Specification docname ('Colour-Black') because live code matches on them —
+    mhr.utilis.get_delivery_note_batch and mhr.note.fetch_batches both filter Batch by the
+    exact string the Delivery Note header holds.
+
+    So the plain values go into their OWN fields, which the Batch form shows
+    only in HTY mode:
+
+        custom_colour   <- Container.colour     'Colour-Black'  -> 'Black'
+        custom_product  <- Container.product    'Product-Chips' -> 'Chips'
+        custom_type     <- Container.type       'Type-Bag'      -> 'Bag'
+
+    custom_grade is the exception, per the MI1-I107 spec: no new field and no
+    visibility condition, the existing one simply stops carrying the prefix.
+    Only for HTY — the 445k VFY Batches keep 'Grade-A EVEN' exactly as they
+    are, so nothing VFY reads or filters changes.
+
+    `container` may be a Container Document or a plain row dict; both support
+    .get(). No-op for VFY.
+    """
+    if (container.get("transaction_type") or "VFY") != "HTY":
+        return
+
+    batch_doc.custom_colour = resolve_spec_value(container.get("colour"))
+    batch_doc.custom_product = resolve_spec_value(container.get("product"))
+    batch_doc.custom_type = resolve_spec_value(container.get("type"))
+    batch_doc.custom_grade = resolve_spec_value(container.get("grade"))
+
+
 def hty_parse_filament_count(item_code):
     """MI1-I62: extract the filament-count digits from a Den/Fil item code.
 
@@ -917,7 +1043,9 @@ def get_delivery_note_batch(
         if lusture:
             filters["custom_lusture"] = lusture
         if grade:
-            filters["custom_grade"] = grade
+            # MI1-I107: HTY Batches hold the plain grade, VFY the prefixed
+            # docname; the header may carry either.
+            filters["custom_grade"] = grade_filter_value(grade)
         if denier and is_return is False:
             filters["item_name"] = denier
 
@@ -1670,6 +1798,9 @@ def create_batches(container):
             batch_doc.custom_lusture = specs["lusture"]
             batch_doc.custom_grade = container_doc.grade
             batch_doc.custom_pulp = specs["pulp"]
+            # MI1-I107: HTY gets Colour / Product / Type as plain values, and
+            # its custom_grade loses the 'Grade-' prefix. VFY untouched.
+            apply_hty_spec_values(batch_doc, container_doc)
             batch_doc.custom_fsc = container_doc.fsc
             batch_doc.custom_lot_no = container_doc.lot_no
             # MI1-I63 (reopen, 2026-06-29): propagate Gross Weight from

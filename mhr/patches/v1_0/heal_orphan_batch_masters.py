@@ -38,6 +38,8 @@ Safety: only INSERTs; never deletes or overwrites existing data.
 import frappe
 from frappe.utils import flt, getdate
 
+from mhr.utilis import apply_hty_spec_values, hty_aware_specs
+
 
 def execute():
     # Find every (Container, batch_id) where the Container is submitted
@@ -79,6 +81,11 @@ def execute():
                     "container_no", "lot_no", "glue", "lusture", "pulp",
                     "grade", "fsc", "cross_section", "notes",
                     "production_date", "merge_no", "warehouse",
+                    # MI1-I107: an HTY Container leaves glue/lusture/pulp
+                    # EMPTY and keeps its specs here instead. Without these
+                    # three columns this patch healed HTY Batches with blank
+                    # specs — it only ever read the VFY set.
+                    "transaction_type", "colour", "product", "type",
                 ],
                 as_dict=True,
             )
@@ -107,10 +114,16 @@ def execute():
             b.custom_supplier_batch_no = row.supplier_batch_no
             b.custom_container_no = c.container_no
             b.custom_cone = row.child_cone
-            b.custom_glue = c.glue
-            b.custom_lusture = c.lusture
+            # MI1-I107: mirror the HTY fold both create_batches() paths do —
+            # an HTY Container carries its specs under colour/product/type and
+            # leaves glue/lusture/pulp blank, so reading the VFY set directly
+            # healed HTY Batches with empty specs.
+            specs = hty_aware_specs(c)
+            b.custom_glue = specs["glue"]
+            b.custom_lusture = specs["lusture"]
             b.custom_grade = c.grade
-            b.custom_pulp = c.pulp
+            b.custom_pulp = specs["pulp"]
+            apply_hty_spec_values(b, c)
             b.custom_fsc = c.fsc
             b.custom_cross_section = c.cross_section
             b.custom_notes = c.notes
