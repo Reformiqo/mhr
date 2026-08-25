@@ -4,12 +4,15 @@ The HTY order flow is: raise a Sales Order, then turn it into a Delivery
 Note (the "Delivery Challan" of the shop floor — there is no Delivery
 Challan DocType; DELIVERY CHALLAN is a report over Delivery Notes).
 
-ERPNext already ships the button and the mapping
-(`erpnext.selling.doctype.sales_order.sales_order.make_delivery_note`).
-This module wraps it via `override_whitelisted_methods` and fills the two
-gaps that stop the HTY specification from arriving on the Delivery Note.
-Everything here is a no-op unless the Sales Order is HTY, so the VFY flow
-and every Delivery Note created directly are untouched.
+ERPNext already ships the mapping
+(`erpnext.selling.doctype.sales_order.sales_order.make_delivery_note`) and
+two entry points into it: Sales Order > Create > Delivery Note, and, from
+the other side, Delivery Note > Get Items From > Sales Order. This module
+wraps the mapping via `override_whitelisted_methods` — so both entry points
+route here — and fills the two gaps that stop the HTY specification from
+arriving on the Delivery Note. Everything here is a no-op unless the Sales
+Order is HTY, so the VFY flow and every Delivery Note created directly are
+untouched.
 
 
 Gap 1 — the item table uses different fieldnames on the two DocTypes
@@ -81,18 +84,41 @@ ITEM_FIELD_MAP = {
 
 
 @frappe.whitelist()
-def make_delivery_note(source_name, target_doc=None, **kwargs):
+def make_delivery_note(source_name, target_doc=None, kwargs=None):
 	"""Wraps ERPNext's Sales Order -> Delivery Note mapping.
 
-	Wired in hooks.py under `override_whitelisted_methods`, so the stock
-	"Create > Delivery Note" button on Sales Order routes here. ERPNext does
-	the whole mapping; we only post-process, and only for HTY.
+	Wired in hooks.py under `override_whitelisted_methods`, so both entry
+	points route here. ERPNext does the whole mapping; we only post-process,
+	and only for HTY.
+
+	The signature MUST stay identical to the function being overridden.
+	frappe calls it positionally, and the two entry points do not agree on how
+	many arguments that is (frappe/model/mapper.py):
+
+	    make_mapped_doc()   Sales Order > Create > Delivery Note
+	                        -> method(source_name)                  1 arg
+
+	    map_docs()          Delivery Note > Get Items From > Sales Order
+	                        -> _args = (src, target_doc, json.loads(args))
+	                              if args else (src, target_doc)
+	                           method(*_args)                       3 args
+
+	The Get Items From dialog always sends args (customer,
+	allow_child_item_selection, filtered_children), so that path always calls
+	with three positionals. A `**kwargs` tail accepts none of them by
+	position, which is MI1-I108:
+
+	    TypeError: make_delivery_note() takes from 1 to 2 positional
+	    arguments but 3 were given
+
+	Forwarded positionally for the same reason — ERPNext's own parameter is
+	named `kwargs`, and it is a plain third argument there, not a tail.
 	"""
 	from erpnext.selling.doctype.sales_order.sales_order import (
 		make_delivery_note as erpnext_make_delivery_note,
 	)
 
-	target = erpnext_make_delivery_note(source_name, target_doc, **kwargs)
+	target = erpnext_make_delivery_note(source_name, target_doc, kwargs)
 	return carry_hty_details(source_name, target)
 
 

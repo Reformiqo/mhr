@@ -109,6 +109,16 @@ Note in all modes are untouched.
   disabled **in `mhr/fixtures/client_script.json`** — disabling it only in a
   patch does not stick, because `sync_fixtures()` runs after patches.
 
+**An `override_whitelisted_methods` target must keep the overridden function's
+exact signature** (MI1-I108). frappe calls it positionally, and there are two
+entry points that disagree on the count (`frappe/model/mapper.py`):
+`make_mapped_doc()` — Sales Order > Create > Delivery Note — calls
+`method(source_name)`; `map_docs()` — Delivery Note > Get Items From > Sales
+Order — calls `method(src, target_doc, args)`. The Get Items From dialog always
+sends args, so a `**kwargs` tail (which absorbs nothing by position) is a hard
+`TypeError` on that button while the Create button keeps working. Mirror the
+upstream parameter list verbatim, names included, and forward positionally.
+
 **Company has no `default_price_list` field.** ERPNext does not scope Price
 Lists by Company. The old Client Script queried it anyway and every HTY Sales
 Order threw `Field not permitted in query: default_price_list`. Resolve selling
