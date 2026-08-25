@@ -464,7 +464,14 @@ class TestSpecValueCacheIsRequestScoped(FrappeTestCase):
 	def test_cache_lives_on_frappe_flags(self):
 		source = inspect.getsource(resolve_spec_value)
 		self.assertIn("frappe.flags.setdefault", source)
-		self.assertNotIn("frappe.local.__dict__", source)
+
+		# Comments must be stripped first. The function deliberately NAMES the
+		# pattern it is avoiding, so asserting over the raw source makes the
+		# explanation trip its own guard — which is exactly what happened.
+		code = "\n".join(
+			line for line in source.split("\n") if not line.lstrip().startswith("#")
+		)
+		self.assertNotIn("frappe.local.__dict__", code)
 
 	def test_frappe_local_dunder_dict_really_is_unavailable(self):
 		"""Pins the reason, so nobody 'simplifies' it back."""
