@@ -261,6 +261,17 @@ def make_receive_from_subcontractor(source_name):
     receipt.set_posting_time = 1
     receipt.set("custom_original_send_entry", source.name)
 
+    # MI1-I103: default the header target to where the material was sent FROM.
+    # The rows are still left blank on purpose (see below), but a blank header
+    # too meant the draft could not even be SAVED —
+    # StockEntry.validate_warehouse runs from validate() and throws "Target
+    # warehouse is mandatory for row 1" only when the row AND the header are
+    # empty; given a header it fills the rows itself. The user can still change
+    # it before submit, and changing it propagates to the rows.
+    receipt.to_warehouse = source.from_warehouse or next(
+        (item.s_warehouse for item in source.items if item.s_warehouse), None
+    )
+
     # Carry header custom fields if the doctype defines them.
     carry_header = (
         "custom_container_number", "custom_lot_no", "custom_glue",
@@ -1267,50 +1278,18 @@ def update_item_batch(doc, method=None):
             )
 
 
-@frappe.whitelist()
-def update_batch_warehouse_on_stock_entry(doc, method=None):
-    """Propagate target warehouse to Batch.custom_warehouse and parent
-    Container.warehouse when a Stock Entry is submitted (Material Transfer
-    or any move that sets t_warehouse on items)."""
-    _sync_batch_warehouse(doc, use_target=True)
-
-
-@frappe.whitelist()
-def revert_batch_warehouse_on_stock_entry(doc, method=None):
-    """On cancel of a Stock Entry, revert Batch + Container warehouse to source."""
-    _sync_batch_warehouse(doc, use_target=False)
-
-
-def _sync_batch_warehouse(doc, use_target=True):
-    seen_containers = set()
-    for item in doc.items:
-        batch_no = item.batch_no
-        wh = item.t_warehouse if use_target else item.s_warehouse
-        if not batch_no or not wh:
-            continue
-
-        frappe.db.set_value(
-            "Batch", batch_no, "custom_warehouse", wh, update_modified=False
-        )
-
-        parents = frappe.db.sql(
-            "SELECT DISTINCT parent FROM `tabBatch Items` WHERE batch_id=%s AND parenttype='Container'",
-            batch_no,
-        )
-        for (parent_name,) in parents:
-            if parent_name in seen_containers:
-                continue
-            seen_containers.add(parent_name)
-            frappe.db.set_value(
-                "Container",
-                parent_name,
-                {"warehouse": wh, "set_warehouse": wh},
-                update_modified=False,
-            )
-            frappe.db.sql(
-                "UPDATE `tabBatch Items` SET warehouse=%s WHERE parent=%s AND parenttype='Container'",
-                (wh, parent_name),
-            )
+# MI1-I103 — update_batch_warehouse_on_stock_entry and its on_cancel twin were
+# REMOVED here. They wrote the Stock Entry's target warehouse into four inward
+# attributes that do not track live stock: Container.set_warehouse (the
+# "Accepted Warehouse" the inward Purchase Receipt and every Serial and Batch
+# Bundle post to), Container.warehouse, Batch.custom_warehouse and
+# Batch Items.warehouse (free-text "Location" notes). 87 submitted Containers
+# were left holding a subcontractor's warehouse as their accepted one.
+#
+# Live stock location comes from Serial and Batch Bundle instead — see
+# get_all_batches_with_stock above and _clamp_batch_qty_to_available in
+# mhr/note.py. mhr/patches/v1_0/heal_container_accepted_warehouse.py repairs
+# the damaged containers from their Purchase Receipt.
 
 
 @frappe.whitelist()
