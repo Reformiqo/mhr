@@ -199,15 +199,46 @@ function so_hty_apply_batch_filters(frm) {
 // totals
 // ---------------------------------------------------------------------------
 
+// Total Quantity is ERPNext's own field, normally filled by
+// calculate_taxes_and_totals off the grid's items_add. Every HTY path below
+// appends with frm.add_child, which fires no grid event, so nothing ran and
+// Total Quantity stayed 0 — same fault as the Delivery Note's.
+//
+// The submitted-document guard is the MI1-I106 lesson: recomputing a total on
+// an already-submitted form is what made a saved Delivery Note read
+// "Not Saved". The server settled these at submit; leave them alone.
 function so_hty_calculate_totals(frm) {
     if (!so_hty_is_hty(frm)) return;
+    if (frm.doc.docstatus !== 0) return;
+
     let total_cone = 0;
+    let total_qty = 0;
     (frm.doc.items || []).forEach((row) => {
         total_cone += parseInt(row.custom_cone || 0, 10) || 0;
+        total_qty += parseFloat(row.qty || 0);
     });
+
     if (parseInt(frm.doc.custom_total_cone || 0, 10) !== total_cone) {
         frm.set_value('custom_total_cone', total_cone);
     }
+    so_hty_set_if_changed(frm, 'total_qty', total_qty);
+}
+
+// frm.set_value dirties the form for any difference at all, a float rounding
+// artefact included, so compare at the precision the field is stored with.
+function so_hty_set_if_changed(frm, fieldname, value) {
+    // Resolving precision must never throw: one exception here would leave the
+    // total sitting at 0, which is the very thing this is here to prevent.
+    let precision = null;
+    try {
+        precision = frm.precision(fieldname);
+    } catch (e) {
+        precision = null;
+    }
+    const next = flt(value, precision);
+    if (flt(frm.doc[fieldname], precision) === next) return;
+    frm.set_value(fieldname, next);
+    frm.refresh_field(fieldname);
 }
 
 // Sort item rows by Supplier Batch No ascending and renumber idx so the saved
@@ -686,6 +717,11 @@ frappe.ui.form.on('Sales Order', {
     refresh: function (frm) {
         so_hty_apply_mode(frm);
         so_hty_apply_batch_filters(frm);
+    },
+
+    // Last line of defence in the browser, whichever path added the rows.
+    validate: function (frm) {
+        so_hty_calculate_totals(frm);
     },
 
     transaction_type: function (frm) {
