@@ -2569,6 +2569,86 @@ def _submit_stock_entry_worker(name, notify_user):
     )
 
 
+# ----------------------------------------------------------------------
+# Cancel a large Delivery Note in the background.
+#
+# Same failure as MI1-I26's Stock Entry submit, on the other end of the
+# document's life. MC-CH-DL-DN00035 carries 1000 item rows, 1000 Stock
+# Ledger Entries and 1000 Serial and Batch Bundles; cancelling means
+# cancelling every one of those bundles and reversing every ledger entry.
+# That runs well past the gunicorn request limit, so the browser gets
+# "Request Timed Out" while the worker is still mid-cancel — and because
+# nothing committed, the note is left submitted with no sign of the
+# attempt. Same endpoint shape as MI1-I26: return immediately, do the work
+# on a worker, tell the form over realtime when it lands.
+#
+# TEMPORARY — delete when it stops earning its place: when ERPNext's cancel
+# is fast enough at this row count, or Meher stops building notes this large.
+# Both functions below go together with the Client Script record
+# "MI1 — Delivery Note Cancel in Background" and
+# mhr/tests/test_dn_cancel_in_background.py.
+# ----------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def cancel_delivery_note_in_background(name):
+    """Queue the Delivery Note cancel on a background worker.
+
+    Returns immediately so the HTTP layer doesn't time out.
+    """
+    if not name:
+        frappe.throw(_("Delivery Note name is required."))
+
+    doc = frappe.get_doc("Delivery Note", name)
+    if doc.docstatus != 1:
+        frappe.throw(
+            _("Delivery Note {0} is not submitted. Current docstatus={1}.").format(
+                name, doc.docstatus
+            )
+        )
+
+    # The worker runs outside the request, so the Cancel permission the Desk
+    # would normally enforce has to be checked here, before enqueueing.
+    doc.check_permission("cancel")
+
+    # deduplicate: a second click while the first job is queued or running
+    # would otherwise start a competing cancel on the same document.
+    frappe.enqueue(
+        method="mhr.utilis._cancel_delivery_note_worker",
+        queue="long",
+        timeout=3600,
+        job_id=f"mhr-cancel-delivery-note-{name}",
+        deduplicate=True,
+        name=name,
+        notify_user=frappe.session.user,
+    )
+    return {"queued": True, "name": name}
+
+
+def _cancel_delivery_note_worker(name, notify_user):
+    """Worker: load + cancel. Publishes realtime when done."""
+    ok = False
+    error = ""
+    try:
+        doc = frappe.get_doc("Delivery Note", name)
+        if doc.docstatus == 1:
+            doc.cancel()
+            frappe.db.commit()
+        ok = True
+    except Exception as exc:
+        frappe.db.rollback()
+        error = str(exc)
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"mhr cancel_delivery_note_worker failed for {name}",
+        )
+    frappe.publish_realtime(
+        event="mhr_delivery_note_cancelled",
+        message={"name": name, "ok": ok, "error": error},
+        user=notify_user,
+    )
+
+
 # ---------------------------------------------------------------------------
 # MI1-I39 P2-G — Server-side HTY hooks
 # ---------------------------------------------------------------------------
