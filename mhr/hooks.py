@@ -228,6 +228,9 @@ doc_events = {
             # which Sales Order now has, so it is reused verbatim rather than
             # forked. It writes custom_notes only when the field is empty.
             "mhr.utilis.fetch_notes_from_container",
+            # Same fallback Delivery Note gets: rows added by frm.add_child
+            # leave Total Quantity at 0. Fills a blank only.
+            "mhr.utilis.ensure_total_qty",
         ],
     },
     "Delivery Trip": {

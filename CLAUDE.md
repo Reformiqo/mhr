@@ -234,6 +234,14 @@ reading "Not Saved" with an Update button. `Delivery Note V2` recomputed
 1205.9. Two rules for any derived total: return early unless
 `docstatus === 0`, and compare at `frm.precision(fieldname)` before writing.
 
+**`frm.add_child()` fires no grid event.** Neither `items_add` nor ERPNext's
+`calculate_taxes_and_totals` runs, so a row appended by script lands with
+`total_qty`, `conversion_factor` and every `fetch_from` field unset. Any flow
+that builds the items table itself must recalculate afterwards. Delivery Note
+and Sales Order both do, and both fall back on the server via
+`mhr.utilis.ensure_total_qty`, which fills `total_qty` only when the save
+arrives with it still 0.
+
 ## Testing — MANDATORY
 
 **Every task MUST be tested with frappe tests before pushing.** No exceptions.

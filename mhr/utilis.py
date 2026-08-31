@@ -2001,12 +2001,29 @@ def resolve_container_notes(container_no, transaction_type):
     return (rows[0].get("notes") or None) if rows else None
 
 
+def ensure_total_qty(doc, method=None):
+    """Fill Total Quantity when a save arrives with it still 0.
+
+    Rows appended with frm.add_child() fire no grid event, so neither items_add
+    nor ERPNext's calculate_taxes_and_totals runs and total_qty can reach save
+    untouched. Guarded on falsy rather than recomputed unconditionally, so a
+    value ERPNext already settled — including a deliberate 0 on an empty
+    document — is left alone. Registered on both Delivery Note (via
+    calculate_delivery_note_totals) and Sales Order.
+    """
+    if not flt(doc.total_qty) and doc.items:
+        doc.total_qty = sum(flt(item.qty) for item in doc.items)
+
+
 def calculate_delivery_note_totals(doc, method=None):
     total_cone = 0
     for item in doc.items:
         total_cone += cint(item.custom_cone or 0)
     doc.custom_total_cone = total_cone
     doc.custom_item_length = len(doc.items)
+
+    ensure_total_qty(doc)
+
     set_header_container_info_from_items(doc)
     # MI1-I63 (2026-06-23): backfill DN Item gross weight from the linked
     # Batch master. The Custom Field already has fetch_from set so the
