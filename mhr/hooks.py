@@ -204,13 +204,14 @@ doc_events = {
             "mhr.utilis.create_receive_batches",
         ],
         "on_submit": [
-            "mhr.utilis.update_batch_warehouse_on_stock_entry",
+            # MI1-I103: update_batch_warehouse_on_stock_entry was removed —
+            # it overwrote the Container's inward warehouse. See mhr/utilis.py.
             # MI1-I50 P3: push received qty back onto the source Send entry
             # and refresh its custom_subcontract_status.
             "mhr.utilis.apply_subcontract_receipt",
         ],
         "on_cancel": [
-            "mhr.utilis.revert_batch_warehouse_on_stock_entry",
+            # MI1-I103: revert_batch_warehouse_on_stock_entry removed with it.
             # MI1-I50 P3: undo the received-qty bump on the source.
             "mhr.utilis.revert_subcontract_receipt",
         ],

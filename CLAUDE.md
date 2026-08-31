@@ -61,9 +61,37 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Delivery Note.validate` → `set_delivery_note_user`, `set_return_cone_from_original`, `calculate_delivery_note_totals`
 - `Batch.validate` → `mhr.batch_qr_code.set_si_qrcode`
 - `Stock Entry.validate` → `mhr.utilis.update_stock_entry`, `mhr.utilis.validate_hty_stock_entry`, `mhr.utilis.validate_subcontract_receipt` (MI1-I50 P3)
-- `Stock Entry.on_submit` → `mhr.utilis.update_batch_warehouse_on_stock_entry`, `mhr.utilis.apply_subcontract_receipt` (MI1-I50 P3)
-- `Stock Entry.on_cancel` → `mhr.utilis.revert_batch_warehouse_on_stock_entry`, `mhr.utilis.revert_subcontract_receipt` (MI1-I50 P3)
+- `Stock Entry.before_submit` → `mhr.utilis.create_receive_batches` (MI1-I50)
+- `Stock Entry.on_submit` → `mhr.utilis.apply_subcontract_receipt` (MI1-I50 P3)
+- `Stock Entry.on_cancel` → `mhr.utilis.revert_subcontract_receipt` (MI1-I50 P3)
 - `Sales Order.validate` → `mhr.utilis.validate_so_available_qty`, `mhr.sales_order_hty.validate_hty_sales_order` (MI1-I90)
+
+**A stock movement never rewrites a Container's inward attributes** (MI1-I103).
+`update_batch_warehouse_on_stock_entry` and its `on_cancel` twin used to write
+the entry's warehouse into `Container.set_warehouse` — what Container Inward
+posts its **Purchase Receipt** and every Serial and Batch Bundle to, and the
+"Accepted Warehouse" column of Stock Sheet (Balance Report) — plus the
+free-text "Location" notes (`Container.warehouse`, `Batch.custom_warehouse`,
+`Batch Items.warehouse`). Both hooks are gone;
+`heal_container_accepted_warehouse` repairs `set_warehouse` from the Purchase
+Receipt, and `heal_container_location_notes` restores the free-text notes from
+the container's own batches that were never moved. **Live stock location comes from Serial
+and Batch Bundle** (`mhr.note._clamp_batch_qty_to_available`,
+`mhr.utilis.get_all_batches_with_stock`), never off these fields.
+
+**`mhr.note.fetch_batches` is warehouse-scoped on request** (MI1-I103). Without
+`warehouse=` the clamp counts a batch's SBB balance in ANY warehouse, so a batch
+already sent to a subcontractor still looks available. The Stock Entry form
+passes its source (`from_warehouse` → a row's `s_warehouse` → the Container's
+Accepted Warehouse) and refuses to fetch without one; Delivery Note passes none
+and is unchanged. It also orders by `custom_supplier_batch_no` and re-sorts
+numerically, because the column is Data and SQL puts `'10'` before `'9'`.
+
+**`Batch.batch_qty` is not a live quantity.** ERPNext only updates it from
+`Batch.recalculate_batch_qty()`, a whitelisted method behind a button on the
+form — never from a stock transaction. The Batch list's "Status: Active" is a
+list-view indicator derived from that stale value plus `disabled`, not a field.
+Never filter availability on either.
 
 ### Sales Order HTY mode (MI1-I90)
 
