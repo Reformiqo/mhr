@@ -218,12 +218,25 @@ If you add a new fixture type, add it here too with appropriate filters.
 
 Client Scripts for standard / external doctypes (e.g. `Sales Order`, `Stock Entry`, `Delivery Note`) MUST be created as **Client Script** documents in the Desk and exported via fixtures — NOT placed in `public/js/` with `doctype_js` hooks, **unless** the script is large enough to warrant a real file (Sales Order + Stock Entry already are). When in doubt, prefer Desk Client Script + fixture so the script appears under Setup > Client Script and is deployed on `bench migrate`.
 
-**Editing a fixture record means moving its `modified` forward.**
-`frappe/modules/import_file.py :: import_file_by_path` skips any non-DocType
-record whose `modified` in the database is not older than the one in the JSON.
-Sites that already hold the record therefore never see the edit — it applies
-only to fresh installs, which is the worst possible failure mode because local
-testing passes. Bump `modified` in the same commit as the change.
+**`bench migrate` force-imports fixtures; the `modified` timestamp does not
+gate them.** `sync_fixtures` → `import_fixtures` → `import_doc` calls
+`import_file_by_path(..., force=True, ...)`, and the timestamp comparison in
+`frappe/modules/import_file.py` sits behind `if not force and
+db_modified_timestamp:`. Every fixture record is therefore overwritten on every
+migrate, whatever the database holds.
+
+Two things follow. Bumping `modified` on a fixture edit is harmless but not
+required — if a fixture change does not appear on a site, the cause is
+something else (a migrate that aborted before `sync_fixtures`, a stale asset
+bundle, or a browser cache), so look there rather than at the timestamp. And a
+record that mhr's fixtures own is genuinely restored on each deploy, which
+makes a fixture the durable place to fix layout the Desk can break.
+
+That force only covers records the fixture list actually matches. `hooks.py`
+filters every fixture on `module = Mhr`, so a Property Setter written by
+Customize Form — those carry an empty `module` — is neither exported nor
+overwritten, and no migrate will ever repair it. `mhr/install.py ::
+repair_sales_order_hty_tab_position` exists for exactly that gap.
 
 **Never write to the form from a `refresh` handler without checking
 `docstatus`** (MI1-I106). `frm.set_value` marks the form `__unsaved` for *any*
