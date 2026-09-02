@@ -22,7 +22,7 @@ from mhr import sales_order_to_delivery_note as so2dn
 def _row(**kwargs):
 	"""A Delivery Note Item-shaped stand-in.
 
-	carry_hty_details() only ever does .get() / .set() / attribute writes on
+	carry_sales_order_details() only ever does .get() / .set() / attribute writes on
 	the rows, so a plain _dict exercises the real code path without needing a
 	saved Sales Order and its stock on the test site.
 	"""
@@ -95,10 +95,65 @@ class TestNamingSeriesIsNotCarried(FrappeTestCase):
 		self.assertNotIn('set("naming_series"', src)
 
 
-class TestCarryOverIsHTYOnly(FrappeTestCase):
-	"""VFY must be byte-for-byte what it was before this module existed."""
+class TestCrossModeMappingIsRefused(FrappeTestCase):
+	"""MI1-I117: frappe's mapper copies transaction_type by fieldname and
+	neither side sets no_copy, so a VFY Sales Order used to rewrite an HTY
+	Delivery Note's mode without a word. Yarn is one or the other, and the
+	VFY/HTY reports key on the mode, so the mismatch is refused instead."""
 
-	def test_vfy_source_returns_target_untouched(self):
+	def test_the_check_runs_before_the_mapper_overwrites_the_mode(self):
+		"""Read it after erpnext's mapping and the Delivery Note's own mode is
+		already gone — the check would compare the source with itself and never
+		fire."""
+		lines = inspect.getsource(so2dn.make_delivery_note).split("\n")
+		check = next(i for i, text in enumerate(lines) if "_reject_mode_mismatch(" in text)
+		mapping = next(
+			i for i, text in enumerate(lines) if "target = erpnext_make_delivery_note(" in text
+		)
+		self.assertLess(check, mapping)
+
+	def test_a_matching_mode_is_allowed(self):
+		self.assertIsNone(so2dn._reject_mode_mismatch("does-not-matter", None))
+
+	def test_an_unreadable_target_never_blocks_the_fetch(self):
+		"""Create > Delivery Note passes no target at all, and a payload this
+		code cannot parse must not be the reason Get Items stops working."""
+		for value in (None, "", "not json", '{"doctype": "Delivery Note"}', {}):
+			with self.subTest(target_doc=value):
+				self.assertIsNone(so2dn._target_mode(value))
+
+	def test_the_mode_is_read_from_every_shape_map_docs_can_send(self):
+		self.assertEqual(so2dn._target_mode('{"transaction_type": "HTY"}'), "HTY")
+		self.assertEqual(so2dn._target_mode({"transaction_type": " vfy "}), "VFY")
+		self.assertEqual(
+			so2dn._target_mode(frappe._dict(transaction_type="HTY")), "HTY"
+		)
+
+	def test_a_mismatch_throws_and_names_both_documents(self):
+		so = frappe.get_all(
+			"Sales Order",
+			filters={"transaction_type": ("!=", "HTY")},
+			pluck="name",
+			limit=1,
+		)
+		if not so:
+			self.skipTest("No non-HTY Sales Order on this site.")
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			so2dn._reject_mode_mismatch(so[0], "HTY")
+
+		message = str(caught.exception)
+		self.assertIn(so[0], message)
+		self.assertIn("HTY", message)
+
+
+class TestOnlyTheHeaderIsHTYOnly(FrappeTestCase):
+	"""MI1-I117 removed the HTY gate from the item work — the fieldname
+	mismatch is a property of the two DocTypes, not of the mode, and every
+	VFY/HTY report keys on those columns. The header lines stay HTY-only: a
+	VFY Sales Order must never stamp HTY on the Delivery Note."""
+
+	def test_a_vfy_source_gets_the_item_work_but_not_the_hty_header(self):
 		target = frappe._dict(items=[_row(so_detail="X", custom_cone=4, batch_no="B")])
 
 		so = frappe.get_all(
@@ -110,16 +165,34 @@ class TestCarryOverIsHTYOnly(FrappeTestCase):
 		if not so:
 			self.skipTest("No non-HTY Sales Order on this site.")
 
-		out = so2dn.carry_hty_details(so[0], target)
+		out = so2dn.carry_sales_order_details(so[0], target)
 
-		self.assertIsNone(out.get("transaction_type"))
-		self.assertIsNone(out["items"][0].get("custom_qty_manual_edit"))
+		self.assertIsNone(out.get("transaction_type"), "VFY must not be stamped HTY")
+		self.assertIsNone(out.get("fetch_batches"))
+		# The row carries a batch and a cone, so the qty protection applies
+		# here exactly as it does on HTY.
+		self.assertEqual(out["items"][0].get("custom_qty_manual_edit"), 1)
+
+	def test_the_item_work_is_not_nested_inside_the_hty_branch(self):
+		"""Put back inside it, a VFY note again arrives with no container or
+		lot and drops out of the reports that filter on them."""
+		lines = inspect.getsource(so2dn.carry_sales_order_details).split("\n")
+		branch = next(i for i, text in enumerate(lines) if ".upper() == HTY:" in text)
+		loop = next(i for i, text in enumerate(lines) if "for row in target.items:" in text)
+
+		def indent(i):
+			return len(lines[i]) - len(lines[i].lstrip())
+
+		self.assertGreater(loop, branch)
+		self.assertLessEqual(
+			indent(loop), indent(branch), "the row loop is nested inside the HTY branch"
+		)
 
 	def test_empty_target_short_circuits(self):
 		"""Must not even load the Sales Order — nothing to write to."""
-		self.assertIsNone(so2dn.carry_hty_details("does-not-exist", None))
+		self.assertIsNone(so2dn.carry_sales_order_details("does-not-exist", None))
 		self.assertEqual(
-			so2dn.carry_hty_details("does-not-exist", frappe._dict(items=[])).get("items"),
+			so2dn.carry_sales_order_details("does-not-exist", frappe._dict(items=[])).get("items"),
 			[],
 		)
 
@@ -188,7 +261,7 @@ class TestFetchControlsAreNotCarried(FrappeTestCase):
 	rows just mapped from the Sales Order."""
 
 	def test_fetch_batches_is_cleared(self):
-		src = inspect.getsource(so2dn.carry_hty_details)
+		src = inspect.getsource(so2dn.carry_sales_order_details)
 		self.assertIn("target.fetch_batches = 0", src)
 
 	def test_sales_order_names_its_fetch_controls_differently(self):

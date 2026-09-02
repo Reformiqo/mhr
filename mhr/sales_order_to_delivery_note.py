@@ -1,8 +1,14 @@
-"""MI1-I90 — Sales Order -> Delivery Note for HTY.
+"""MI1-I90 / MI1-I117 — Sales Order -> Delivery Note.
 
-The HTY order flow is: raise a Sales Order, then turn it into a Delivery
-Note (the "Delivery Challan" of the shop floor — there is no Delivery
-Challan DocType; DELIVERY CHALLAN is a report over Delivery Notes).
+The order flow is: raise a Sales Order, then turn it into a Delivery Note
+(the "Delivery Challan" of the shop floor — there is no Delivery Challan
+DocType; DELIVERY CHALLAN is a report over Delivery Notes).
+
+MI1-I90 wrote this for HTY and gated the item work on it. MI1-I117 removed
+that gate: the fieldname mismatch below is a property of the two DocTypes,
+not of the mode, and a VFY note was arriving with no container, lot or batch
+on its rows. That broke the reports as well as the data — see
+carry_sales_order_details.
 
 ERPNext already ships the mapping
 (`erpnext.selling.doctype.sales_order.sales_order.make_delivery_note`) and
@@ -29,10 +35,17 @@ HTY work and names its columns differently from Delivery Note Item:
 Without ITEM_FIELD_MAP those three land empty, silently — the Delivery Note
 saves fine, it just has no container, lot or batch on its rows.
 
+`custom_supplier_batch_no` shares its name and so is copied, but only when
+the Sales Order row carries one, and the Sales Order Booking flow never sets
+it. Delivery Note Item declares no `fetch_from` for it either, so it is
+resolved from the row's Batch instead — see _fill_supplier_batch_numbers.
+
 The header needs no such table: the MI1-I90 patch creates the Sales Order
 HTY fields under the Delivery Note's own fieldnames, and no Delivery Note
 custom field carries `no_copy`, so the mapper copies the whole spec block
-by itself.
+by itself. That cuts both ways — `transaction_type` has the same fieldname
+on both sides and no `no_copy`, so the Sales Order's mode is written onto
+the Delivery Note, replacing whatever the user had selected there.
 
 
 Gap 2 — 'Cone Qty Calcuation' would overwrite the ordered qty
@@ -70,9 +83,13 @@ the Sales Order series `HTY-SO-.YYYY.-` is not one of the Delivery Note's
 options — a regression there would be a hard save error, not a silent one.
 """
 
+import json
+
 import frappe
+from frappe import _
 
 HTY = "HTY"
+VFY = "VFY"
 
 # Sales Order Item fieldname -> Delivery Note Item fieldname, for the pairs
 # that do NOT share a name and so are invisible to frappe's mapper.
@@ -118,26 +135,100 @@ def make_delivery_note(source_name, target_doc=None, kwargs=None):
 		make_delivery_note as erpnext_make_delivery_note,
 	)
 
+	# Before the mapper runs: it overwrites transaction_type from the source,
+	# so the Delivery Note's own mode is only readable now.
+	_reject_mode_mismatch(source_name, _target_mode(target_doc))
+
 	target = erpnext_make_delivery_note(source_name, target_doc, kwargs)
-	return carry_hty_details(source_name, target)
+	return carry_sales_order_details(source_name, target)
 
 
-def carry_hty_details(source_name, target):
-	"""Fill the HTY fields ERPNext's mapping cannot reach. No-op for VFY."""
+def _target_mode(target_doc):
+	"""The Delivery Note's own Transaction Type, read before the mapper.
+
+	map_docs hands the open form's document over as JSON; Create > Delivery
+	Note passes nothing at all, and then there is no existing note to protect.
+	Anything unreadable returns None for the same reason — this guard must
+	never become the reason Get Items stops working.
+	"""
+	if not target_doc:
+		return None
+
+	if isinstance(target_doc, str):
+		try:
+			target_doc = json.loads(target_doc)
+		except (TypeError, ValueError):
+			return None
+
+	if isinstance(target_doc, dict):
+		mode = target_doc.get("transaction_type")
+	else:
+		mode = getattr(target_doc, "transaction_type", None)
+
+	return (mode or "").strip().upper() or None
+
+
+def _reject_mode_mismatch(source_name, target_mode):
+	"""MI1-I117: refuse to map a Sales Order onto a Delivery Note of the other
+	mode.
+
+	frappe's mapper copies transaction_type by fieldname and neither side sets
+	`no_copy`, so the Sales Order's mode was written straight over the Delivery
+	Note's — an HTY note silently became VFY the moment a VFY order was picked.
+	Yarn is either HTY or VFY, and every VFY/HTY report keys on the mode, so a
+	cross-mode note is wrong data rather than a shortcut. Name both documents
+	so the user can see which one to change.
+	"""
+	if not target_mode:
+		return
+
+	source_mode = (
+		frappe.db.get_value("Sales Order", source_name, "transaction_type") or VFY
+	)
+	source_mode = source_mode.strip().upper()
+
+	if source_mode == target_mode:
+		return
+
+	frappe.throw(
+		_("This Delivery Note is <b>{0}</b>, but Sales Order <b>{1}</b> is <b>{2}</b>.").format(
+			target_mode, source_name, source_mode
+		),
+		title=_("Transaction Type Mismatch"),
+	)
+
+
+def carry_sales_order_details(source_name, target):
+	"""Fill the fields ERPNext's mapping cannot reach. Runs in both modes.
+
+	MI1-I117: the item work used to be gated on HTY, so a VFY Delivery Note
+	came off a Sales Order with no container, lot or batch on its rows. That
+	is not only missing data — every VFY/HTY report keys on those columns, and
+	the `dn` report resolves the mode itself with
+
+	    EXISTS (SELECT 1 FROM `tabContainer` c
+	            WHERE c.container_no = dni.custom_container_no ...)
+
+	which a blank container_no can never satisfy, so the whole note dropped
+	out of the report. The mismatched fieldnames are a property of the two
+	DocTypes, not of the mode, and the Sales Order Booking flow fills them on
+	VFY rows exactly as the HTY flow does — so the copy belongs on both paths.
+
+	Only the header lines below stay HTY-specific.
+	"""
 	if not target or not target.get("items"):
 		return target
 
 	source = frappe.get_doc("Sales Order", source_name)
-	if (source.get("transaction_type") or "VFY").upper() != HTY:
-		return target
 
-	# The mapper copies the header spec by fieldname; make the mode explicit
-	# so a Sales Order saved before transaction_type existed still produces an
-	# HTY Delivery Note rather than a silently-VFY one.
-	target.transaction_type = HTY
+	if (source.get("transaction_type") or "VFY").upper() == HTY:
+		# The mapper copies the header spec by fieldname; make the mode
+		# explicit so a Sales Order saved before transaction_type existed still
+		# produces an HTY Delivery Note rather than a silently-VFY one.
+		target.transaction_type = HTY
 
-	# Fetch CONTROL, not data — see the module docstring.
-	target.fetch_batches = 0
+		# Fetch CONTROL, not data — see the module docstring.
+		target.fetch_batches = 0
 
 	source_rows = {row.name: row for row in source.items}
 
@@ -157,7 +248,46 @@ def carry_hty_details(source_name, target):
 
 		_protect_ordered_qty(row)
 
+	_fill_supplier_batch_numbers(target)
+
 	return target
+
+
+def _fill_supplier_batch_numbers(target):
+	"""Resolve custom_supplier_batch_no from each row's Batch.
+
+	Delivery Note Item declares no `fetch_from` for it — custom_gross_weight
+	is the only one that does — and the Sales Order Booking flow never sets it
+	on the Sales Order row, so rows arrive blank however they were mapped. The
+	`dn` report GROUP_CONCATs that column, so blank means an empty Supplier
+	Batch No against the whole Delivery Challan.
+
+	One query for every batch on the note, not one per row: this runs inside
+	the Get Items request the user is already waiting on.
+	"""
+	wanted = {
+		row.get("batch_no")
+		for row in target.items
+		if row.get("batch_no") and not row.get("custom_supplier_batch_no")
+	}
+	if not wanted:
+		return
+
+	supplier_batch_by_name = dict(
+		frappe.get_all(
+			"Batch",
+			filters={"name": ("in", list(wanted))},
+			fields=["name", "custom_supplier_batch_no"],
+			as_list=True,
+		)
+	)
+
+	for row in target.items:
+		if row.get("custom_supplier_batch_no"):
+			continue
+		value = supplier_batch_by_name.get(row.get("batch_no"))
+		if value:
+			row.set("custom_supplier_batch_no", value)
 
 
 def _protect_ordered_qty(row):

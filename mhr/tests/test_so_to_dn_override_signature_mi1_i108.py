@@ -96,7 +96,7 @@ class TestBothEntryPointsCanCallIt(FrappeTestCase):
 
 		def fake(source_name, target_doc=None, kwargs=None):
 			seen["call"] = (source_name, target_doc, kwargs)
-			# None short-circuits carry_hty_details, which is deliberate: the
+			# None short-circuits carry_sales_order_details, which is deliberate: the
 			# HTY carry-over has its own tests in MI1-I90.
 			return None
 
