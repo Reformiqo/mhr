@@ -1,4 +1,4 @@
-"""MI1-I50 reopen (Raj 2026-07-17) — Job Work Receive Warehouse Logic.
+"""MI1-I50 reopen (Raj 2026-07-17, batch rules revised 2026-09-03) — Job Work Receive Warehouse Logic.
 
 Pinned rules per Raj's 2026-07-17 comment:
 
@@ -34,8 +34,21 @@ from frappe.tests.utils import FrappeTestCase
 
 
 class TestReceiveBatchIdHelper(FrappeTestCase):
-    """The `_receive_batch_id` helper is the single source of truth for
-    the batch-name format — pin its behaviour directly."""
+    """`_receive_batch_id(doc, row)` is the single source of truth for the
+    batch-name format. MI1-I50 (Raj 2026-09-03): container and lot come
+    from the entry HEADER's Received Container Number / Received Lot No
+    (editable — the subcontractor may return in a different container),
+    the supplier batch from the row."""
+
+    @staticmethod
+    def _doc(**kw):
+        d = {"custom_received_container_no": "MC-JC-2222", "custom_received_lot_no": "13042026"}
+        d.update(kw)
+        return frappe._dict(d)
+
+    @staticmethod
+    def _row(sbn="6086"):
+        return frappe._dict({"custom_supplier_batch_no": sbn})
 
     def test_helper_exists(self):
         from mhr import utilis
@@ -44,53 +57,36 @@ class TestReceiveBatchIdHelper(FrappeTestCase):
 
     def test_returns_hyphen_joined_triplet(self):
         from mhr.utilis import _receive_batch_id
-
-        class Row:
-            def get(self, key):
-                return {
-                    "custom_container_no": "MCJC-1111",
-                    "custom_lot_no": "01012001",
-                    "custom_supplier_batch_no": "3182",
-                }.get(key)
-
         self.assertEqual(
-            _receive_batch_id(Row()), "MCJC-1111-01012001-3182",
-            "Raj's spec: `container-lot-supplier_batch`.",
+            _receive_batch_id(self._doc(), self._row()), "MC-JC-2222-13042026-6086",
+            "Raj's 2026-09-03 example: MC-JC-2222 + 13042026 + 6086.",
         )
 
     def test_returns_none_when_any_field_missing(self):
         from mhr.utilis import _receive_batch_id
-
-        class RowMissing:
-            def get(self, key):
-                return {
-                    "custom_container_no": "MCJC-1111",
-                    "custom_lot_no": "",  # missing
-                    "custom_supplier_batch_no": "3182",
-                }.get(key)
-
-        self.assertIsNone(
-            _receive_batch_id(RowMissing()),
-            "Any missing field -> None so the caller can throw a clean "
-            "validation error instead of silently building a broken name.",
-        )
+        self.assertIsNone(_receive_batch_id(self._doc(custom_received_lot_no=""), self._row()),
+            "Missing received lot -> None so the caller throws a clean error.")
+        self.assertIsNone(_receive_batch_id(self._doc(custom_received_container_no=None), self._row()))
+        self.assertIsNone(_receive_batch_id(self._doc(), self._row(sbn="")))
 
     def test_strips_whitespace(self):
         from mhr.utilis import _receive_batch_id
-
-        class RowSpaced:
-            def get(self, key):
-                return {
-                    "custom_container_no": " MCJC-1111 ",
-                    "custom_lot_no": " 01012001 ",
-                    "custom_supplier_batch_no": " 3182 ",
-                }.get(key)
-
         self.assertEqual(
-            _receive_batch_id(RowSpaced()), "MCJC-1111-01012001-3182",
-            "Whitespace must be stripped so a stray leading space "
-            "doesn't create a distinct 'duplicate' batch.",
+            _receive_batch_id(self._doc(custom_received_container_no=" MC-JC-2222 ",
+                                        custom_received_lot_no=" 13042026 "), self._row(" 6086 ")),
+            "MC-JC-2222-13042026-6086",
+            "Whitespace must be stripped so a stray space doesn't create a "
+            "distinct 'duplicate' batch.",
         )
+
+    def test_row_level_container_and_lot_are_ignored(self):
+        """Stock Entry Detail has no container / lot columns; the 2026-07-17
+        row-based derivation therefore never resolved. Pin that the helper
+        reads the header, not the row."""
+        from mhr.utilis import _receive_batch_id
+        row = frappe._dict({"custom_supplier_batch_no": "1",
+                            "custom_container_no": "ROW-C", "custom_lot_no": "ROW-L"})
+        self.assertEqual(_receive_batch_id(self._doc(), row), "MC-JC-2222-13042026-1")
 
 
 class TestCreateReceiveBatchesHook(FrappeTestCase):
@@ -216,42 +212,28 @@ class TestMatchKeyContainerLotSupplierBatch(FrappeTestCase):
         )
 
 
-class TestDraftInsertsWithBlankTarget(FrappeTestCase):
-    """MI1-I50 reopen (Raj 2026-07-17): the draft must actually persist
-    with blank t_warehouse. Regression pin against a real bug we hit
-    2026-07-18: an earlier iteration used `ignore_mandatory=True`, but
-    Stock Entry's own `validate_warehouse()` throws BEFORE the mandatory
-    check runs — so the insert() failed with "Target warehouse is
-    mandatory for row 1" and the button appeared to do nothing.
-    """
+class TestDraftInsertsUnderFullValidation(FrappeTestCase):
+    """The rows' targets are blank on purpose (user picks), yet the draft
+    must insert without skipping validation.
 
-    def test_insert_uses_ignore_validate_flag(self):
-        src = inspect.getsource(_read_module().make_receive_from_subcontractor)
-        self.assertIn(
-            "flags.ignore_validate = True",
-            src,
-            "make_receive_from_subcontractor must set "
-            "receipt.flags.ignore_validate = True BEFORE .insert() — "
-            "otherwise Stock Entry.validate_warehouse throws "
-            "'Target warehouse is mandatory for row 1' and the draft "
-            "never materialises. Verified with a real smoke test — "
-            "ignore_mandatory alone is NOT enough (that check is not a "
-            "generic mandatory-field check).",
-        )
+    History: 2026-07-18 used `flags.ignore_validate` because
+    StockEntry.validate_warehouse threw "Target warehouse is mandatory for
+    row 1". MI1-I103 replaced that with a header-target default — given a
+    header, validate_warehouse fills the rows itself — and pinned that
+    ERPNext owns the validation. The shortcut also skipped every mhr hook
+    on insert (set_receive_purpose, validate_subcontract_receipt), so it
+    must stay gone."""
 
-    def test_insert_does_not_use_ignore_mandatory_alone(self):
-        """Regression pin: `ignore_mandatory=True` was tried first and
-        did NOT work. Keeping both is fine, but if someone drops
-        ignore_validate and keeps only ignore_mandatory, the draft
-        insert will fail again. Guard against that regression."""
+    def test_no_validation_shortcuts(self):
         src = inspect.getsource(_read_module().make_receive_from_subcontractor)
-        if "flags.ignore_mandatory = True" in src:
-            self.assertIn(
-                "flags.ignore_validate = True",
-                src,
-                "ignore_mandatory alone doesn't cover ERPNext's "
-                "validate_warehouse — must also set ignore_validate.",
-            )
+        for escape in ("ignore_validate", "ignore_mandatory", "flags.ignore"):
+            self.assertNotIn(escape, src,
+                f"{escape!r} must not be used — MI1-I103: ERPNext owns the validation.")
+
+    def test_header_target_defaults_to_where_it_was_sent_from(self):
+        src = inspect.getsource(_read_module().make_receive_from_subcontractor)
+        self.assertIn("receipt.to_warehouse = source.from_warehouse or next(", src,
+            "The header default is what lets a blank-target row pass validate_warehouse.")
 
 
 class TestScopeGuard(FrappeTestCase):

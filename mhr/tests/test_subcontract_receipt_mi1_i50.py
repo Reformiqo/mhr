@@ -94,20 +94,20 @@ class TestSourceValidation(FrappeTestCase):
         self.assertNotIn('"t_warehouse": src_item.t_warehouse', src,
             "Old 'both same' pattern must NOT come back.")
 
-    def test_batch_no_is_blank_on_created_rows(self):
-        """MI1-I50 reopen (Raj 2026-07-17): batch_no on the created
-        Receive rows must be BLANK — a new Batch is auto-generated on
-        submit by create_receive_batches from
-        (container_no + lot_no + supplier_batch_no)."""
+    def test_sent_rows_keep_their_batch(self):
+        """MI1-I50 (Raj 2026-09-03): a SENT item comes back under the batch
+        it left with — auto-fetched from the Send, never typed. Only rows
+        the user adds for new / finished material have no batch, and
+        create_receive_batches names those on submit. This inverts the
+        2026-07-17 rule that blanked every row."""
         import inspect
         from mhr import utilis
         src = inspect.getsource(utilis.make_receive_from_subcontractor)
-        self.assertIn('"batch_no": ""', src,
-            "Receive rows must be created with batch_no blank — "
-            "create_receive_batches fills them at before_submit time.")
-        self.assertNotIn('"batch_no": src_item.batch_no', src,
-            "Old 'copy source batch' pattern must NOT come back — Raj's "
-            "spec is a NEW batch derived from container/lot/supplier-batch.")
+        self.assertIn('"batch_no": src_item.batch_no', src,
+            "Receive rows built from the Send must carry the sent batch.")
+        self.assertNotIn('"batch_no": ""', src,
+            "The 2026-07-17 blank-batch rule must NOT come back — Raj's "
+            "2026-09-03 spec auto-fetches the batch for sent items.")
 
     def test_stock_entry_type_is_job_work_received(self):
         """Pin: type is 'Job Work Received' (custom Stock Entry Type

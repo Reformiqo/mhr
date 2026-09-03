@@ -175,11 +175,34 @@ fast-no-op for every other Stock Entry. Flow:
    button (gated on docstatus=1 + purpose=Send to Subcontractor + at least
    one item with `qty - custom_received_qty > 0`). Click → calls
    `mhr.utilis.make_receive_from_subcontractor(source_name)` which builds a
-   Draft Material Transfer with reversed warehouses and item custom fields
-   carried over (cone / lot / container / supplier batch / gross weight).
+   Draft "Job Work Received" entry: sent rows with source = the
+   subcontractor warehouse, **the sent batch auto-fetched**, target blank
+   (header target defaults to where it was sent from), and the two editable
+   header fields `custom_received_container_no` / `custom_received_lot_no`
+   defaulted from the Send (MI1-I50, Raj 2026-09-03 — the subcontractor may
+   return material in a different container / lot).
+1b. **Purpose is per document** (`set_receive_purpose`, before_validate):
+   the user may add new / finished rows with a target warehouse only.
+   Material Transfer cannot hold such a row; Repack can but throws when no
+   row is finished. So: Repack when any row is target-only, Material
+   Transfer for a pure return. The "Job Work Received" Stock Entry Type
+   keeps its stored purpose — `StockEntry.set_purpose_for_stock_entry()`
+   only fills `purpose` when it is empty.
+1c. On submit, `create_receive_batches` names a Batch for every row that
+   has none — the new / finished items:
+   `received_container-received_lot-supplier_batch_no`. The Batch gets the
+   entry's transaction type (HTY / VFY parity), `manufacturing_date` =
+   posting date (Aging), and the header container information (glue / pulp
+   / lusture / grade / fsc / merge no / notes / cross section) — that is
+   what the Delivery Note popups, Fetch Batches and stock sheets read, so a
+   Delivery Challan against the received container finds it with its SBB
+   balance. Duplicate ID = hard block. Stock Entry Detail has no
+   container / lot columns, which is why the earlier row-based derivation
+   never resolved.
 2. On validate of that Draft, `validate_subcontract_receipt` refuses
    over-receipts beyond `custom_overreceipt_tolerance_pct` on the source
-   (aggregated by item + batch).
+   (aggregated by item + supplier batch) — **only for rows carrying a batch
+   the Send knows**; new / finished rows have no pending qty and are exempt.
 3. On submit, `apply_subcontract_receipt` distributes the qty across source
    rows FIFO, writes `custom_received_qty` + `custom_pending_qty`, and
    transitions `custom_subcontract_status` (`Open` → `Partially Received`

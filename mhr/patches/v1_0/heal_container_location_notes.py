@@ -112,7 +112,7 @@ def _damaged_containers():
 def _batch_locations(container_names):
     """Container docname -> [{batch, location}] via its own Batch Items rows.
 
-    Joined through the child table rather than Batch.custom_container_no,
+    Joined through the child table rather than the container-number column on Batch,
     because several Container documents share one container_no (one per lot).
     """
     if not container_names:

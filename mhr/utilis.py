@@ -227,16 +227,21 @@ def render_hty_6up_pdf(batch_names):
 
 @frappe.whitelist()
 def make_receive_from_subcontractor(source_name):
-    """MI1-I50 P2: build a draft Stock Entry that receives material back
-    from a subcontractor against a submitted 'Send to Subcontractor' SE.
+    """MI1-I50: build a draft "Job Work Received" Stock Entry that receives
+    material back from a subcontractor against a submitted 'Send to
+    Subcontractor' entry.
 
     - Source must be Submitted + purpose 'Send to Subcontractor'.
     - Per item, pending = qty - custom_received_qty. Skip fully-received.
-    - New entry has warehouses REVERSED (s_warehouse <-> t_warehouse) so
-      stock flows subcontractor -> internal.
-    - All custom fields on items (cone, lot, container, supplier batch,
-      gross weight, etc.) are carried over.
+    - Sent rows: source = the subcontractor warehouse, batch auto-fetched
+      from the Send, target left blank (the header target defaults to where
+      the material was sent from — MI1-I103).
+    - Received Container / Lot header fields default to the Send's values
+      and stay editable (Raj 2026-09-03).
+    - Item custom fields (cone, supplier batch, gross weight, ...) carry over.
     - Links back to the original via custom_original_send_entry.
+    - Purpose is settled per document in set_receive_purpose; new / finished
+      rows the user adds get their batch in create_receive_batches.
 
     Returns the new draft's name; caller (JS) navigates to it.
     """
@@ -260,6 +265,16 @@ def make_receive_from_subcontractor(source_name):
     receipt.posting_time = frappe.utils.nowtime()
     receipt.set_posting_time = 1
     receipt.set("custom_original_send_entry", source.name)
+
+    # MI1-I50 (Raj 2026-09-03): the subcontractor may return material in a
+    # different container / lot than the one sent. Default both editable
+    # fields to the Send's values; the user overrides at receiving time.
+    # These two (plus the row's Supplier Batch No) name every NEW batch
+    # created on submit — see create_receive_batches.
+    if receipt.meta.has_field("custom_received_container_no"):
+        receipt.custom_received_container_no = source.get("custom_container_number") or ""
+    if receipt.meta.has_field("custom_received_lot_no"):
+        receipt.custom_received_lot_no = source.get("custom_lot_no") or ""
 
     # MI1-I103: default the header target to where the material was sent FROM.
     # The rows are still left blank on purpose (see below), but a blank header
@@ -302,14 +317,14 @@ def make_receive_from_subcontractor(source_name):
             "uom": src_item.uom,
             "stock_uom": src_item.stock_uom,
             "conversion_factor": src_item.conversion_factor or 1,
-            # MI1-I50 reopen (Raj 2026-07-17): batch_no is BLANK — a NEW
-            # Batch is auto-generated on submit from
-            # (container_no + lot_no + supplier_batch_no) via
-            # `create_receive_batches`. The received material is treated
-            # as a distinct new batch, not a re-import of the sent batch.
-            "batch_no": "",
+            # MI1-I50 (Raj 2026-09-03): a SENT item comes back under the
+            # batch it left with — auto-fetched, never typed. Only rows the
+            # user ADDS for new / finished material have no batch, and those
+            # get one generated on submit (create_receive_batches). This
+            # replaces the 2026-07-17 rule that blanked every row.
+            "batch_no": src_item.batch_no,
             "serial_no": src_item.serial_no,
-            "use_serial_batch_fields": src_item.get("use_serial_batch_fields") or 0,
+            "use_serial_batch_fields": 1,
             # MI1-I50 reopen (Raj 2026-07-17): warehouses flip so the
             # material comes BACK from the subcontractor:
             #   Source WH = source Send's Target WH (subcontractor)
@@ -331,17 +346,12 @@ def make_receive_from_subcontractor(source_name):
     if not appended:
         frappe.throw(_("Nothing to receive — all items on this Send entry are already fully received."))
 
-    # MI1-I50 reopen (Raj 2026-07-17): the draft is created with blank
-    # t_warehouse on every row — user picks Target manually per spec.
-    # ERPNext's Stock Entry.validate() runs its own validate_warehouse()
-    # which throws "Target warehouse is mandatory for row 1" (this is
-    # NOT a generic mandatory-field check, so ignore_mandatory doesn't
-    # help — verified via smoke test). We skip validate() on this one
-    # insert so the draft materialises with blank targets; the user
-    # then sees the same error on their first Save, which is exactly
-    # the prompt to fill Target. On Save + Submit the full validation
-    # chain (mhr hooks included) fires normally.
-    receipt.flags.ignore_validate = True
+    # ERPNext owns the validation (MI1-I103). The rows' targets are blank on
+    # purpose, but with the header target defaulted above
+    # StockEntry.validate_warehouse fills them itself, so the draft inserts
+    # under the full validation chain — including set_receive_purpose
+    # (before_validate) and validate_subcontract_receipt. The 2026-07-17
+    # skip-validation shortcut is gone: it also skipped every mhr hook.
     receipt.insert(ignore_permissions=True)
     return {"name": receipt.name}
 
@@ -392,31 +402,89 @@ def _subcontract_match_key(item):
     )
 
 
-def _receive_batch_id(item):
-    """MI1-I50 reopen (Raj 2026-07-17): construct the auto-generated Batch
-    ID for a Receive-from-Subcontractor row:
+def _receive_batch_id(doc, item):
+    """MI1-I50 (Raj 2026-09-03): the auto-generated Batch ID for a NEW /
+    finished item on a Receive-from-Subcontractor entry:
 
-        Container No - Lot No - Supplier Batch No
+        Received Container No - Received Lot No - Supplier Batch No
 
-    e.g. `MCJC-1111 + 01012001 + 3182` → `MCJC-1111-01012001-3182`.
+    e.g. `MC-JC-2222 + 13042026 + 6086` → `MC-JC-2222-13042026-6086`.
 
-    Returns None when any of the three fields is missing — the caller
-    (create_receive_batches) treats that as a hard validation error so
-    the user can't submit a Receive entry with an unbatchable row."""
-    container = (item.get("custom_container_no") or "").strip()
-    lot = (item.get("custom_lot_no") or "").strip()
+    Container and lot come from the entry HEADER (the two editable
+    "Received …" fields — the subcontractor may return material in a
+    different container / lot than the one sent); the supplier batch
+    number comes from the row. Stock Entry Detail has no container / lot
+    columns of its own, which is why the 2026-07-17 row-based derivation
+    never resolved.
+
+    Returns None when any of the three is missing — the caller treats
+    that as a hard validation error so an unbatchable row cannot submit."""
+    container = (doc.get("custom_received_container_no") or "").strip()
+    lot = (doc.get("custom_received_lot_no") or "").strip()
     supplier_batch = (item.get("custom_supplier_batch_no") or "").strip()
     if not (container and lot and supplier_batch):
         return None
     return f"{container}-{lot}-{supplier_batch}"
 
 
+# Header spec fields copied onto every Batch created at receiving, and the
+# Batch column each one lands in. Raj (2026-09-03): "container-related
+# information should be editable at Job Work Received, like Container
+# Inward, and saved against the Received Container Number" — the Batch is
+# what every downstream picker (Delivery Note popups, Fetch Batches, the
+# stock sheets) reads, so the spec lives there, keyed by the received
+# container / lot.
+_RECEIVE_BATCH_SPEC_FIELDS = (
+    ("custom_glue", "custom_glue"),
+    ("custom_pulp", "custom_pulp"),
+    ("custom_lusture", "custom_lusture"),
+    ("custom_grade", "custom_grade"),
+    ("custom_fsc", "custom_fsc"),
+    ("custom_merge_no", "custom_merge_no"),
+    ("custom_notes", "custom_notes"),
+    ("custom_cross_section", "cross_section"),
+)
+
+
+def set_receive_purpose(doc, method=None):
+    """MI1-I50 (Raj 2026-09-03): before_validate hook — decide the Stock
+    Entry purpose of a Receive-from-Subcontractor entry from its rows.
+
+    A receipt can now carry two kinds of row:
+      * SENT material coming back (source = subcontractor warehouse,
+        batch auto-fetched) — a transfer if the user gives it a target,
+        otherwise consumed at the subcontractor.
+      * NEW / finished material (target warehouse only, no source) that
+        gets a fresh batch on submit.
+
+    ERPNext's "Material Transfer" demands both warehouses on every row, so
+    it cannot carry a finished row; "Repack" allows source-only and
+    target-only rows side by side but throws "There must be atleast 1
+    Finished Good" when no row is target-only. So: Repack when any row is
+    target-only, Material Transfer otherwise. `purpose` is a per-document
+    field — StockEntry.set_purpose_for_stock_entry() only fills it when
+    empty — so the "Job Work Received" type keeps its stored purpose and
+    each document settles its own. Runs before StockEntry.validate(), which
+    is what reads purpose for the warehouse and finished-goods checks.
+
+    Fast no-op for every Stock Entry that is not a receipt.
+    """
+    if not _subcontract_source_name(doc):
+        return
+    has_finished_row = any(
+        row.get("t_warehouse") and not row.get("s_warehouse") for row in (doc.get("items") or [])
+    )
+    doc.purpose = "Repack" if has_finished_row else "Material Transfer"
+
+
 @frappe.whitelist()
 def create_receive_batches(doc, method=None):
-    """MI1-I50 reopen (Raj 2026-07-17): before_submit hook on Stock Entry.
+    """MI1-I50 (Raj 2026-09-03): before_submit hook on Stock Entry.
     For every row on a Receive-from-Subcontractor entry with an empty
-    batch_no, generate a NEW Batch named
-    `container_no-lot_no-supplier_batch_no` and assign it to the row.
+    batch_no — i.e. NEW / finished material, since sent rows arrive with
+    their original batch — generate a Batch named
+    `received_container-received_lot-supplier_batch_no`, copy the header's
+    container information onto it, and assign it to the row.
 
     Fast-no-op on every Stock Entry that isn't a Receive entry
     (`custom_original_send_entry` empty). Runs on before_submit, not
@@ -435,38 +503,48 @@ def create_receive_batches(doc, method=None):
     if not source_name:
         return
 
-    for row in doc.items:
+    batch_meta = frappe.get_meta("Batch")
+    for row in doc.get("items") or []:
         if row.batch_no:
-            # User pre-set an explicit batch — leave it alone.
+            # Sent material coming back (batch auto-fetched from the Send)
+            # or a batch the user chose deliberately — leave it alone.
             continue
-        batch_id = _receive_batch_id(row)
+        batch_id = _receive_batch_id(doc, row)
         if not batch_id:
             frappe.throw(_(
-                "Cannot generate Batch for item <b>{0}</b>: Container No, "
-                "Lot No and Supplier Batch No must all be set before "
-                "submitting a Receive-from-Subcontractor entry."
+                "Cannot generate Batch for item <b>{0}</b>: Received Container "
+                "Number and Received Lot No (on the entry) and Supplier Batch "
+                "No (on the row) must all be set before submitting a "
+                "Receive-from-Subcontractor entry."
             ).format(row.item_code))
         if frappe.db.exists("Batch", batch_id):
             frappe.throw(_(
                 "Batch <b>{0}</b> already exists — a Receive entry for the "
-                "same Container/Lot/Supplier-Batch combination was likely "
-                "already submitted. Delete the duplicate row or amend the "
-                "existing Receive."
+                "same Received Container / Received Lot / Supplier Batch "
+                "combination was likely already submitted. Delete the "
+                "duplicate row or amend the existing Receive."
             ).format(batch_id))
         batch = frappe.new_doc("Batch")
         batch.batch_id = batch_id
         batch.item = row.item_code
         batch.batch_qty = flt(row.qty)
-        # Carry the identifier custom fields onto the new Batch so all
-        # downstream reports / dropdowns can find it via the same trio.
-        if hasattr(batch, "custom_container_no"):
-            batch.custom_container_no = row.get("custom_container_no") or ""
-        if hasattr(batch, "custom_lot_no"):
-            batch.custom_lot_no = row.get("custom_lot_no") or ""
-        if hasattr(batch, "custom_supplier_batch_no"):
-            batch.custom_supplier_batch_no = row.get("custom_supplier_batch_no") or ""
-        if hasattr(batch, "custom_cone"):
-            batch.custom_cone = row.get("custom_cone") or 0
+        # Identity: the RECEIVED container / lot (header) + the row's
+        # supplier batch — the trio every Delivery Note popup, Fetch Batches
+        # and stock sheet keys on.
+        batch.custom_container_no = doc.get("custom_received_container_no") or ""
+        batch.custom_lot_no = doc.get("custom_received_lot_no") or ""
+        batch.custom_supplier_batch_no = row.get("custom_supplier_batch_no") or ""
+        batch.custom_cone = cint(row.get("custom_cone") or doc.get("custom_se_cone") or 0)
+        # Mode, so the HTY / VFY-scoped batch dropdowns (MI1-I76) see it.
+        if batch_meta.has_field("custom_transaction_type"):
+            batch.custom_transaction_type = doc.get("transaction_type") or ""
+        # Inward date drives the Stock Sheet Aging column (MI1-I94).
+        if batch_meta.has_field("manufacturing_date") and doc.get("posting_date"):
+            batch.manufacturing_date = doc.get("posting_date")
+        # Container information as entered at receiving (Raj 2026-09-03 §5).
+        for src_field, batch_field in _RECEIVE_BATCH_SPEC_FIELDS:
+            if batch_meta.has_field(batch_field) and doc.get(src_field) not in (None, ""):
+                batch.set(batch_field, doc.get(src_field))
         batch.insert(ignore_permissions=True)
         row.batch_no = batch.name
         # Force use_serial_batch_fields so ERPNext writes the batch onto
@@ -513,10 +591,16 @@ def validate_subcontract_receipt(doc, method=None):
         already = flt(s.get("custom_received_qty") or 0)
         pending[key] = pending.get(key, 0.0) + (sent - already)
 
-    # Sum incoming receipt per key.
+    # Sum incoming receipt per key — for rows that RETURN sent material.
+    # MI1-I50 (Raj 2026-09-03): a receipt may also carry new / finished
+    # items that were never sent. Their key matches no source row, so there
+    # is no pending qty to check against; they must not be blocked as
+    # "over-receipts". _apply_receipt_delta skips them for the same reason.
     incoming = {}
     for r in doc.items:
         key = _subcontract_match_key(r)
+        if key not in pending:
+            continue
         incoming[key] = incoming.get(key, 0.0) + flt(r.qty)
 
     for key, inc in incoming.items():

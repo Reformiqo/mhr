@@ -189,6 +189,14 @@ doc_events = {
         "after_insert": "mhr.email.flush_email_after_insert",
     },
     "Stock Entry": {
+        "before_validate": [
+            # MI1-I50 (Raj 2026-09-03): a Receive-from-Subcontractor entry
+            # settles its own purpose from its rows — Repack when it carries
+            # new / finished (target-only) material, Material Transfer for a
+            # pure return. Must run before StockEntry.validate(), which reads
+            # purpose for the warehouse + finished-goods checks.
+            "mhr.utilis.set_receive_purpose",
+        ],
         "validate": [
             "mhr.utilis.update_stock_entry",
             # MI1-I39 P2-G: HTY mode → ensure HTY naming series before save.
@@ -197,10 +205,10 @@ doc_events = {
             "mhr.utilis.validate_subcontract_receipt",
         ],
         "before_submit": [
-            # MI1-I50 reopen (Raj 2026-07-17): generate a new Batch per row
-            # on Receive-from-Subcontractor entries — batch_no comes in
-            # blank from make_receive_from_subcontractor, and the derived
-            # ID is `container_no-lot_no-supplier_batch_no`.
+            # MI1-I50 (Raj 2026-09-03): generate a Batch for every row on a
+            # Receive-from-Subcontractor entry that has none — the new /
+            # finished items. Sent items arrive with their original batch.
+            # ID is `received_container-received_lot-supplier_batch_no`.
             "mhr.utilis.create_receive_batches",
         ],
         "on_submit": [
