@@ -136,6 +136,18 @@ Note in all modes are untouched.
 - The Desk Client Script `MI1-I39 — Sales Order HTY Mode` is superseded and is
   disabled **in `mhr/fixtures/client_script.json`** — disabling it only in a
   patch does not stick, because `sync_fixtures()` runs after patches.
+- **MI1-I91 reopen (Raj 2026-09-03): HTY uses the VFY booking flow**, not the
+  DN-style batch popup, on Container entry. Container No -> Lot popup (Lot No +
+  Item, only lots with SBB stock > 0) -> Lot No + Denier filled -> Fetch By
+  (`Cone & Pallet` | `Weight`) -> `mhr.sales_order.get_so_batches`. Boxes ->
+  Pallet (`custom_no_of_pallet`, hidden by default). Server reuse is literal:
+  `get_container_details(transaction_type, with_stock)` and
+  `get_so_batches(pallets, transaction_type)` are additive, default-off args.
+  `custom_fetch_by`'s DocField options are the union of both modes (frappe
+  validates a Select on save); `so_hty_apply_fetch_by_options` narrows the
+  visible list per mode and is the one call in `sales_order_hty.js` that also
+  runs on a VFY doc — it trims a dropdown, never a value. The VFY "Sales Order
+  Booking" Client Script is untouched.
 
 **An `override_whitelisted_methods` target must keep the overridden function's
 exact signature** (MI1-I108). frappe calls it positionally, and there are two

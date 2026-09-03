@@ -1,14 +1,26 @@
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 
 @frappe.whitelist()
-def get_so_batches(item_code, container_no=None, lot_no=None, cone=0, qty=0, boxes=0):
-    """Fetch batches for Sales Order based on item, container, lot and auto-split by cone, qty or boxes."""
+def get_so_batches(
+    item_code, container_no=None, lot_no=None, cone=0, qty=0, boxes=0,
+    pallets=0, transaction_type=None,
+):
+    """Fetch batches for Sales Order based on item, container, lot and auto-split by cone, qty or boxes.
+
+    MI1-I91 (Raj 2026-09-03): HTY reuses this allocation unchanged. `pallets`
+    is the HTY name for `boxes` (1 batch = 1 pallet, exactly as 1 batch = 1
+    box) and `transaction_type` scopes the Batch query to that mode's batches
+    via Batch.custom_transaction_type. Both default off, so every VFY call
+    site keeps its previous behaviour byte-for-byte.
+    """
     qty = flt(qty)
     cone = int(cone or 0)
-    boxes = int(boxes or 0)
+    boxes = int(boxes or 0) or int(pallets or 0)
     filters = {"item": item_code, "batch_qty": (">", 0)}
+    if transaction_type:
+        filters["custom_transaction_type"] = transaction_type
     if container_no:
         # container_no may be a Container doc name; resolve to the container_no field value
         actual_container_no = frappe.db.get_value("Container", container_no, "container_no") or container_no
@@ -159,9 +171,17 @@ def get_item_batch(batch):
 
 
 @frappe.whitelist()
-def get_container_details(container_no):
+def get_container_details(container_no, transaction_type=None, with_stock=0):
     """Fetch unique lot_no + item combinations from every submitted
     Container doc whose `container_no` field matches the argument.
+
+    MI1-I91 (Raj 2026-09-03): two optional narrowings for the HTY Sales
+    Order lot popup, both off by default so VFY is unchanged:
+      * `transaction_type` — only Containers of that mode.
+      * `with_stock`       — only (lot, item) pairs that still have at least
+        one batch with a positive Serial-and-Batch-Bundle balance (reuses
+        mhr.utilis.get_container_batches_with_stock). Zero-stock lots are
+        dropped, as the ticket asks.
 
     MI1 2026-07-20 fix: the earlier implementation treated the argument
     as a doc NAME (`frappe.db.exists("Container", container_no)`), which
@@ -175,10 +195,13 @@ def get_container_details(container_no):
         return []
 
     # Find all submitted Container docs whose container_no matches.
+    container_filters = {"container_no": container_no, "docstatus": 1}
+    if transaction_type:
+        container_filters["transaction_type"] = transaction_type
     containers = frappe.get_all(
         "Container",
-        filters={"container_no": container_no, "docstatus": 1},
-        fields=["lot_no", "item"],
+        filters=container_filters,
+        fields=["name", "lot_no", "item"],
         order_by="creation desc",
     )
     if not containers:
@@ -203,6 +226,28 @@ def get_container_details(container_no):
         if key not in seen:
             seen.add(key)
             unique.append({"lot_no": c.get("lot_no"), "item": c.get("item")})
+
+    if cint(with_stock) and unique:
+        # Local import: mhr.utilis is large and imports widely; keep the
+        # dependency out of module load.
+        from mhr.utilis import get_container_batches_with_stock
+
+        stocked = get_container_batches_with_stock(container_no)
+        if transaction_type and stocked:
+            # The stock helper does not return the batch's mode; resolve it
+            # here so a VFY batch that happens to share (lot, item) with an
+            # HTY Container cannot keep a zero-stock HTY lot alive.
+            in_mode = set(frappe.get_all(
+                "Batch",
+                filters={
+                    "name": ["in", [b["name"] for b in stocked]],
+                    "custom_transaction_type": transaction_type,
+                },
+                pluck="name",
+            ))
+            stocked = [b for b in stocked if b["name"] in in_mode]
+        stocked_keys = {(b.get("custom_lot_no"), b.get("item")) for b in stocked}
+        unique = [u for u in unique if (u["lot_no"], u["item"]) in stocked_keys]
 
     return unique
 

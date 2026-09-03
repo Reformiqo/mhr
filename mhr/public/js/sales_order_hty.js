@@ -58,6 +58,7 @@ function so_hty_strip_label_prefix(val) {
 
 function so_hty_apply_mode(frm) {
     const hty = so_hty_is_hty(frm);
+    so_hty_apply_fetch_by_options(frm);
 
     for (const f of SO_HTY_HIDE_IN_HTY) {
         if (frm.fields_dict[f]) frm.set_df_property(f, 'hidden', hty ? 1 : 0);
@@ -79,14 +80,16 @@ function so_hty_apply_mode(frm) {
         grid.refresh();
     }
 
-    // The VFY fetch controls live on the main tab and make no sense in HTY.
-    // Only touched when hty is true — in VFY these belong to the "Sales
-    // Order Booking" Client Script, and re-showing them here would override
-    // its custom_fetch_by logic.
+    // MI1-I91 (Raj 2026-09-03): HTY reuses the VFY booking controls on the
+    // main tab — Container No -> Lot popup -> Fetch By -> Cone & Pallet /
+    // Weight -> mhr.sales_order.get_so_batches. Only *Boxes* is hidden here:
+    // HTY counts Pallets, so custom_no_of_pallet takes its place. Which of
+    // pallet / weight is visible depends on Fetch By and is decided in
+    // so_hty_apply_fetch_by. In VFY these fields belong to the "Sales Order
+    // Booking" Client Script and are not touched.
     if (hty) {
-        ['custom_fetch_by', 'custom_no_of_boxes', 'custom_quantity_weight'].forEach((f) => {
-            if (frm.fields_dict[f]) frm.toggle_display(f, false);
-        });
+        if (frm.fields_dict.custom_no_of_boxes) frm.toggle_display('custom_no_of_boxes', false);
+        so_hty_apply_fetch_by(frm);
     }
 
     so_hty_add_lot_picker_button(frm, hty);
@@ -710,6 +713,171 @@ function so_hty_fetch_batches(frm) {
 }
 
 // ---------------------------------------------------------------------------
+// MI1-I91 (Raj 2026-09-03): the VFY booking flow on HTY
+//   Container -> Lot popup -> Fetch By (Cone & Pallet | Weight)
+//             -> mhr.sales_order.get_so_batches -> items
+//
+// Server logic is the VFY one, unchanged (get_container_details and
+// get_so_batches gained optional args only). What differs is presentation:
+// Boxes -> Pallet, lots filtered to available stock > 0, and Lot No + Denier
+// filled on pick. The "Sales Order Booking" Client Script (VFY) is untouched.
+// ---------------------------------------------------------------------------
+
+const SO_HTY_FETCH_BY_OPTIONS = ['', 'Cone & Pallet', 'Weight'];
+const SO_VFY_FETCH_BY_OPTIONS = ['', 'Cone and Boxes', 'Weight'];
+
+// The DocField's stored options are the union of both modes: frappe validates
+// a Select against its options on save, so "Cone & Pallet" must exist in the
+// field for an HTY order to save at all. This narrows the *visible* list per
+// mode. It is the one call in this file that also runs on a VFY document —
+// it only trims a dropdown and never writes a value; without it a VFY user
+// would be offered the HTY-only option.
+function so_hty_apply_fetch_by_options(frm) {
+    if (!frm.fields_dict.custom_fetch_by) return;
+    const opts = so_hty_is_hty(frm) ? SO_HTY_FETCH_BY_OPTIONS : SO_VFY_FETCH_BY_OPTIONS;
+    frm.set_df_property('custom_fetch_by', 'options', opts.join('\n'));
+}
+
+// Cone stays visible in HTY throughout — it is part of the spec set the
+// Select Batch popup fills (MI1-I90). Pallet and Weight follow Fetch By.
+function so_hty_apply_fetch_by(frm) {
+    if (!so_hty_is_hty(frm)) return;
+    const mode = frm.doc.custom_fetch_by || '';
+    if (frm.fields_dict.custom_no_of_pallet) {
+        frm.toggle_display('custom_no_of_pallet', mode === 'Cone & Pallet');
+    }
+    if (frm.fields_dict.custom_quantity_weight) {
+        frm.toggle_display('custom_quantity_weight', mode === 'Weight');
+    }
+}
+
+function so_hty_open_lot_popup(frm) {
+    const container_no = frm.doc.custom_container_no;
+    frappe.call({
+        method: 'mhr.sales_order.get_container_details',
+        args: { container_no, transaction_type: 'HTY', with_stock: 1 },
+        callback: function (r) {
+            const rows = r.message || [];
+            // Silent on empty: the user is probably still typing (MI1-I71).
+            if (!rows.length) return;
+            if (rows.length === 1) {
+                so_hty_apply_lot_pick(frm, rows[0]);
+                return;
+            }
+            const esc = frappe.utils.escape_html;
+            let html =
+                '<div style="max-height:400px;overflow-y:auto;">' +
+                '<table class="table table-bordered table-striped" style="width:100%;font-size:12px;">' +
+                '<thead><tr><th style="width:50px;text-align:center;">Select</th>' +
+                '<th>Lot No</th><th>Item</th></tr></thead><tbody>';
+            rows.forEach((row, i) => {
+                html +=
+                    `<tr><td style="text-align:center;"><input type="radio" name="so_hty_lot" value="${i}"></td>` +
+                    `<td>${esc(String(row.lot_no || '-'))}</td>` +
+                    `<td>${esc(String(row.item || '-'))}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+            const d = new frappe.ui.Dialog({
+                title: __('Select Lot'),
+                fields: [{ fieldtype: 'HTML', fieldname: 'lot_list', options: html }],
+                primary_action_label: __('Select'),
+                primary_action: function () {
+                    const $picked = d.wrapper.find('input[name="so_hty_lot"]:checked');
+                    if (!$picked.length) {
+                        frappe.msgprint(__('Please select a lot'));
+                        return;
+                    }
+                    so_hty_apply_lot_pick(frm, rows[parseInt($picked.val(), 10)]);
+                    d.hide();
+                },
+            });
+            d.show();
+        },
+    });
+}
+
+function so_hty_apply_lot_pick(frm, row) {
+    frm.set_value('custom_lot_no', row.lot_no || '');
+    // Denier is the Item. Direct write: set_value would re-fire the
+    // custom_denier handler and open the batch popup on top (MI1-I72 P3).
+    frm.doc.custom_denier = row.item || '';
+    frm.refresh_field('custom_denier');
+    // Keep the main-tab Daniar in step so the form reads as it does in VFY.
+    if (frm.fields_dict.custom_daniar) frm.set_value('custom_daniar', row.item || '');
+}
+
+function so_hty_fetch_by_allocation(frm) {
+    const item_code = frm.doc.custom_denier || frm.doc.custom_daniar;
+    if (!frm.doc.custom_container_no || !frm.doc.custom_lot_no || !item_code) return;
+    const mode = frm.doc.custom_fetch_by;
+    const args = {
+        item_code,
+        container_no: frm.doc.custom_container_no,
+        lot_no: frm.doc.custom_lot_no,
+        transaction_type: 'HTY',
+    };
+    if (mode === 'Cone & Pallet') {
+        args.cone = frm.doc.custom_cone || 0;
+        args.pallets = frm.doc.custom_no_of_pallet || 0;
+        if (!args.pallets) return;
+    } else if (mode === 'Weight') {
+        args.qty = frm.doc.custom_quantity_weight || 0;
+        if (!args.qty) return;
+    } else {
+        return;
+    }
+
+    frappe.call({
+        method: 'mhr.sales_order.get_so_batches',
+        args,
+        freeze: true,
+        freeze_message: __('Fetching batches…'),
+        callback: function (r) {
+            const batches = r.message || [];
+            if (!batches.length) {
+                frappe.msgprint(__('No batches available for the given filters.'));
+                return;
+            }
+            frm.clear_table('items');
+            let total_qty = 0;
+            batches.forEach((b) => {
+                frm.add_child('items', {
+                    item_code: b.item,
+                    item_name: b.item_name || b.item,
+                    qty: b.allotted_qty,
+                    uom: b.stock_uom,
+                    stock_uom: b.stock_uom,
+                    conversion_factor: 1,
+                    custom_batch_no: b.name,
+                    custom_cone: b.allotted_cones || b.custom_cone || 0,
+                    // Divisor for so_hty_recalc_row_qty (MI1-I90): without it
+                    // the first cone edit replaces qty with the batch's full
+                    // quantity.
+                    custom_cone_copy: b.custom_cone,
+                    custom_supplier_batch_no: b.custom_supplier_batch_no,
+                    custom_container_number: b.custom_container_no,
+                    custom_lot_number: b.custom_lot_no,
+                    custom_grade: b.custom_grade,
+                });
+                total_qty += flt(b.allotted_qty);
+            });
+            so_hty_sort_items_by_supplier_batch(frm);
+            frm.refresh_field('items');
+            so_hty_calculate_totals(frm);
+            if (mode === 'Weight' && total_qty < flt(frm.doc.custom_quantity_weight)) {
+                frappe.show_alert({
+                    message: __(
+                        'Fetched {0} across {1} full batch(es). Requested weight {2}; raise the weight to include the next batch (partial batches are never fetched).',
+                        [total_qty, batches.length, frm.doc.custom_quantity_weight]
+                    ),
+                    indicator: 'blue',
+                });
+            }
+        },
+    });
+}
+
+// ---------------------------------------------------------------------------
 // form bindings
 // ---------------------------------------------------------------------------
 
@@ -736,22 +904,36 @@ frappe.ui.form.on('Sales Order', {
         so_hty_fetch_company_defaults(frm);
     },
 
-    custom_container_no: async function (frm) {
+    custom_container_no: function (frm) {
         // VFY handler lives in the "Sales Order Booking" Client Script.
         if (!so_hty_is_hty(frm)) return;
         if (!frm.doc.custom_container_no) {
             so_hty_clear_spec_fields(frm);
+            frm.set_value('custom_lot_no', '');
             return;
         }
-        const r = await frappe.call({
-            method: 'mhr.sales_order_hty.get_hty_batches_for_container_no',
-            args: { container_no: frm.doc.custom_container_no },
-        });
-        const batches = r.message || [];
-        // Silent on empty: the user is probably still typing the container
-        // number, and a msgprint on every keystroke is unusable (MI1-I71).
-        if (!batches.length) return;
-        so_hty_show_batch_dialog(frm, batches);
+        // MI1-I91 (Raj 2026-09-03): entering a Container opens the LOT popup
+        // (Lot No + Item, available stock > 0 only) — the same step the VFY
+        // booking flow starts with. The batch-level Select Batch popup stays
+        // reachable through the Denier field and Pick Containers by Lot.
+        so_hty_open_lot_popup(frm);
+    },
+
+    custom_fetch_by: function (frm) {
+        if (!so_hty_is_hty(frm)) return;
+        so_hty_apply_fetch_by(frm);
+    },
+
+    custom_no_of_pallet: function (frm) {
+        if (!so_hty_is_hty(frm)) return;
+        if (frm.doc.custom_fetch_by !== 'Cone & Pallet') return;
+        so_hty_fetch_by_allocation(frm);
+    },
+
+    custom_quantity_weight: function (frm) {
+        if (!so_hty_is_hty(frm)) return;
+        if (frm.doc.custom_fetch_by !== 'Weight') return;
+        so_hty_fetch_by_allocation(frm);
     },
 
     custom_denier: async function (frm) {

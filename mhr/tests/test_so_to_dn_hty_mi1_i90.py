@@ -432,7 +432,9 @@ class TestConeToQtyOnSalesOrder(FrappeTestCase):
 
 		idx = source.find("function so_hty_apply_selected_batches(")
 		self.assertGreater(idx, -1)
-		self.assertIn("custom_cone_copy: data.custom_cone,", source[idx : idx + 3000])
+		end = source.find("\nfunction ", idx + 1)
+		body = source[idx:end] if end > -1 else source[idx:]
+		self.assertIn("custom_cone_copy: data.custom_cone,", body)
 
 
 class TestBatchFetchFromParity(FrappeTestCase):
@@ -628,7 +630,9 @@ class TestHTYTabIsLastOnTheForm(FrappeTestCase):
 			self.skipTest("No connections_tab on this Sales Order.")
 
 		connections_at = fieldnames.index("connections_tab")
-		before = [f for f in fieldnames[:connections_at] if f != "custom_hty_tab"]
+		# The HTY tab's own custom fields sit between the anchor and
+		# Connections by design — only *standard* fields matter here.
+		before = [f for f in fieldnames[:connections_at] if not f.startswith("custom_")]
 		self.assertEqual(
 			before[-1], "party_account_currency",
 			"The last standard field before Connections changed; re-anchor "
