@@ -236,7 +236,7 @@
   "columns": 0,
   "default": null,
   "depends_on": null,
-  "description": "MI1-I91: HTY counts Pallets where VFY counts Boxes. Shown only in HTY when Fetch By = Cone & Pallet.",
+  "description": null,
   "docstatus": 0,
   "doctype": "Custom Field",
   "dt": "Sales Order",

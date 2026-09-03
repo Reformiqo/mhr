@@ -276,6 +276,14 @@ class TestClientWiring(FrappeTestCase):
         self.assertNotIn("['custom_fetch_by', 'custom_no_of_boxes', 'custom_quantity_weight']", body,
                          "The MI1-I90 blanket hide of the booking controls must be gone.")
 
+    def test_cone_is_explicitly_shown_in_hty(self):
+        """A new Sales Order starts with an empty transaction_type; the VFY
+        Booking script treats that as VFY and hides custom_cone on refresh.
+        Once the doc is HTY that script stops acting, so HTY must un-hide the
+        field itself or Cone vanishes in Cone & Pallet mode (2026-09-03)."""
+        idx = self.src.find("function so_hty_apply_fetch_by(")
+        self.assertIn("frm.toggle_display('custom_cone', true)", self.src[idx:idx + 900])
+
     def test_allocation_rows_seed_cone_copy_for_the_cone_qty_rule(self):
         idx = self.src.find("function so_hty_fetch_by_allocation(")
         self.assertIn("custom_cone_copy: b.custom_cone,", self.src[idx:idx + 3000])

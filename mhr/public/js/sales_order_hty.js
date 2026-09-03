@@ -738,11 +738,17 @@ function so_hty_apply_fetch_by_options(frm) {
     frm.set_df_property('custom_fetch_by', 'options', opts.join('\n'));
 }
 
-// Cone stays visible in HTY throughout — it is part of the spec set the
-// Select Batch popup fills (MI1-I90). Pallet and Weight follow Fetch By.
+// Cone is always visible in HTY — it is part of the spec set the Select
+// Batch popup fills (MI1-I90) and Raj's Cone & Pallet mode reads it. It
+// has to be shown EXPLICITLY: a new Sales Order starts with an empty
+// transaction_type, which the VFY "Sales Order Booking" Client Script
+// treats as VFY, so its refresh hides custom_cone before the user picks
+// HTY; once the doc is HTY that script stops acting and nothing else would
+// restore the field (2026-09-03). Pallet and Weight follow Fetch By.
 function so_hty_apply_fetch_by(frm) {
     if (!so_hty_is_hty(frm)) return;
     const mode = frm.doc.custom_fetch_by || '';
+    if (frm.fields_dict.custom_cone) frm.toggle_display('custom_cone', true);
     if (frm.fields_dict.custom_no_of_pallet) {
         frm.toggle_display('custom_no_of_pallet', mode === 'Cone & Pallet');
     }
