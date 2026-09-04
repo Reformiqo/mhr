@@ -117,8 +117,11 @@ class TestDnColumnLabelsSwapWithFilter(FrappeTestCase):
         """Labels swap but fieldnames must stay constant so data dicts
         always resolve regardless of mode."""
         from mhr.mhr.report.dn.dn import get_columns
-        all_fns = [c["fieldname"] for c in get_columns({})]
+        # MI1-I64 reopen: Merge No is VFY-only, so it is the one fieldname
+        # allowed to differ between the two modes.
+        all_fns = [c["fieldname"] for c in get_columns({}) if c["fieldname"] != "merge_no"]
         hty_fns = [c["fieldname"] for c in get_columns({"transaction_type": "HTY"})]
+        self.assertNotIn("merge_no", hty_fns, "HTY must not render Merge No.")
         self.assertEqual(all_fns, hty_fns,
             "fieldnames must be identical between VFY and HTY column lists.")
 

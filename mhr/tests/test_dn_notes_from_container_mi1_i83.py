@@ -53,15 +53,25 @@ class TestHelperShapeAndScope(FrappeTestCase):
         Container Inward for the same container_no exists twice, once
         per transaction_type. The lookup MUST filter on transaction_type
         or it'll pull an HTY container's notes into a VFY DN."""
-        from mhr.utilis import fetch_notes_from_container
-        src = inspect.getsource(fetch_notes_from_container)
+        # MI1-I101 moved the lookup into resolve_container_notes, keyed on
+        # the note's OWN transaction_type (VFY or HTY), submitted rows only.
+        from mhr.utilis import resolve_container_notes
+        src = inspect.getsource(resolve_container_notes)
+        self.assertIn('"docstatus": 1', src, "Drafts must be excluded (MI1-I101).")
         self.assertIn(
-            '"transaction_type": "VFY"',
+            '"transaction_type": tt',
             src,
             "Container lookup must include transaction_type filter to "
             "disambiguate between HTY and VFY containers sharing a "
             "container_no.",
         )
+
+
+def _delete_seed_container(name):
+    """Seed rows are marked submitted (MI1-I101 reads submitted only) and
+    delete_doc(force=1) still refuses a submitted doc — drop the flag first."""
+    frappe.db.set_value("Container", name, "docstatus", 0, update_modified=False)
+    frappe.delete_doc("Container", name, ignore_permissions=True, force=1)
 
 
 class TestBehaviour(FrappeTestCase):
@@ -81,7 +91,7 @@ class TestBehaviour(FrappeTestCase):
             filters={"container_no": container_no, "transaction_type": transaction_type},
             fields=["name"],
         ):
-            frappe.delete_doc("Container", stale.name, ignore_permissions=True, force=1)
+            _delete_seed_container(stale.name)
         c = frappe.new_doc("Container")
         c.container_no = container_no
         c.transaction_type = transaction_type
@@ -91,6 +101,9 @@ class TestBehaviour(FrappeTestCase):
         c.flags.ignore_validate = True
         c.flags.ignore_mandatory = True
         c.insert(ignore_permissions=True)
+        # MI1-I101: resolve_container_notes reads submitted Containers only
+        # (drafts excluded), so mark the seed row submitted.
+        frappe.db.set_value("Container", c.name, "docstatus", 1, update_modified=False)
         return c.name
 
     def setUp(self):
@@ -100,13 +113,13 @@ class TestBehaviour(FrappeTestCase):
         # different notes — the helper must NOT pull this one for a
         # VFY DN (transaction_type disambiguation).
         self.hty = self._make_container(
-            self.CONTAINER_NO, "SHOULD NEVER APPEAR", "HTY")
+            self.CONTAINER_NO, "MI1-I101 HTY pin", "HTY")
         frappe.db.commit()
 
     def tearDown(self):
         for n in (self.vfy, self.hty):
             if n and frappe.db.exists("Container", n):
-                frappe.delete_doc("Container", n, ignore_permissions=True, force=1)
+                _delete_seed_container(n)
         frappe.db.commit()
 
     def _fake_dn(self, **overrides):
@@ -151,22 +164,21 @@ class TestBehaviour(FrappeTestCase):
             "user-typed text (or Batch-fetched text) wins.",
         )
 
-    def test_hty_dn_untouched(self):
-        """Even if an HTY DN has empty notes AND its container has notes,
-        the helper must NOT populate — Raj's spec is VFY-only."""
+    def test_hty_dn_reads_its_own_hty_container(self):
+        """MI1-I101 extended MI1-I83 to HTY: an HTY note pulls the HTY
+        Container's notes — never the VFY sibling sharing the number."""
         from mhr.utilis import fetch_notes_from_container
         dn = self._fake_dn(transaction_type="HTY")
         fetch_notes_from_container(dn)
-        self.assertIsNone(
-            dn.custom_notes,
-            "HTY DN must be untouched. If this fails, the transaction-"
-            "type scope guard is broken.",
+        self.assertEqual(
+            dn.custom_notes, "MI1-I101 HTY pin",
+            "HTY note must resolve the HTY Container (MI1-I101).",
         )
 
     def test_pulls_vfy_container_not_hty_when_both_share_container_no(self):
         """Regression pin: same container_no exists in both HTY and
         VFY — a VFY DN must pull the VFY container's notes ('MI1-I83
-        pin'), NOT the HTY one ('SHOULD NEVER APPEAR')."""
+        pin'), NOT the HTY one ('MI1-I101 HTY pin')."""
         from mhr.utilis import fetch_notes_from_container
         dn = self._fake_dn()
         fetch_notes_from_container(dn)
