@@ -29,6 +29,13 @@ def execute(filters=None):
     return get_columns(), get_data(filters)
 
 
+def _so_progress_columns():
+    """MI1-I120: Sales Order / SO Total / SO Delivered / SO Remaining.
+    Lazy import — mhr.utilis is imported lazily throughout the reports."""
+    from mhr.utilis import SO_PROGRESS_COLUMNS
+    return [dict(c) for c in SO_PROGRESS_COLUMNS]
+
+
 def get_columns():
     return [
         {"label": _("Status"),       "fieldname": "status",        "fieldtype": "Data",  "width": 110},
@@ -46,6 +53,8 @@ def get_columns():
         {"label": _("Merge No"),     "fieldname": "merge_no",      "fieldtype": "Data",  "width": 100},
         {"label": _("Item Length"),  "fieldname": "item_length",   "fieldtype": "Int",   "width": 90},
         {"label": _("Customer"),     "fieldname": "customer",      "fieldtype": "Link",  "options": "Customer", "width": 180},
+        # MI1-I120 (Raj 2026-09-02): SO No / SO Total / SO Delivered / SO Remaining.
+        *_so_progress_columns(),
     ]
 
 
@@ -89,7 +98,10 @@ def get_data(filters):
             SUM(COALESCE(dni.qty, 0))                     AS total_qty,
             COALESCE(dn.custom_merge_no, '')              AS merge_no,
             COUNT(dni.name)                               AS item_length,
-            dn.customer_name                              AS customer
+            dn.customer_name                              AS customer,
+            -- MI1-I120: the order this note delivers against — the header
+            -- link, else the per-row link the SO -> DN mapper writes.
+            COALESCE(NULLIF(dn.custom_sales_order, ''), MAX(dni.against_sales_order)) AS sales_order
         FROM `tabDelivery Note` dn
         LEFT JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
         WHERE {where}
@@ -99,4 +111,7 @@ def get_data(filters):
         params,
         as_dict=True,
     )
-    return rows
+    # MI1-I120: SO Total / Delivered / Remaining per Sales Order; rows
+    # without one stay blank.
+    from mhr.utilis import annotate_so_progress
+    return annotate_so_progress(rows)

@@ -164,6 +164,10 @@ doc_events = {
             # MI1-I83 (Raj 2026-07-18): auto-populate custom_notes from
             # the linked VFY Container's `notes` field when empty.
             "mhr.utilis.fetch_notes_from_container",
+            # MI1-I120 (Raj 2026-09-02): when the note names a Sales Order,
+            # block delivering more than the order's remaining quantity.
+            # No Sales Order → no-op.
+            "mhr.utilis.validate_so_delivery_qty",
             # "mhr.utilis.validate_delivery_note_batches",
             # "mhr.utilis.validate_batch_container_match",
         ]

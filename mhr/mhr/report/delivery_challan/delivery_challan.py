@@ -11,6 +11,13 @@ def execute(filters=None):
     return columns, data
 
 
+def _so_progress_columns():
+    """MI1-I120: Sales Order / SO Total / SO Delivered / SO Remaining.
+    Lazy import — mhr.utilis is imported lazily throughout the reports."""
+    from mhr.utilis import SO_PROGRESS_COLUMNS
+    return [dict(c) for c in SO_PROGRESS_COLUMNS]
+
+
 def get_columns():
     return [
         {
@@ -59,6 +66,9 @@ def get_columns():
             "fieldtype": "Data",
             "width": 200,
         },
+        # MI1-I120 (Raj 2026-09-02): SO No / SO Total / SO Delivered /
+        # SO Remaining. Blank for notes without a Sales Order.
+        *_so_progress_columns(),
         {
             "label": _("Transporter Name"),
             "fieldname": "transporter_name",
@@ -124,6 +134,9 @@ def get_data(filters=None):
             SUM(COALESCE(dni.total_weight, dni.qty * COALESCE(dni.weight_per_unit, 0))) AS in_kgs,
             SUM(COALESCE(dni.total_weight, dni.qty * COALESCE(dni.weight_per_unit, 0))) AS total_kgs,
             dn.customer_name                               AS customer_name,
+            -- MI1-I120: the order this note delivers against — the header
+            -- link, else the per-row link the SO -> DN mapper writes.
+            COALESCE(NULLIF(dn.custom_sales_order, ''), MAX(dni.against_sales_order)) AS sales_order,
             COALESCE(MAX(dt.driver_name), '')              AS transporter_name,
             COALESCE(dn.lr_no, '')                         AS lr_status,
             COALESCE(dn.custom_notes, '')                  AS remark
@@ -149,4 +162,6 @@ def get_data(filters=None):
         params["transaction_type"] = transaction_type
 
     data = frappe.db.sql(query, params, as_dict=1)
-    return data
+    # MI1-I120: SO Total / Delivered / Remaining per Sales Order.
+    from mhr.utilis import annotate_so_progress
+    return annotate_so_progress(data)

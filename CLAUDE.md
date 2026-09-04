@@ -58,7 +58,7 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 
 - `Delivery Note.on_submit` → `mhr.utilis.update_item_batch`
 - `Delivery Note.on_cancel` → `mhr.utilis.reverse_item_batch`
-- `Delivery Note.validate` → `set_delivery_note_user`, `set_return_cone_from_original`, `calculate_delivery_note_totals`
+- `Delivery Note.validate` → `set_delivery_note_user`, `set_return_cone_from_original`, `calculate_delivery_note_totals`, `fetch_notes_from_container` (MI1-I83), `validate_so_delivery_qty` (MI1-I120)
 - `Batch.validate` → `mhr.batch_qr_code.set_si_qrcode`
 - `Stock Entry.validate` → `mhr.utilis.update_stock_entry`, `mhr.utilis.validate_hty_stock_entry`, `mhr.utilis.validate_subcontract_receipt` (MI1-I50 P3)
 - `Stock Entry.before_submit` → `mhr.utilis.create_receive_batches` (MI1-I50)
@@ -164,6 +164,21 @@ Lists by Company. The old Client Script queried it anyway and every HTY Sales
 Order threw `Field not permitted in query: default_price_list`. Resolve selling
 price lists through `get_company_hty_defaults` (Company override → Customer →
 Customer Group → Selling Settings), never with a direct client-side query.
+
+### Delivery Note ↔ Sales Order quantity cap (MI1-I120)
+
+Two optional header fields on Delivery Note: `custom_sales_order` (Link →
+Sales Order) and read-only `custom_so_total_qty` (`fetch_from
+custom_sales_order.total_qty`). When a note names an order,
+`validate_so_delivery_qty` blocks it if this note's qty exceeds
+`ordered − already delivered`. "Already delivered" is the sum of submitted
+Delivery Note rows linked to the order by **either** the header field **or**
+ERPNext's per-row `against_sales_order` (the MI1-I90 / MI1-I117 mapper) —
+OR'd on the row so nothing double-counts, net of returns (negative rows).
+No Sales Order → the hook is a no-op and the note behaves exactly as before.
+The DN reports (`dn`, `delivery_note_lot_wise`, `delivery_challan`) carry
+Sales Order / SO Total Qty / SO Delivered / SO Remaining columns for linked
+notes and stay blank for unlinked ones.
 
 ### Subcontract receipt flow (MI1-I50)
 

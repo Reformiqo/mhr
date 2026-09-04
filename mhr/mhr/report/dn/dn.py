@@ -23,6 +23,13 @@ def execute(filters=None):
     return columns, data
 
 
+def _so_progress_columns():
+    """MI1-I120: Sales Order / SO Total / SO Delivered / SO Remaining.
+    Lazy import — mhr.utilis is imported lazily throughout the reports."""
+    from mhr.utilis import SO_PROGRESS_COLUMNS
+    return [dict(c) for c in SO_PROGRESS_COLUMNS]
+
+
 def get_columns(filters):
     # MI1-I64 reopen (Raj 2026-06-29): drop Merge No in HTY (same rule
     # as Balance Report — Merge No is a VFY-only concept).
@@ -52,6 +59,8 @@ def get_columns(filters):
         {"label": _("Item Length"), "fieldname": "item_length", "fieldtype": "Data", "width": 100},
         {"label": _("Container"), "fieldname": "container", "fieldtype": "Data", "width": 120},
         {"label": _("Customer Name"), "fieldname": "customer_name", "fieldtype": "Data", "width": 180},
+        # MI1-I120 (Raj 2026-09-02): SO No / SO Total / SO Delivered / SO Remaining.
+        *_so_progress_columns(),
         {"label": _("Vehicle No"), "fieldname": "vehicle_no", "fieldtype": "Data", "width": 110},
         {"label": _("Sales Person"), "fieldname": "sales_person", "fieldtype": "Data", "width": 120},
         {"label": _("Total Cone"), "fieldname": "total_cone", "fieldtype": "Float", "width": 100, "precision": 0},
@@ -132,6 +141,9 @@ def get_data(filters):
             ) AS `item_length`,
             dni.custom_container_no AS `container`,
             dn.customer_name AS `customer_name`,
+            -- MI1-I120: the order this note delivers against — the header
+            -- link, else the per-row link the SO -> DN mapper writes.
+            COALESCE(NULLIF(dn.custom_sales_order, ''), MAX(dni.against_sales_order)) AS `sales_order`,
             dn.vehicle_no AS `vehicle_no`,
             dn.custom_sales_person AS `sales_person`,
             SUM(dni.custom_cone) AS `total_cone`,
@@ -167,7 +179,10 @@ def get_data(filters):
         for row in rows:
             row["merge_no"] = merge_numbers.get(_container_lot_key(row)) or ""
 
-    return rows
+    # MI1-I120: SO Total / Delivered / Remaining per Sales Order; rows
+    # without one stay blank.
+    from mhr.utilis import annotate_so_progress
+    return annotate_so_progress(rows)
 
 
 def _container_lot_key(row):

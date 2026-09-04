@@ -2059,6 +2059,148 @@ def fetch_notes_from_container(doc, method=None):
         doc.custom_notes = notes
 
 
+# ---------------------------------------------------------------------------
+# MI1-I120 — Delivery Note ↔ Sales Order quantity tracking
+# ---------------------------------------------------------------------------
+
+def _so_total_qty(sales_order):
+    """Ordered quantity on the Sales Order (its standard total_qty)."""
+    return flt(frappe.db.get_value("Sales Order", sales_order, "total_qty"))
+
+
+def _delivered_against_sales_order(sales_order, exclude_dn=None):
+    """Quantity already delivered against a Sales Order, from every submitted
+    Delivery Note EXCEPT `exclude_dn`.
+
+    A Delivery Note is "against" the order when either link is present:
+      * the MI1-I120 header field `custom_sales_order`, or
+      * ERPNext's per-row `against_sales_order` (set by Create > Delivery Note
+        / Get Items From > Sales Order — MI1-I90 / MI1-I117).
+    The two are OR'd on the row so a row linked both ways is counted once.
+    Returns net of submitted return notes, whose rows carry negative qty.
+    """
+    row = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(dni.qty), 0)
+        FROM `tabDelivery Note Item` dni
+        INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+        WHERE dn.docstatus = 1
+          AND dn.name != %(exclude)s
+          AND (dn.custom_sales_order = %(so)s OR dni.against_sales_order = %(so)s)
+        """,
+        {"so": sales_order, "exclude": exclude_dn or ""},
+    )
+    return flt(row[0][0]) if row else 0.0
+
+
+def validate_so_delivery_qty(doc, method=None):
+    """MI1-I120 (Raj 2026-09-02): when a Delivery Note names a Sales Order,
+    the quantity delivered against that order — this note plus every other
+    submitted note linked to it — must not exceed the order's total qty.
+
+    Rules:
+      * No Sales Order on the note → untouched; the existing flow applies.
+      * Returns (negative qty) and empty notes are never blocked.
+      * `custom_so_total_qty` is refreshed from the order if it arrived
+        blank (fetch_from covers the form; this covers API / mapped saves).
+    """
+    sales_order = doc.get("custom_sales_order")
+    if not sales_order:
+        return
+
+    ordered = _so_total_qty(sales_order)
+    if not flt(doc.get("custom_so_total_qty")):
+        doc.custom_so_total_qty = ordered
+
+    this_qty = sum(flt(r.qty) for r in (doc.get("items") or []))
+    if this_qty <= 0:
+        return
+
+    delivered = _delivered_against_sales_order(sales_order, exclude_dn=doc.name)
+    remaining = ordered - delivered
+    if this_qty > remaining + 0.0005:
+        frappe.throw(
+            _(
+                "Sales Order <b>{0}</b>: ordered {1}, already delivered {2}, "
+                "remaining <b>{3}</b>. This Delivery Note carries {4} — reduce "
+                "it by {5}, or clear the Sales Order to deliver without the cap."
+            ).format(
+                sales_order,
+                flt(ordered, 3),
+                flt(delivered, 3),
+                flt(remaining, 3),
+                flt(this_qty, 3),
+                flt(this_qty - remaining, 3),
+            ),
+            title=_("Sales Order quantity exceeded"),
+        )
+
+
+def so_delivery_progress(sales_orders):
+    """{sales_order: {"ordered", "delivered", "remaining"}} for a set of
+    orders — the report-side twin of `_delivered_against_sales_order`:
+    same two link styles, a row linked both ways to the same order counted
+    once, net of returns. One query per report run, however many rows.
+    """
+    sos = sorted({s for s in sales_orders if s})
+    if not sos:
+        return {}
+    ordered = dict(
+        frappe.db.sql(
+            "SELECT name, total_qty FROM `tabSales Order` WHERE name IN %(sos)s",
+            {"sos": sos},
+        )
+    )
+    delivered = dict(
+        frappe.db.sql(
+            """
+            SELECT x.so, COALESCE(SUM(x.qty), 0)
+            FROM (
+                SELECT dn.custom_sales_order AS so, dni.qty
+                FROM `tabDelivery Note Item` dni
+                INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+                WHERE dn.docstatus = 1 AND dn.custom_sales_order IN %(sos)s
+                UNION ALL
+                SELECT dni.against_sales_order AS so, dni.qty
+                FROM `tabDelivery Note Item` dni
+                INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+                WHERE dn.docstatus = 1
+                  AND dni.against_sales_order IN %(sos)s
+                  AND IFNULL(dn.custom_sales_order, '') != dni.against_sales_order
+            ) x
+            GROUP BY x.so
+            """,
+            {"sos": sos},
+        )
+    )
+    out = {}
+    for so in sos:
+        o, d = flt(ordered.get(so)), flt(delivered.get(so))
+        out[so] = {"ordered": o, "delivered": d, "remaining": o - d}
+    return out
+
+
+SO_PROGRESS_COLUMNS = [
+    {"label": "Sales Order", "fieldname": "sales_order", "fieldtype": "Link", "options": "Sales Order", "width": 150},
+    {"label": "SO Total Qty", "fieldname": "so_total_qty", "fieldtype": "Float", "width": 110},
+    {"label": "SO Delivered Qty", "fieldname": "so_delivered_qty", "fieldtype": "Float", "width": 120},
+    {"label": "SO Remaining Qty", "fieldname": "so_remaining_qty", "fieldtype": "Float", "width": 120},
+]
+
+
+def annotate_so_progress(rows, so_key="sales_order"):
+    """MI1-I120: fill so_total_qty / so_delivered_qty / so_remaining_qty on
+    report rows that carry a Sales Order under `so_key`. Rows without one
+    get None in all three, so unlinked notes render blank and unchanged."""
+    progress = so_delivery_progress(r.get(so_key) for r in rows)
+    for r in rows:
+        p = progress.get(r.get(so_key))
+        r["so_total_qty"] = p["ordered"] if p else None
+        r["so_delivered_qty"] = p["delivered"] if p else None
+        r["so_remaining_qty"] = p["remaining"] if p else None
+    return rows
+
+
 def resolve_container_notes(container_no, transaction_type):
     """Container Inward `notes` for a (container_no, transaction_type) pair.
 
