@@ -2,8 +2,18 @@ import frappe
 from frappe.utils import cint
 
 
+BATCH_POPUP_FIELDS = [
+    "name", "custom_glue", "custom_pulp", "custom_lusture",
+    "custom_grade", "custom_lot_no", "custom_fsc", "custom_cone",
+    "item", "item_name", "manufacturing_date", "cross_section",
+    "batch_qty", "stock_uom", "expiry_date", "supplier",
+    "custom_supplier_batch_no", "custom_container_no",
+    "custom_merge_no", "custom_warehouse", "custom_transaction_type",
+]
+
+
 @frappe.whitelist()
-def get_hty_batches_by_item(item, limit_start=0, limit_page_length=50):
+def get_hty_batches_by_item(item, limit_start=0, limit_page_length=50, only_available=0, transaction_type=None):
     """MI1-I71 (Raj 2026-07-17): HTY popup's item-scoped batch source.
     Replaces a JS `frappe.client.get_list('Batch', ...)` call so the
     'Batch Qty' column reflects the CURRENT available balance (from
@@ -15,9 +25,20 @@ def get_hty_batches_by_item(item, limit_start=0, limit_page_length=50):
     rows are kept in the response (batch_qty=0) so pagination math stays
     correct across depleted-page boundaries; the popup's Select handler
     is the layer that skips 0-qty picks.
+
+    MI1-I114 (Raj 2026-08-29): `only_available=1` flips that — the pages
+    are cut from the list of batches that HOLD stock, so every row shown
+    is one the Select handler will accept, and `transaction_type` scopes
+    them to the note's mode (HTY note -> HTY batches, MI1-I76). Both are
+    default-off, so the historical result is unchanged for other callers.
+    The Denier and Container No triggers of the popup then agree: same
+    stock rule, same mode rule, only the scope (item vs container) differs.
     """
     if not item:
         return []
+
+    if cint(only_available):
+        return _available_batches_by_item(item, transaction_type, cint(limit_start), cint(limit_page_length))
 
     batches = frappe.get_all(
         "Batch",
@@ -38,6 +59,66 @@ def get_hty_batches_by_item(item, limit_start=0, limit_page_length=50):
         return []
 
     _clamp_batch_qty_to_available(batches, False)
+    return batches
+
+
+def _available_batches_by_item(item, transaction_type, limit_start, limit_page_length):
+    """Batches of `item` with a positive Serial and Batch Bundle balance,
+    ordered by name, paged AFTER the stock filter. Mirrors
+    mhr.utilis.get_container_batches_with_stock (the popup's other
+    fetcher) so both triggers read the same balance the same way:
+    `batch_qty` is overwritten with the balance and `warehouse` names
+    the warehouse holding it."""
+    params = [item]
+    mode_clause = ""
+    if transaction_type:
+        mode_clause = " AND b.custom_transaction_type = %s"
+        params.append(transaction_type)
+
+    balances = frappe.db.sql(
+        f"""
+        SELECT sbe.batch_no, sbb.warehouse, SUM(sbe.qty) AS balance
+        FROM `tabSerial and Batch Bundle` sbb
+        INNER JOIN `tabSerial and Batch Entry` sbe ON sbe.parent = sbb.name
+        INNER JOIN `tabBatch` b ON b.name = sbe.batch_no
+        WHERE b.item = %s
+          {mode_clause}
+          AND b.disabled = 0
+          AND sbb.docstatus = 1
+          AND sbb.is_cancelled = 0
+          AND sbb.type_of_transaction IN ('Inward', 'Outward')
+        GROUP BY sbe.batch_no, sbb.warehouse
+        HAVING balance > 0
+        """,
+        tuple(params),
+        as_dict=True,
+    )
+    if not balances:
+        return []
+
+    # One row per batch: the warehouse holding the largest balance.
+    by_batch = {}
+    for row in balances:
+        cur = by_batch.get(row["batch_no"])
+        if cur is None or row["balance"] > cur["balance"]:
+            by_batch[row["batch_no"]] = row
+
+    names = sorted(by_batch)
+    page = names[limit_start:limit_start + limit_page_length] if limit_page_length else names[limit_start:]
+    if not page:
+        return []
+
+    batches = frappe.get_all(
+        "Batch",
+        filters={"name": ["in", page]},
+        fields=BATCH_POPUP_FIELDS,
+        order_by="name asc",
+    )
+    for b in batches:
+        entry = by_batch[b["name"]]
+        b["available_qty"] = entry["balance"]
+        b["warehouse"] = entry["warehouse"]
+        b["batch_qty"] = entry["balance"]
     return batches
 
 

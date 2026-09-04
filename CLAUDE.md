@@ -165,6 +165,21 @@ Order threw `Field not permitted in query: default_price_list`. Resolve selling
 price lists through `get_company_hty_defaults` (Company override → Customer →
 Customer Group → Selling Settings), never with a direct client-side query.
 
+### HTY Delivery Note "Select Batch" popup (MI1-I71 / MI1-I114)
+
+Two triggers in the `HTY & VFY` Client Script feed one dialog
+(`show_hty_batch_dialog`): Container No → `mhr.utilis.get_container_batches_with_stock(container_no, transaction_type='HTY')`,
+Denier → `mhr.note.get_hty_batches_by_item(item, ..., only_available=1, transaction_type='HTY')`.
+Both read the Serial and Batch Bundle balance, overwrite `batch_qty` with it
+and name the `warehouse` holding it; the Select handler builds rows from that
+response (never from `fetch_batches`, whose result it discards) and writes
+that warehouse on the row. The extra arguments are default-off, so other
+callers see the historical result. **A container whose batches exist but hold
+no stock is announced, not silent** (MI1-I114: MCDL-07 had been delivered in
+full, the popup did not open, and the still-filling Notes field made it look
+broken); MI1-I71's silence survives only for a number that matches no HTY
+batch at all. Select never closes with nothing added.
+
 ### Delivery Note ↔ Sales Order quantity cap (MI1-I120)
 
 Two optional header fields on Delivery Note: `custom_sales_order` (Link →

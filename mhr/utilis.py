@@ -1210,9 +1210,14 @@ def _resolve_batch_warehouse(batch_no):
 
 
 @frappe.whitelist()
-def get_container_batches_with_stock(container_no):
+def get_container_batches_with_stock(container_no, transaction_type=None):
     """MI1-I71 reopen (Raj 2026-07-13): return batches for a container
     that still have positive available stock.
+
+    MI1-I114 (Raj 2026-08-29): optional `transaction_type` scopes the rows
+    to batches tagged with that mode (HTY Delivery Note -> HTY batches
+    only, the same rule as the MI1-I76 dropdown filter). Default None keeps
+    the historical any-mode result for every other caller.
 
     Root cause of the "Batch has negative stock" error on DN submit
     when the user picks a batch from the HTY / VFY 'Select Batch'
@@ -1238,22 +1243,29 @@ def get_container_batches_with_stock(container_no):
     if not container_no:
         return []
 
+    params = [container_no]
+    mode_clause = ""
+    if transaction_type:
+        mode_clause = " AND b.custom_transaction_type = %s"
+        params.append(transaction_type)
+
     # Aggregate net balance per (batch, warehouse) from SBB entries.
     # HAVING balance > 0 drops fully-delivered / never-inwarded rows.
     balances = frappe.db.sql(
-        """
+        f"""
         SELECT sbe.batch_no, sbb.warehouse, SUM(sbe.qty) AS balance
         FROM `tabSerial and Batch Bundle` sbb
         INNER JOIN `tabSerial and Batch Entry` sbe ON sbe.parent = sbb.name
         INNER JOIN `tabBatch` b ON b.name = sbe.batch_no
         WHERE b.custom_container_no = %s
+          {mode_clause}
           AND sbb.docstatus = 1
           AND sbb.is_cancelled = 0
           AND sbb.type_of_transaction IN ('Inward', 'Outward')
         GROUP BY sbe.batch_no, sbb.warehouse
         HAVING balance > 0
         """,
-        (container_no,),
+        tuple(params),
         as_dict=True,
     )
     if not balances:
