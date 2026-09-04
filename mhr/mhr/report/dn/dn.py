@@ -218,7 +218,11 @@ def _merge_numbers_by_container_and_lot(rows):
     on it multiplies the report's rows. That is the same reason the
     transaction_type filter above uses EXISTS.
     """
-    containers = sorted({(row.get("container") or "").strip() for row in rows} - {""})
+    # MI1-I116: shared with Delivery Note Lot-Wise, whose rows spell the
+    # column `container_no` — accept either, as _container_lot_key does.
+    containers = sorted(
+        {(row.get("container") or row.get("container_no") or "").strip() for row in rows} - {""}
+    )
     if not containers:
         return {}
 

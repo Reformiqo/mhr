@@ -19,6 +19,11 @@
 #
 # Source:  tabDelivery Note ⋈ tabDelivery Note Item
 # Group:   dn.name × dni.custom_container_no × dni.custom_lot_no
+#
+# MI1-I116 (Raj 2026-08-31): Merge No comes from the Container master per
+# (container, lot) — see mhr.mhr.report.dn.dn._merge_numbers_by_container_and_lot
+# — not from the note header, which carries one aggregated value for the
+# whole note and therefore showed the first container's Merge No on every lot.
 
 import frappe
 from frappe import _
@@ -96,7 +101,11 @@ def get_data(filters):
             COALESCE(dni.custom_container_no, '')         AS container_no,
             COALESCE(dni.custom_lot_no, '')               AS lot_no,
             SUM(COALESCE(dni.qty, 0))                     AS total_qty,
-            COALESCE(dn.custom_merge_no, '')              AS merge_no,
+            -- MI1-I116: Merge No is NOT the note header's field (a note-level
+            -- aggregate that showed the first container's value on every
+            -- row). Filled below per (container, lot) from the Container
+            -- master, the same resolver the DN report uses.
+            ''                                            AS merge_no,
             COUNT(dni.name)                               AS item_length,
             dn.customer_name                              AS customer,
             -- MI1-I120: the order this note delivers against — the header
@@ -111,6 +120,14 @@ def get_data(filters):
         params,
         as_dict=True,
     )
+    # MI1-I116 (Raj 2026-08-31): Merge No per (container, lot) from the
+    # Container master — never the parent note's field or the first
+    # container's value.
+    from mhr.mhr.report.dn.dn import _container_lot_key, _merge_numbers_by_container_and_lot
+    merge_numbers = _merge_numbers_by_container_and_lot(rows)
+    for row in rows:
+        row["merge_no"] = merge_numbers.get(_container_lot_key(row)) or ""
+
     # MI1-I120: SO Total / Delivered / Remaining per Sales Order; rows
     # without one stay blank.
     from mhr.utilis import annotate_so_progress
