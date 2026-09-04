@@ -176,12 +176,20 @@ def get_container_details(container_no, transaction_type=None, with_stock=0):
     Container doc whose `container_no` field matches the argument.
 
     MI1-I91 (Raj 2026-09-03): two optional narrowings for the HTY Sales
-    Order lot popup, both off by default so VFY is unchanged:
+    Order lot popup, both off by default so the plain call is unchanged:
       * `transaction_type` — only Containers of that mode.
       * `with_stock`       — only (lot, item) pairs that still have at least
         one batch with a positive Serial-and-Batch-Bundle balance (reuses
         mhr.utilis.get_container_batches_with_stock). Zero-stock lots are
         dropped, as the ticket asks.
+
+    MI1-I96 (Raj 2026-08-13): `with_stock` means available to BOOK — the
+    balance on hand minus what open Sales Orders already hold against the
+    batch (the rule _get_available_qty applies per batch, here in one
+    query). A lot that exists against the container but is delivered or
+    fully booked is not offered. Each returned row carries the lot's
+    `available_qty`. The VFY "Sales Order Booking" popup passes
+    with_stock=1 since MI1-I96; the HTY popup did since MI1-I91.
 
     MI1 2026-07-20 fix: the earlier implementation treated the argument
     as a doc NAME (`frappe.db.exists("Container", container_no)`), which
@@ -246,10 +254,44 @@ def get_container_details(container_no, transaction_type=None, with_stock=0):
                 pluck="name",
             ))
             stocked = [b for b in stocked if b["name"] in in_mode]
-        stocked_keys = {(b.get("custom_lot_no"), b.get("item")) for b in stocked}
-        unique = [u for u in unique if (u["lot_no"], u["item"]) in stocked_keys]
+        # MI1-I96: on hand minus open bookings, summed per (lot, item).
+        booked = _booked_qty_by_batch([b["name"] for b in stocked])
+        available_by_key = {}
+        for b in stocked:
+            avail = flt(b.get("batch_qty")) - booked.get(b["name"], 0.0)
+            if avail > 0:
+                key = (b.get("custom_lot_no"), b.get("item"))
+                available_by_key[key] = available_by_key.get(key, 0.0) + avail
+        unique = [
+            dict(u, available_qty=flt(available_by_key[(u["lot_no"], u["item"])], 3))
+            for u in unique
+            if (u["lot_no"], u["item"]) in available_by_key
+        ]
 
     return unique
+
+
+def _booked_qty_by_batch(batch_names):
+    """Open Sales Order bookings per batch — Σ(qty − delivered_qty) over
+    submitted orders still to deliver — for many batches in one query.
+    Same rule as _get_available_qty; that one stays per batch for the
+    allocation loops, this one feeds the lot popup (MI1-I96)."""
+    names = [n for n in batch_names if n]
+    if not names:
+        return {}
+    rows = frappe.db.sql(
+        """
+        SELECT soi.custom_batch_no, COALESCE(SUM(soi.qty - soi.delivered_qty), 0)
+        FROM `tabSales Order Item` soi
+        JOIN `tabSales Order` so ON so.name = soi.parent
+        WHERE soi.custom_batch_no IN %(names)s
+          AND so.docstatus = 1
+          AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
+        GROUP BY soi.custom_batch_no
+        """,
+        {"names": names},
+    )
+    return {r[0]: flt(r[1]) for r in rows}
 
 
 def _get_available_qty(batch_name, batch_qty):

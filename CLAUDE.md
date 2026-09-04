@@ -149,6 +149,14 @@ Note in all modes are untouched.
   visible list per mode and is the one call in `sales_order_hty.js` that also
   runs on a VFY doc — it trims a dropdown, never a value. The VFY "Sales Order
   Booking" Client Script is untouched.
+- **Lot popup offers only bookable lots (MI1-I96, both modes).**
+  `get_container_details(container_no, with_stock=1)` keeps a (lot, item)
+  only if its batches' Serial and Batch Bundle balance minus what open Sales
+  Orders already hold (`_booked_qty_by_batch`, the same rule as
+  `_get_available_qty`) is > 0, and returns that `available_qty` per row.
+  The VFY "Sales Order Booking" script passes `with_stock: 1` and, when
+  nothing is left, says whether the number is unknown or merely delivered /
+  booked out. The plain call still lists every lot.
 
 **An `override_whitelisted_methods` target must keep the overridden function's
 exact signature** (MI1-I108). frappe calls it positionally, and there are two
