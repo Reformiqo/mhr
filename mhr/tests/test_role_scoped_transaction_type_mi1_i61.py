@@ -28,6 +28,7 @@ REPORTS = (
     "mhr.mhr.report.stock_sheet_(inward_cone_wise).stock_sheet_(inward_cone_wise)",
     "mhr.mhr.report.stock_sheets_(inward_coneless_stock_).stock_sheets_(inward_coneless_stock_)",
     "mhr.mhr.report.stock_sheets_(inward_rest_stock_).stock_sheets_(inward_rest_stock_)",
+    "mhr.mhr.report.delivery_trip_simplified.delivery_trip_simplified",  # MI1-I122
 )
 
 

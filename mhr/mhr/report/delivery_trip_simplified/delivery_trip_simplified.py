@@ -16,6 +16,14 @@
 #   - tabDelivery Note         (total_qty, custom_item_length)
 #
 # One row per Delivery Stop. A Trip with N stops produces N rows.
+#
+# MI1-I122 (Raj 2026-09-03): Transaction Type filter (VFY / HTY, blank = both)
+# and a Transaction Type column. The type is read from the transaction
+# records: the stop's Delivery Note first, else the Trip header, else 'VFY'
+# (legacy documents predate the field — same rule as Delivery Challan,
+# MI1-I39 P2-C). The filter applies the same expression, and
+# enforce_role_scoped_transaction_type forces it for single-mode users
+# exactly as on every other mhr report (MI1-I61 / MI1-I80).
 
 import frappe
 from frappe import _
@@ -24,7 +32,13 @@ from frappe.utils import getdate
 
 def execute(filters=None):
     filters = filters or {}
+    from mhr.utilis import enforce_role_scoped_transaction_type
+    filters = enforce_role_scoped_transaction_type(filters)
     return get_columns(), get_data(filters)
+
+
+# MI1-I122: one expression for the column and the filter.
+TRANSACTION_TYPE_SQL = "COALESCE(NULLIF(dn.transaction_type, ''), NULLIF(dt.transaction_type, ''), 'VFY')"
 
 
 def get_columns():
@@ -44,6 +58,9 @@ def get_columns():
          "fieldtype": "Data", "width": 110},
         {"label": _("Driver Name"), "fieldname": "driver_name",
          "fieldtype": "Data", "width": 160},
+        # MI1-I122: appended so the seven MI1-I35 columns keep their order.
+        {"label": _("Transaction Type"), "fieldname": "transaction_type",
+         "fieldtype": "Data", "width": 120},
     ]
 
 
@@ -66,6 +83,11 @@ def get_data(filters):
     if filters.get("customer"):
         conditions.append("ds.customer = %(customer)s")
         params["customer"] = filters["customer"]
+    # MI1-I122: VFY / HTY narrows; blank (or anything else) shows both.
+    transaction_type = (filters.get("transaction_type") or "").strip().upper()
+    if transaction_type in ("VFY", "HTY"):
+        conditions.append(f"{TRANSACTION_TYPE_SQL} = %(transaction_type)s")
+        params["transaction_type"] = transaction_type
     where = " AND ".join(conditions)
 
     rows = frappe.db.sql(
@@ -78,6 +100,7 @@ def get_data(filters):
             dt.vehicle                 AS vehicle,
             COALESCE(dn.custom_item_length, '') AS item_length,
             dt.driver_name             AS driver_name,
+            {TRANSACTION_TYPE_SQL}     AS transaction_type,
             dt.name                    AS trip,
             ds.idx                     AS stop_idx
         FROM `tabDelivery Trip` dt

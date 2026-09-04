@@ -43,6 +43,7 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Stock Sheets (Inward Coneless Stock )`
 - `Stock Sheets (Inward Rest Stock )`
 - `Subcontractor Material Tracking` — MI1-I50; sent / received / pending per Send-to-Subcontractor item, filterable by date / supplier / status
+- `Delivery Trip Simplified` — MI1-I35; one row per Delivery Stop. MI1-I122 added a Transaction Type filter (VFY / HTY, blank = both) and column, read from the stop's Delivery Note, else the Trip, else `VFY` for legacy documents — the same `IFNULL → VFY` rule as Delivery Challan.
 
 **Report optimization pattern** (applied across all 4 stock reports, 2026-02-08):
 

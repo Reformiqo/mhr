@@ -3,6 +3,9 @@
 A stripped-down Delivery Trip report per Raj's spec — 7 columns, no
 totals, no Refrens fields. The existing Delivery Trip Report is for
 Refrens and stays untouched.
+
+MI1-I122 (Raj 2026-09-03) appended an eighth column, Transaction Type,
+after the seven so their order is unchanged.
 """
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -18,6 +21,7 @@ EXPECTED_COLUMNS = [
     ("vehicle",        "Link"),
     ("item_length",    "Data"),
     ("driver_name",    "Data"),
+    ("transaction_type", "Data"),   # MI1-I122
 ]
 
 
@@ -27,8 +31,8 @@ class TestDeliveryTripSimplifiedColumns(FrappeTestCase):
 
     def test_column_count(self):
         cols = report.get_columns()
-        self.assertEqual(len(cols), 7,
-            f"Expected exactly 7 columns (per ticket spec), got {len(cols)}.")
+        self.assertEqual(len(cols), 8,
+            f"Expected exactly 8 columns (MI1-I35 seven + MI1-I122 Transaction Type), got {len(cols)}.")
 
     def test_column_order_and_types(self):
         cols = report.get_columns()
@@ -51,7 +55,7 @@ class TestDeliveryTripSimplifiedExecute(FrappeTestCase):
 
     def test_empty_date_range_returns_no_rows(self):
         cols, rows = report.execute({"from_date": "1900-01-01", "to_date": "1900-01-02"})
-        self.assertEqual(len(cols), 7)
+        self.assertEqual(len(cols), 8)
         self.assertEqual(rows, [])
 
     def test_execute_accepts_optional_filters(self):

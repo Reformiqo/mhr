@@ -35,5 +35,16 @@ frappe.query_reports["Delivery Trip Simplified"] = {
             fieldtype: "Link",
             options: "Customer",
         },
+        // MI1-I122 (Raj 2026-09-03): blank = both modes.
+        {
+            fieldname: "transaction_type",
+            label: __("Transaction Type"),
+            fieldtype: "Select",
+            options: "\nVFY\nHTY",
+            default: "",
+            on_change: function () {
+                frappe.query_report.refresh();
+            },
+        },
     ],
 };
