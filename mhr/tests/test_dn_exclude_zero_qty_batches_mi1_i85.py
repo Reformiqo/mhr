@@ -98,8 +98,10 @@ class TestHtyModeBatchQueryHasConeFilter(FrappeTestCase):
     def test_transaction_type_filter_preserved(self):
         """Regression: the MI1-I76 transaction-type scoping must not
         get lost in the merge with MI1-I85's cone filter."""
+        # MI1-I118 rewrote the VFY branch as `tt ? { custom_transaction_type: tt } : {}`
+        # (the very form MI1-I76's own test pins); the scoping is intact.
         self.assertIn(
-            "custom_transaction_type = tt", self.src,
+            "custom_transaction_type: tt", self.src,
             "MI1-I76's transaction_type scoping must remain — merging "
             "MI1-I85's cone filter must not delete it.",
         )

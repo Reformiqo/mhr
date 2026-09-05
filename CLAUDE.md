@@ -190,6 +190,26 @@ full, the popup did not open, and the still-filling Notes field made it look
 broken); MI1-I71's silence survives only for a number that matches no HTY
 batch at all. Select never closes with nothing added.
 
+### HTY Delivery Note Batch dropdown (MI1-I76 / MI1-I85 / MI1-I118)
+
+`mi1_i76_apply_batch_query_filters` (Client Script `MI1-I39 — Delivery Note
+HTY Mode`) is the last `set_query` on `custom_batch` and `items.batch_no`.
+VFY (and a blank mode) keep client-side filters: `custom_transaction_type`
+plus `custom_cone > 0`. **HTY asks the server:** `mhr.note.hty_batch_query`
+lists HTY batches with a Serial and Batch Bundle balance > 0 and requires
+cone > 0 **unless the batch is Chips** (`CHIPS_SQL` / `is_chips_batch`:
+plain `custom_product`, or the canonical `custom_glue` HTY inward folds
+Product into — `Product-Chips`, older data `Glue-CHIPS`). Chips ship as bags,
+cone 0, and on prod their master `batch_qty` is 0 while the bundle holds 25,
+so every quantity in this flow is the bundle balance. `mhr.note.fetch_batches`
+applies the same gate through `or_filters`. Picking a header Batch on an HTY
+note (`mi1_i118_on_hty_batch_pick`) fills Colour / Product / Type / Supplier
+Batch No from `get_item_batch(batch, with_available=1)`; rows still come from
+the "HTY & VFY" Select Batch popup, which the fetch_from write of Container No
+opens (qty = bundle balance, cone as the batch says). The Supplier Batch No
+path (`get_delivery_note_batch`) falls back to the bundle balance in the
+resolved warehouse when the master `batch_qty` is 0.
+
 ### Delivery Note ↔ Sales Order quantity cap (MI1-I120)
 
 Two optional header fields on Delivery Note: `custom_sales_order` (Link →

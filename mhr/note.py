@@ -122,6 +122,75 @@ def _available_batches_by_item(item, transaction_type, limit_start, limit_page_l
     return batches
 
 
+# MI1-I118 (Raj 2026-09-02): Chips ship as bags and carry no cone. HTY inward
+# folds the Container's Product into the canonical custom_glue ('Product-chips',
+# older data 'Glue-CHIPS'); since MI1-I107 the plain value also sits in
+# custom_product. Either says "this batch is Chips".
+CHIPS_SQL = (
+    "(LOWER(TRIM(IFNULL(b.custom_product, ''))) = 'chips'"
+    " OR LOWER(TRIM(SUBSTRING_INDEX(IFNULL(b.custom_glue, ''), '-', -1))) = 'chips')"
+)
+
+
+def is_chips_batch(batch):
+    """Python twin of CHIPS_SQL for rows already in hand (dict-like)."""
+    from mhr.utilis import resolve_spec_value
+
+    product = (batch.get("custom_product") or "").strip().lower()
+    glue = (resolve_spec_value(batch.get("custom_glue")) or "").strip().lower()
+    return "chips" in (product, glue)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def hty_batch_query(doctype, txt, searchfield, start, page_len, filters):
+    """MI1-I118 (Raj 2026-09-02): the Batch dropdown of an HTY Delivery Note.
+
+    Lists HTY batches that hold stock (Serial and Batch Bundle balance > 0 —
+    Batch.batch_qty is not live, see CLAUDE.md). Cone > 0 stays required,
+    except for Chips: bags carry no cone, so for them Net Weight (the balance)
+    > 0 is the whole rule. The product is read off the Batch itself, so the
+    rule holds before the note's header knows the product. VFY dropdowns keep
+    their client-side filters and never come here.
+
+    Each row: name, then "item | SBN n | container | balance uom | Cone c".
+    """
+    filters = filters or {}
+    transaction_type = filters.get("transaction_type") or "HTY"
+    return frappe.db.sql(
+        f"""
+        SELECT b.name,
+               CONCAT(IFNULL(b.item, ''), ' | SBN ', IFNULL(b.custom_supplier_batch_no, ''),
+                      ' | ', IFNULL(b.custom_container_no, ''),
+                      ' | ', ROUND(s.balance, 3), ' ', IFNULL(b.stock_uom, ''),
+                      ' | Cone ', IFNULL(b.custom_cone, 0)) AS description
+        FROM `tabBatch` b
+        INNER JOIN (
+            SELECT sbe.batch_no, SUM(sbe.qty) AS balance
+            FROM `tabSerial and Batch Entry` sbe
+            INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+            INNER JOIN `tabBatch` hb ON hb.name = sbe.batch_no
+                                     AND hb.custom_transaction_type = %(tt)s
+            WHERE sbb.docstatus = 1
+              AND sbb.is_cancelled = 0
+              AND sbb.type_of_transaction IN ('Inward', 'Outward')
+            GROUP BY sbe.batch_no
+            HAVING balance > 0
+        ) s ON s.batch_no = b.name
+        WHERE b.custom_transaction_type = %(tt)s
+          AND b.disabled = 0
+          AND (IFNULL(b.custom_cone, 0) > 0 OR {CHIPS_SQL})
+          AND (b.name LIKE %(txt)s
+               OR b.custom_supplier_batch_no LIKE %(txt)s
+               OR b.custom_container_no LIKE %(txt)s
+               OR b.item LIKE %(txt)s)
+        ORDER BY b.custom_container_no, LENGTH(b.custom_supplier_batch_no), b.custom_supplier_batch_no, b.name
+        LIMIT %(start)s, %(page_len)s
+        """,
+        {"tt": transaction_type, "txt": f"%{txt or ''}%", "start": cint(start), "page_len": cint(page_len) or 20},
+    )
+
+
 # MI1-I103: the LIMIT used to be applied before the availability check, so rows
 # dropped for being consumed ate into the requested count. Scan a multiple,
 # filter, then trim — "fetch 5" returns the 5 lowest AVAILABLE batches.
@@ -186,8 +255,21 @@ def fetch_batches(
     # Fetch Batches flow — they hit the DN as qty=0 child rows that
     # can't be submitted anyway. Skip on return receipts (returns are
     # allowed to reference depleted-cone batches).
-    if is_return is False:
-        filters["custom_cone"] = filters.get("custom_cone") or [">", 0]
+    #
+    # MI1-I118 (Raj 2026-09-02): unless the batch is Chips. Bags carry no
+    # cone, and their qty is the balance the clamp below writes, so the gate
+    # becomes "cone > 0 OR Chips" (product off the Batch: plain custom_product
+    # since MI1-I107, or the canonical custom_glue HTY inward folds Product
+    # into — 'Product-Chips', older data 'Glue-CHIPS'). An explicit cone from
+    # the header still filters exactly, as before.
+    or_filters = None
+    if is_return is False and not filters.get("custom_cone"):
+        cone_gate = [">", 0]
+        or_filters = [
+            ["custom_cone", *cone_gate],
+            ["custom_product", "like", "chips"],
+            ["custom_glue", "like", "%-chips"],
+        ]
 
     if not filters:
         return []
@@ -203,6 +285,7 @@ def fetch_batches(
     batches = frappe.get_all(
         "Batch",
         filters=filters,
+        or_filters=or_filters,
         fields=["name", "item", "item_name", "batch_qty", "stock_uom", "custom_supplier_batch_no", "custom_cone", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_fsc", "custom_lot_no", "custom_container_no", "custom_notes"],
         # MI1-I103: there was no order_by at all — MAT-GD-2026-00008 landed
         # 6876, 6870, 6872, 6879, 6874. This decides which rows survive the

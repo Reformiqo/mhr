@@ -1159,10 +1159,20 @@ def get_delivery_note_batch(
             # balance for this batch.
             resolved_warehouse = _resolve_batch_warehouse(item.name)
 
+            # MI1-I118 (Raj 2026-09-02): Batch.batch_qty is not live, and on
+            # prod the HTY Chips bags carry 0 there while the Serial and Batch
+            # Bundle holds 25 kg — a Supplier Batch No lookup would land a
+            # qty=0 row. When the master says nothing, use the balance the
+            # resolved warehouse actually holds. A positive master is left as
+            # it was, so every working VFY case is unchanged.
+            qty = item.batch_qty
+            if flt(qty) <= 0 and resolved_warehouse:
+                qty = _batch_balance_in_warehouse(item.name, resolved_warehouse)
+
             return {
                 "item_code": item.item,
                 "item_name": item.item_name,
-                "qty": item.batch_qty,
+                "qty": qty,
                 "uom": item.stock_uom,
                 "batch_no": item.name,
                 "supplier_batch_no": item.custom_supplier_batch_no,
@@ -1177,6 +1187,24 @@ def get_delivery_note_batch(
                 "notes": item.custom_notes,
                 "warehouse": resolved_warehouse,
             }
+
+
+def _batch_balance_in_warehouse(batch_no, warehouse):
+    """Serial and Batch Bundle balance of one batch in one warehouse (MI1-I118)."""
+    if not (batch_no and warehouse):
+        return 0.0
+    row = frappe.db.sql(
+        """
+        SELECT SUM(sbe.qty)
+        FROM `tabSerial and Batch Bundle` sbb
+        INNER JOIN `tabSerial and Batch Entry` sbe ON sbe.parent = sbb.name
+        WHERE sbe.batch_no = %s AND sbb.warehouse = %s
+          AND sbb.docstatus = 1 AND sbb.is_cancelled = 0
+          AND sbb.type_of_transaction IN ('Inward', 'Outward')
+        """,
+        (batch_no, warehouse),
+    )
+    return flt(row[0][0]) if row and row[0][0] is not None else 0.0
 
 
 def _resolve_batch_warehouse(batch_no):
@@ -1315,12 +1343,22 @@ def get_container_batches_with_stock(container_no, transaction_type=None):
 
 
 @frappe.whitelist()
-def get_item_batch(batch):
+def get_item_batch(batch, with_available=0):
+    """One Batch as the Delivery Note scan / header-pick flows read it.
+
+    MI1-I118 (Raj 2026-09-02): also returns the HTY spec values the header
+    shows in that mode — colour / product / type, plain (MI1-I107), falling
+    back to the plain value behind the canonical lusture / glue / pulp for
+    batches inwarded before those fields existed. `with_available=1` adds
+    `available_qty` (Serial and Batch Bundle balance, capped at batch_qty)
+    and `warehouse` (where that balance sits), the pair a new item row needs.
+    Default-off, so the scan flow's response is unchanged.
+    """
     if not frappe.db.exists("Batch", batch):
         return {"error": "Batch not found"}
 
     item = frappe.get_doc("Batch", batch)
-    return {
+    out = {
         "item_code": item.item,
         "item_name": item.item_name,
         "qty": item.batch_qty,
@@ -1336,7 +1374,18 @@ def get_item_batch(batch):
         "pulp": item.custom_pulp,
         "fsc": item.custom_fsc,
         "notes": item.custom_notes,
+        "colour": item.get("custom_colour") or resolve_spec_value(item.custom_lusture) or "",
+        "product": item.get("custom_product") or resolve_spec_value(item.custom_glue) or "",
+        "type": item.get("custom_type") or resolve_spec_value(item.custom_pulp) or "",
     }
+    if cint(with_available):
+        from mhr.note import _clamp_batch_qty_to_available
+
+        row = {"name": item.name, "batch_qty": item.batch_qty}
+        _clamp_batch_qty_to_available([row], False)
+        out["available_qty"] = flt(row.get("batch_qty"))
+        out["warehouse"] = row.get("warehouse")
+    return out
 
 
 @frappe.whitelist()
