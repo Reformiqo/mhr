@@ -89,11 +89,18 @@ Accepted Warehouse) and refuses to fetch without one; Delivery Note passes none
 and is unchanged. It also orders by `custom_supplier_batch_no` and re-sorts
 numerically, because the column is Data and SQL puts `'10'` before `'9'`.
 
-**`Batch.batch_qty` is not a live quantity.** ERPNext only updates it from
-`Batch.recalculate_batch_qty()`, a whitelisted method behind a button on the
-form — never from a stock transaction. The Batch list's "Status: Active" is a
-list-view indicator derived from that stale value plus `disabled`, not a field.
-Never filter availability on either.
+**`Batch.batch_qty` is not a live quantity.** ERPNext keeps it
+*incrementally* (`serial_batch_bundle.update_batch_qty` adds each posted
+qty), so it drifts, and `Batch.recalculate_batch_qty()` behind a form button
+is the only reset. **Never preset it on a Batch a stock transaction is about
+to post** — `create_receive_batches` did, and the posted qty landed on top
+(prod MCL-32-.-1: 20 received, master 40; healed by
+`heal_receive_batch_qty`). The "Cone Qty Calcuation" Client Script, which
+rewrites a batch+cone row on save to `master × cone / cone_copy`, is capped
+at the bundle balance since 2026-09-06 (`mi1_cone_qty_from_batch` via
+`get_item_batch(batch, with_available=1)`). The Batch list's "Status: Active"
+is a list-view indicator derived from that stale value plus `disabled`, not a
+field. Never filter availability on either.
 
 ### Sales Order HTY mode (MI1-I90)
 

@@ -226,7 +226,11 @@ class TestCreateReceiveBatchesForNewItems(FrappeTestCase):
 
         b = frappe.get_doc("Batch", self.EXPECTED)
         self.assertEqual(b.item, self.ITEM)
-        self.assertEqual(float(b.batch_qty), 20.0)
+        # 2026-09-06: the master is NOT preset — ERPNext adds the posted qty on
+        # submit (serial_batch_bundle.update_batch_qty is incremental), and a
+        # preset landed underneath it: prod MCL-32-.-1 received 20, read 40.
+        # This fake receipt never posts, so the master stays 0 here.
+        self.assertEqual(float(b.batch_qty), 0.0)
         self.assertEqual(b.custom_container_no, "MC-JC-2222", "Received container, not the sent one.")
         self.assertEqual(b.custom_lot_no, "13042026", "Received lot.")
         self.assertEqual(b.custom_supplier_batch_no, "6086")

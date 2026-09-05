@@ -402,6 +402,50 @@ def _subcontract_match_key(item):
     )
 
 
+def receive_created_batch_balances():
+    """{batch: bundle balance} for every batch a Job Work Received entry
+    created (an Inward Serial and Batch Bundle whose Stock Entry carries
+    custom_original_send_entry)."""
+    rows = frappe.db.sql(
+        """
+        SELECT b.name, x.bal
+        FROM `tabBatch` b
+        INNER JOIN (
+            SELECT sbe.batch_no, SUM(sbe.qty) AS bal
+            FROM `tabSerial and Batch Entry` sbe
+            INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+            WHERE sbb.docstatus = 1 AND sbb.is_cancelled = 0
+              AND sbb.type_of_transaction IN ('Inward', 'Outward')
+            GROUP BY sbe.batch_no
+        ) x ON x.batch_no = b.name
+        WHERE EXISTS (
+            SELECT 1
+            FROM `tabSerial and Batch Entry` e
+            INNER JOIN `tabSerial and Batch Bundle` s ON s.name = e.parent
+            INNER JOIN `tabStock Entry` se ON se.name = s.voucher_no
+            WHERE e.batch_no = b.name AND s.type_of_transaction = 'Inward'
+              AND s.voucher_type = 'Stock Entry' AND s.docstatus = 1 AND s.is_cancelled = 0
+              AND IFNULL(se.custom_original_send_entry, '') != ''
+        )
+        """
+    )
+    return {name: flt(bal) for name, bal in rows}
+
+
+def heal_receive_batch_qty(balances=None):
+    """Set Batch.batch_qty to the bundle balance on batches the receive flow
+    created with a preset master that ERPNext then incremented (doubled).
+    Idempotent; returns the names it corrected."""
+    balances = receive_created_batch_balances() if balances is None else balances
+    fixed = []
+    for name, balance in balances.items():
+        master = flt(frappe.db.get_value("Batch", name, "batch_qty"))
+        if abs(master - flt(balance)) > 0.0005:
+            frappe.db.set_value("Batch", name, "batch_qty", flt(balance), update_modified=False)
+            fixed.append(name)
+    return fixed
+
+
 def _receive_batch_id(doc, item):
     """MI1-I50 (Raj 2026-09-03): the auto-generated Batch ID for a NEW /
     finished item on a Receive-from-Subcontractor entry:
@@ -527,7 +571,12 @@ def create_receive_batches(doc, method=None):
         batch = frappe.new_doc("Batch")
         batch.batch_id = batch_id
         batch.item = row.item_code
-        batch.batch_qty = flt(row.qty)
+        # batch_qty is NOT preset (2026-09-06). ERPNext keeps Batch.batch_qty
+        # incrementally — serial_batch_bundle.update_batch_qty adds the posted
+        # qty on submit — so a preset of row.qty ended up doubled (prod
+        # MCL-32-.-1: 20 received, master 40), and the Delivery Note's cone
+        # arithmetic then wrote 40 into the row. Left at 0, the submit brings
+        # it to exactly the received quantity.
         # Identity: the RECEIVED container / lot (header) + the row's
         # supplier batch — the trio every Delivery Note popup, Fetch Batches
         # and stock sheet keys on.

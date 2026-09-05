@@ -23,3 +23,4 @@ mhr.patches.v1_0.grant_hty_vfy_roles_on_mhr_reports
 mhr.patches.v1_0.backfill_hty_batch_spec_values #2026-08-24
 mhr.patches.v1_0.heal_container_accepted_warehouse #2026-08-25
 mhr.patches.v1_0.heal_container_location_notes #2026-08-31
+mhr.patches.v1_0.heal_receive_batch_qty #2026-09-06
