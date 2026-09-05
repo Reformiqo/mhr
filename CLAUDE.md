@@ -230,13 +230,19 @@ Sales Order number.** HTY is unchanged throughout.
 
 - `require_vfy_sales_order` (validate): every VFY note carries a submitted,
   open Sales Order of the same customer. Returns are exempt (they inherit).
-- `allocate_delivery_note_to_sales_order` (**before_validate**, so ERPNext's
-  own reference checks and, on submit, `delivered_qty` / order status see the
-  links): each VFY row is allocated against the order's rows of the same item
-  in row order, consuming each row's remaining balance; a row spanning two
-  order rows is **split** (same batch / warehouse / rate); what no row can
-  absorb sits on the item's last row for the caps to refuse. Never on batch —
-  the note may ship any stocked batch (`SHIPPED` ≠ booked in the tests).
+- `allocate_delivery_note_to_sales_order` (**before_validate**): a VFY note
+  links to its order on the **header only**. Rows stay exactly as entered and
+  any ERPNext per-row link (`so_detail` / `against_sales_order`) is cleared.
+  A VFY order carries one row per BOOKED batch, so linking / splitting rows
+  against those chopped every shipped batch into "booked weight + remainder"
+  and showed the same batch two or three times (TEST-CHALLAN-DN00006,
+  2026-09-05) — and ERPNext's per-row over-delivery check would trip on the
+  weight difference. Every row's item must be on the order; the item-level
+  cap is the "row level" rule. Never on batch — any stocked batch may ship.
+- `sync_sales_order_delivery` (on_submit / on_cancel): recomputes the
+  order's row `delivered_qty` (item-wise, top-down —
+  `_delivered_by_sales_order_row`), `per_delivered` and status from every
+  submitted note linked to it. Idempotent, so amend / cancel need nothing.
 - Caps: total level (`_delivered_against_sales_order`) and item level
   (`_delivered_by_sales_order_item`), both within the standard Over Delivery
   Allowance (`_over_delivery_allowance` → Item's, else Stock Settings').

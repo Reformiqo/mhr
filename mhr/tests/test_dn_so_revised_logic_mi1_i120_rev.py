@@ -3,8 +3,11 @@
 Booking and delivery meet only at the Sales Order number:
   * every VFY Delivery Note carries a submitted Sales Order of its customer;
   * the note may carry ANY stocked batch — booked batches are reference only;
-  * rows are allocated against the order's rows of the same item, in row
-    order, consuming each row's remaining balance (split when needed);
+  * rows are kept exactly as entered — a VFY order carries one row per
+    BOOKED batch, so linking / splitting rows against those would chop every
+    shipped batch into "booked weight + remainder" (the TEST-CHALLAN-DN00006
+    report of 2026-09-05). The note links to the order on the header only;
+    the item-level cap is the "row level" rule;
   * delivered / pending are sums over the submitted notes linked to the order;
   * cumulative delivery never exceeds the order — item level and total level,
     within the standard Over Delivery Allowance;
@@ -25,7 +28,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, today
+from frappe.utils import add_days, flt, today
 
 from mhr import utilis
 
@@ -34,15 +37,44 @@ OTHER_CUSTOMER = "G.M.Weaves"
 ITEM = "58D/8F"
 WH = "Finished Goods - MC"
 COMPANY = "Meher Creations"
-BOOKED = ["MCJC-1680020420261160", "MCJC-1680020420261159", "MCJC-1680020420261158"]
-SHIPPED = "MCJC-1680020420261157"    # never booked on the order — Raj: any stocked batch may ship (22 in stock)
-SHIPPED_2 = "MCJC-1680020420261156"  # second unbooked batch (21.8 in stock) for the end-to-end submit
 CS_FIXTURE = os.path.join(frappe.get_app_path("mhr"), "fixtures", "client_script.json")
+
+# Chosen at setUp from the bench: five VFY batches of ITEM with >= 20 in stock
+# in WH and no open booking — three to book on the order, two to ship
+# (Raj: any stocked batch may ship, booked or not). Picked dynamically so a
+# Sales Order left on the bench (e.g. the browser walkthrough's) cannot
+# collide with the fixture.
+BOOKED = []
+SHIPPED = None
+SHIPPED_2 = None
+
+
+def _pick_batches():
+    global BOOKED, SHIPPED, SHIPPED_2
+    if BOOKED and SHIPPED and SHIPPED_2:
+        return True
+    rows = frappe.db.sql("""
+        SELECT b.name FROM `tabBatch` b
+        JOIN (SELECT sbe.batch_no, SUM(sbe.qty) bal FROM `tabSerial and Batch Entry` sbe
+              JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+              WHERE sbb.warehouse = %s AND sbb.docstatus = 1 AND sbb.is_cancelled = 0
+                AND sbb.type_of_transaction IN ('Inward', 'Outward')
+              GROUP BY sbe.batch_no HAVING bal >= 20) s ON s.batch_no = b.name
+        WHERE b.item = %s AND b.custom_transaction_type = 'VFY' AND b.disabled = 0
+          AND IFNULL(b.custom_cone, 0) > 0 AND b.batch_qty >= 20
+        ORDER BY b.name LIMIT 40""", (WH, ITEM))
+    names = [r[0] for r in rows]
+    booked = utilis.effective_booking_by_batch(names)
+    free = [n for n in names if flt(booked.get(n, {}).get("qty", 0)) == 0]
+    if len(free) < 5:
+        return False
+    BOOKED = free[:3]
+    SHIPPED, SHIPPED_2 = free[3], free[4]
+    return True
 
 
 def _masters_present():
-    return (frappe.db.exists("Customer", CUSTOMER) and frappe.db.exists("Item", ITEM)
-            and all(frappe.db.exists("Batch", b) for b in BOOKED + [SHIPPED, SHIPPED_2]))
+    return (frappe.db.exists("Customer", CUSTOMER) and frappe.db.exists("Item", ITEM) and _pick_batches())
 
 
 def _make_so(qtys=(20, 20, 20)):
@@ -117,24 +149,39 @@ class TestVfyNoteNeedsItsOrder(_WithOrder):
         import mhr.hooks as hooks
         dn = hooks.doc_events["Delivery Note"]
         self.assertIn("mhr.utilis.allocate_delivery_note_to_sales_order", dn["before_validate"])
+        self.assertIn("mhr.utilis.sync_sales_order_delivery", dn["on_submit"])
+        self.assertIn("mhr.utilis.sync_sales_order_delivery", dn["on_cancel"])
         v = dn["validate"]
         self.assertLess(v.index("mhr.utilis.require_vfy_sales_order"), v.index("mhr.utilis.validate_so_delivery_qty"))
 
 
 class TestRowsAllocateAgainstTheOrder(_WithOrder):
 
-    def test_a_row_spanning_two_order_rows_is_split_in_order(self):
+    def test_rows_are_never_split_and_carry_no_per_row_link(self):
+        """A 30 kg row against three 20 kg booked rows stays ONE row — the
+        same batch must not show up two or three times (prod report,
+        TEST-CHALLAN-DN00006)."""
         dn = _make_dn(self.so.name, [30]); self.docs.append(dn)
         dn.insert(ignore_permissions=True)
-        rows = [(r.idx, r.qty, r.so_detail, r.against_sales_order, r.batch_no) for r in dn.items]
-        self.assertEqual([r[1] for r in rows], [20.0, 10.0])
-        self.assertEqual([r[2] for r in rows], [self.so.items[0].name, self.so.items[1].name])
-        self.assertEqual({r[3] for r in rows}, {self.so.name})
-        self.assertEqual({r[4] for r in rows}, {SHIPPED}, "The shipped batch is kept — never checked against the booking.")
-        self.assertEqual([r[0] for r in rows], [1, 2])
+        self.assertEqual([(r.idx, r.qty, r.batch_no) for r in dn.items], [(1, 30.0, SHIPPED)])
+        self.assertIsNone(dn.items[0].so_detail)
+        self.assertIsNone(dn.items[0].against_sales_order)
+        self.assertEqual(dn.custom_sales_order, self.so.name)
         self.assertEqual(dn.total_qty, 30.0)
         dn.save(ignore_permissions=True)
-        self.assertEqual([r.qty for r in dn.items], [20.0, 10.0], "Re-saving does not re-split.")
+        self.assertEqual(len(dn.items), 1, "Re-saving adds nothing.")
+
+    def test_mapped_row_links_are_cleared_on_a_vfy_note(self):
+        """ERPNext's mapper stamps so_detail; on a VFY note only the header
+        rule applies, so its per-row over-delivery check never fires when the
+        shipped weight differs from the booked one."""
+        dn = _make_dn(self.so.name, [(25.9, SHIPPED)])
+        dn.items[0].so_detail = self.so.items[0].name
+        dn.items[0].against_sales_order = self.so.name
+        utilis.allocate_delivery_note_to_sales_order(dn)
+        self.assertIsNone(dn.items[0].so_detail)
+        self.assertIsNone(dn.items[0].against_sales_order)
+        self.assertEqual(dn.items[0].qty, 25.9)
 
     def test_item_not_on_the_order_is_refused(self):
         dn = _make_dn(self.so.name, [5])
@@ -191,7 +238,7 @@ class TestBookingIsReleasedSalesOrderWise(_WithOrder):
             from mhr import sales_order
             self.assertEqual([booked[b]["qty"] for b in BOOKED], [0.0, 10.0, 20.0],
                              "30 delivered (any batch) frees row 1 wholly and half of row 2.")
-            self.assertEqual(sales_order._get_available_qty(BOOKED[0], 22.0), 22.0)
+            self.assertEqual(sales_order._get_available_qty(BOOKED[0], 22.0), 22.0)   # nothing held on it any more (master passed in)
             self.assertEqual(sales_order._booked_qty_by_batch(BOOKED), {BOOKED[1]: 10.0, BOOKED[2]: 20.0})
             st = utilis.sales_order_booking_state(sales_orders=[self.so.name])[self.so.name]
             self.assertEqual((st["ordered_qty"], st["delivered_qty"], st["pending_qty"], st["effective_booking"]), (60.0, 30.0, 30.0, 30.0))
@@ -207,25 +254,30 @@ class TestBookingIsReleasedSalesOrderWise(_WithOrder):
 
     def test_sales_order_validate_uses_the_released_booking(self):
         """A second order may book the batch the first order no longer holds."""
+        on_hand = flt(frappe.db.get_value("Batch", BOOKED[0], "batch_qty"))
         with patch.object(utilis, "_delivered_by_sales_order", return_value={self.so.name: {"qty": 60.0, "weight": 0.0}}):
-            other = frappe._dict(name="SO-OTHER", items=[frappe._dict(idx=1, custom_batch_no=BOOKED[0], qty=22)])
-            utilis.validate_so_available_qty(other)                    # 22 on hand, 0 booked
+            other = frappe._dict(name="SO-OTHER", items=[frappe._dict(idx=1, custom_batch_no=BOOKED[0], qty=on_hand)])
+            utilis.validate_so_available_qty(other)                    # the whole batch: nothing booked on it
+        with self.assertRaises(frappe.ValidationError):
+            utilis.validate_so_available_qty(other)                    # unpatched: 20 still booked -> refused
 
 
 class TestEndToEnd(_WithOrder):
 
     def test_submit_updates_delivered_and_cancel_restores_booking(self):
-        """Two unbooked, stocked batches (20 + 10) — the first order row is
-        consumed in full by row 1, row 2 lands on the second order row."""
+        """Two unbooked, stocked batches (20 + 10). On submit the order's rows
+        are credited top-down per item by sync_sales_order_delivery, its
+        per_delivered and status follow, and cancel reverses all of it."""
         dn = _make_dn(self.so.name, [(20, SHIPPED), (10, SHIPPED_2)]); self.docs.append(dn)
         dn.insert(ignore_permissions=True)
-        self.assertEqual([(r.qty, r.so_detail) for r in dn.items],
-                         [(20.0, self.so.items[0].name), (10.0, self.so.items[1].name)])
+        self.assertEqual([(r.qty, r.so_detail) for r in dn.items], [(20.0, None), (10.0, None)])
         dn.submit()
         try:
             self.assertEqual(utilis._delivered_by_sales_order([self.so.name])[self.so.name]["qty"], 30.0)
             self.so.reload()
-            self.assertEqual([r.delivered_qty for r in self.so.items], [20.0, 10.0, 0.0], "ERPNext followed the so_detail links.")
+            self.assertEqual([r.delivered_qty for r in self.so.items], [20.0, 10.0, 0.0], "Credited down the rows per item.")
+            self.assertEqual(self.so.per_delivered, 50.0)
+            self.assertEqual(self.so.status, "To Deliver and Bill")
             booked = utilis.effective_booking_by_batch(BOOKED)
             self.assertEqual([booked[b]["qty"] for b in BOOKED], [0.0, 10.0, 20.0])
             self.assertEqual(utilis._delivered_by_sales_order_row(self.so.name)[self.so.items[0].name], 20.0)
@@ -233,6 +285,21 @@ class TestEndToEnd(_WithOrder):
             dn.reload(); dn.cancel()
         self.assertEqual(utilis._delivered_by_sales_order([self.so.name])[self.so.name]["qty"], 0.0)
         self.assertEqual([utilis.effective_booking_by_batch(BOOKED)[b]["qty"] for b in BOOKED], [20.0, 20.0, 20.0])
+        self.so.reload()
+        self.assertEqual(([r.delivered_qty for r in self.so.items], self.so.per_delivered), ([0.0, 0.0, 0.0], 0.0))
+
+    def test_full_delivery_moves_the_order_to_to_bill(self):
+        dn = _make_dn(self.so.name, [(20, SHIPPED), (20, SHIPPED_2), (20, BOOKED[0])]); self.docs.append(dn)
+        dn.insert(ignore_permissions=True)
+        dn.submit()
+        try:
+            self.so.reload()
+            self.assertEqual((self.so.per_delivered, self.so.status), (100.0, "To Bill"))
+            self.assertEqual([utilis.effective_booking_by_batch(BOOKED).get(b, {}).get("qty", 0.0) for b in BOOKED], [0.0, 0.0, 0.0])
+        finally:
+            dn.reload(); dn.cancel()
+        self.so.reload()
+        self.assertEqual(self.so.status, "To Deliver and Bill")
 
 
 class TestStockSheet(_WithOrder):

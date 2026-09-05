@@ -2520,85 +2520,87 @@ def require_vfy_sales_order(doc, method=None):
         frappe.throw(_("Sales Order {0} is {1}.").format(frappe.bold(so), frappe.bold(head.status)), title=_("Sales Order not open"))
 
 
-_ROW_COPY_SKIP = {
-    "name", "idx", "owner", "creation", "modified", "modified_by", "docstatus",
-    "parent", "parentfield", "parenttype", "doctype", "so_detail", "against_sales_order",
-    "serial_and_batch_bundle", "serial_no", "__islocal", "__unsaved",
-}
-
-
 def allocate_delivery_note_to_sales_order(doc, method=None):
-    """MI1-I120 revision (Raj 2026-09-05), before_validate: each VFY note row is
-    allocated against the order's rows of the same item, in row order,
-    consuming each row's remaining balance before moving to the next — on
-    quantity alone, never on batch. A row that spans two order rows is split
-    (same batch, warehouse and rate; ERPNext recomputes the amounts). What no
-    order row can absorb sits on the item's last row, where the caps speak.
+    """MI1-I120 revision (Raj 2026-09-05), before_validate, VFY only.
 
-    Runs before ERPNext's validate so `so_detail` / `against_sales_order` are in
-    place for its own reference checks and, on submit, for delivered_qty and
-    the order's status. HTY notes and returns are untouched."""
+    A VFY Sales Order carries one row per BOOKED batch, and the note may ship
+    any stocked batch, so booked and shipped weights never line up (25.6 booked
+    against 25.9 shipped). ERPNext's per-row link (so_detail) would either
+    split every shipped batch into "booked weight + remainder" rows or trip
+    its per-row over-delivery check on submit. Neither is what Raj asked for:
+    "row level" in a VFY order is the ITEM, and batch never enters the
+    allocation.
+
+    So a VFY note is linked to its order by the header alone. Rows are kept
+    exactly as the user entered them; any ERPNext row link the mapper stamped
+    is cleared so only the header rule applies. Every row's item must be on
+    the order (the item-level cap in validate_so_delivery_qty does the rest),
+    and sync_sales_order_delivery keeps the order's delivered figures and
+    status in step on submit / cancel. HTY notes and returns are untouched.
+    """
     if _is_hty_doc(doc) or doc.get("is_return"):
         return
     so = doc.get("custom_sales_order")
     if not so or not frappe.db.exists("Sales Order", so):
         return  # require_vfy_sales_order speaks on validate
-    items = list(doc.get("items") or [])
+    items = doc.get("items") or []
     if not items:
         return
-    so_rows = frappe.get_all(
-        "Sales Order Item",
-        filters={"parent": so, "parenttype": "Sales Order"},
-        fields=["name", "idx", "item_code", "qty"],
-        order_by="idx asc",
+    ordered_items = set(
+        frappe.get_all("Sales Order Item", filters={"parent": so, "parenttype": "Sales Order"}, pluck="item_code")
     )
-    if not so_rows:
+    if not ordered_items:
         return
-    by_item = {}
-    for r in so_rows:
-        by_item.setdefault(r.item_code, []).append(r)
-    delivered = _delivered_by_sales_order_row(so, exclude_dn=doc.name)
-    remaining = {r.name: flt(r.qty) - flt(delivered.get(r.name, 0.0)) for r in so_rows}
-
-    ordered_rows = []
     for row in items:
-        cands = by_item.get(row.item_code)
-        if not cands:
+        if row.item_code not in ordered_items:
             frappe.throw(
                 _("Row {0}: Item {1} is not on Sales Order {2}.").format(row.idx, frappe.bold(row.item_code), frappe.bold(so)),
                 title=_("Item not ordered"),
             )
-        left = flt(row.qty)
-        if left <= 0:
-            ordered_rows.append(row)
-            continue
-        first = True
-        for i, cand in enumerate(cands):
-            if left <= 0:
-                break
-            last = i == len(cands) - 1
-            room = max(remaining[cand.name], 0.0)
-            take = left if last else min(left, room)
-            if take <= 0:
-                continue
-            if first:
-                target = row
-                first = False
-            else:
-                data = {k: v for k, v in row.as_dict().items() if k not in _ROW_COPY_SKIP and v is not None}
-                target = doc.append("items", data)
-            target.qty = take
-            if target.get("weight_per_unit"):
-                target.total_weight = flt(target.weight_per_unit) * take * flt(target.get("conversion_factor") or 1)
-            target.against_sales_order = so
-            target.so_detail = cand.name
-            ordered_rows.append(target)
-            remaining[cand.name] -= take
-            left -= take
+        # Header-only linking: no ERPNext per-row reference on a VFY note.
+        row.against_sales_order = None
+        row.so_detail = None
 
-    doc.set("items", ordered_rows)
-    for i, row in enumerate(doc.items, start=1):
-        row.idx = i
+
+def sync_sales_order_delivery(doc, method=None):
+    """MI1-I120 revision — on_submit / on_cancel of a VFY note: recompute the
+    order's delivered figures from every submitted note linked to it (header
+    or row), distribute them down the order's rows per item in row order
+    (`_delivered_by_sales_order_row`), and let ERPNext derive the status from
+    per_delivered. Idempotent — always from scratch, so amendments and
+    cancellations need no bookkeeping of their own."""
+    if _is_hty_doc(doc) or doc.get("is_return"):
+        return
+    so = doc.get("custom_sales_order")
+    if so and frappe.db.exists("Sales Order", so):
+        refresh_sales_order_delivery(so)
+
+
+def refresh_sales_order_delivery(sales_order):
+    """Write per-row delivered_qty, per_delivered and status on a VFY Sales
+    Order from the submitted Delivery Notes linked to it."""
+    rows = frappe.get_all(
+        "Sales Order Item",
+        filters={"parent": sales_order, "parenttype": "Sales Order"},
+        fields=["name", "qty", "delivered_qty"],
+        order_by="idx asc",
+    )
+    if not rows:
+        return
+    per_row = _delivered_by_sales_order_row(sales_order)
+    ordered = 0.0
+    delivered = 0.0
+    for r in rows:
+        value = flt(per_row.get(r.name, 0.0))
+        ordered += flt(r.qty)
+        delivered += min(value, flt(r.qty)) if flt(r.qty) else 0.0
+        if flt(r.delivered_qty) != value:
+            frappe.db.set_value("Sales Order Item", r.name, "delivered_qty", value, update_modified=False)
+    per_delivered = min(100.0, flt(delivered / ordered * 100.0, 2)) if ordered else 0.0
+    frappe.db.set_value("Sales Order", sales_order, "per_delivered", per_delivered, update_modified=False)
+    so = frappe.get_doc("Sales Order", sales_order)
+    if so.docstatus == 1 and so.status not in ("Closed", "On Hold"):
+        so.set_status(update=True, update_modified=False)
 
 
 def so_delivery_progress(sales_orders):

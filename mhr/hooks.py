@@ -160,8 +160,14 @@ doc_events = {
             # MI1-I39 P2-G: HTY-mode return DN re-credits cones on submit
             # (symmetric with the VFY cancel-time reversal).
             "mhr.utilis.restore_cones_for_hty_return",
+            # MI1-I120 revision: a VFY note's order gets its delivered figures
+            # and status recomputed from every submitted note linked to it.
+            "mhr.utilis.sync_sales_order_delivery",
         ],
-        "on_cancel": "mhr.utilis.reverse_item_batch",
+        "on_cancel": [
+            "mhr.utilis.reverse_item_batch",
+            "mhr.utilis.sync_sales_order_delivery",
+        ],
         "validate": [
             # "mhr.utilis.validate_batch",
             "mhr.utilis.set_delivery_note_user",

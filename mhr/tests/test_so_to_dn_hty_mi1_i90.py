@@ -154,31 +154,37 @@ class TestOnlyTheHeaderIsHTYOnly(FrappeTestCase):
 	VFY Sales Order must never stamp HTY on the Delivery Note."""
 
 	def test_a_vfy_source_gets_the_item_work_but_not_the_hty_header(self):
-		target = frappe._dict(items=[_row(so_detail="X", custom_cone=4, batch_no="B")])
-
 		so = frappe.get_all(
 			"Sales Order",
-			filters={"transaction_type": ("!=", "HTY")},
+			filters={"transaction_type": ("!=", "HTY"), "docstatus": 1},
 			pluck="name",
 			limit=1,
 		)
 		if not so:
 			self.skipTest("No non-HTY Sales Order on this site.")
 
+		# The row must point at a REAL order row (the item work copies from the
+		# source row so_detail names and skips rows it cannot resolve) and be a
+		# real child row — the mapper writes through Document.set().
+		so_row = frappe.get_all("Sales Order Item", filters={"parent": so[0]}, pluck="name", order_by="idx asc", limit=1)[0]
+		target = frappe.new_doc("Delivery Note")
+		target.append("items", {"so_detail": so_row, "custom_cone": 4, "batch_no": "B"})
+
 		out = so2dn.carry_sales_order_details(so[0], target)
 
-		self.assertIsNone(out.get("transaction_type"), "VFY must not be stamped HTY")
-		self.assertIsNone(out.get("fetch_batches"))
+		self.assertNotEqual(out.get("transaction_type"), "HTY", "VFY must not be stamped HTY")
+		self.assertFalse(out.get("fetch_batches"))
+		self.assertEqual(out.get("custom_sales_order"), so[0], "MI1-I120 revision: VFY notes carry the order on the header")
 		# The row carries a batch and a cone, so the qty protection applies
 		# here exactly as it does on HTY.
-		self.assertEqual(out["items"][0].get("custom_qty_manual_edit"), 1)
+		self.assertEqual(out.items[0].get("custom_qty_manual_edit"), 1)
 
 	def test_the_item_work_is_not_nested_inside_the_hty_branch(self):
 		"""Put back inside it, a VFY note again arrives with no container or
 		lot and drops out of the reports that filter on them."""
 		lines = inspect.getsource(so2dn.carry_sales_order_details).split("\n")
 		branch = next(i for i, text in enumerate(lines) if ".upper() == HTY:" in text)
-		loop = next(i for i, text in enumerate(lines) if "for row in target.items:" in text)
+		loop = next(i for i, text in enumerate(lines) if 'for row in target.get("items") or []:' in text)
 
 		def indent(i):
 			return len(lines[i]) - len(lines[i].lstrip())

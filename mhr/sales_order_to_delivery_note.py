@@ -237,7 +237,9 @@ def carry_sales_order_details(source_name, target):
 
 	source_rows = {row.name: row for row in source.items}
 
-	for row in target.items:
+	# .get("items"): a frappe._dict target (tests, callers building the note
+	# by hand) resolves `.items` to the dict method.
+	for row in target.get("items") or []:
 		# ERPNext's mapping stamps the originating Sales Order Item on
 		# `so_detail`; without it there is no row to copy from.
 		src = source_rows.get(row.get("so_detail"))
@@ -272,7 +274,7 @@ def _fill_supplier_batch_numbers(target):
 	"""
 	wanted = {
 		row.get("batch_no")
-		for row in target.items
+		for row in target.get("items") or []
 		if row.get("batch_no") and not row.get("custom_supplier_batch_no")
 	}
 	if not wanted:
@@ -287,7 +289,7 @@ def _fill_supplier_batch_numbers(target):
 		)
 	)
 
-	for row in target.items:
+	for row in target.get("items") or []:
 		if row.get("custom_supplier_batch_no"):
 			continue
 		value = supplier_batch_by_name.get(row.get("batch_no"))
