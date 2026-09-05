@@ -233,8 +233,11 @@ notes and stay blank for unlinked ones.
 **Revision (Raj 2026-09-05) — VFY: booking and delivery meet only at the
 Sales Order number.** HTY is unchanged throughout.
 
-- `require_vfy_sales_order` (validate): every VFY note carries a submitted,
-  open Sales Order of the same customer. Returns are exempt (they inherit).
+- `require_vfy_sales_order` (validate): the Sales Order is **optional**
+  (2026-09-06 — the revision had made it mandatory for one day). When a VFY
+  note names one, it must be a submitted, open VFY order of the same
+  customer. Without one the note saves and submits exactly as before: no
+  allocation, no caps, no booking sync. Returns are exempt (they inherit).
 - `allocate_delivery_note_to_sales_order` (**before_validate**): a VFY note
   links to its order on the **header only**. Rows stay exactly as entered and
   any ERPNext per-row link (`so_detail` / `against_sales_order`) is cleared.

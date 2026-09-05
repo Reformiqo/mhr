@@ -176,8 +176,9 @@ doc_events = {
             # MI1-I83 (Raj 2026-07-18): auto-populate custom_notes from
             # the linked VFY Container's `notes` field when empty.
             "mhr.utilis.fetch_notes_from_container",
-            # MI1-I120 revision (Raj 2026-09-05): every VFY note carries a
-            # submitted Sales Order of the same customer. HTY / returns: no-op.
+            # MI1-I120: a VFY note that names a Sales Order must name a
+            # submitted open order of the same customer. Optional (2026-09-06):
+            # no order -> no-op. HTY / returns: no-op.
             "mhr.utilis.require_vfy_sales_order",
             # MI1-I120 (Raj 2026-09-02): when the note names a Sales Order,
             # block delivering more than the order's remaining quantity —

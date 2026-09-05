@@ -1,7 +1,9 @@
 """MI1-I120 revision (Raj 2026-09-05) — VFY Sales Order to Delivery Note.
 
 Booking and delivery meet only at the Sales Order number:
-  * every VFY Delivery Note carries a submitted Sales Order of its customer;
+  * a VFY Delivery Note MAY carry a Sales Order (optional since 2026-09-06 —
+    the 2026-09-05 revision had made it mandatory); when it does, the order
+    must be a submitted open VFY order of the same customer;
   * the note may carry ANY stocked batch — booked batches are reference only;
   * rows are kept exactly as entered — a VFY order carries one row per
     BOOKED batch, so linking / splitting rows against those would chop every
@@ -130,11 +132,26 @@ class _WithOrder(FrappeTestCase):
 
 class TestVfyNoteNeedsItsOrder(_WithOrder):
 
-    def test_without_sales_order_is_refused(self):
-        dn = _make_dn(None, [10])
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            dn.insert(ignore_permissions=True)
-        self.assertIn("mandatory", str(ctx.exception))
+    def test_without_sales_order_the_note_saves_and_submits_as_before(self):
+        """2026-09-06: the Sales Order is optional. No order -> no allocation,
+        no caps, no booking sync; stock moves exactly as it always did."""
+        dn = _make_dn(None, [(5, SHIPPED)]); self.docs.append(dn)
+        dn.insert(ignore_permissions=True)
+        self.assertFalse(dn.custom_so_total_qty, "No order -> nothing to show in Total Quantity.")
+        self.assertEqual(len(dn.items), 1)
+        dn.submit()
+        try:
+            self.assertEqual(dn.docstatus, 1)
+            self.assertEqual(utilis._delivered_by_sales_order([self.so.name])[self.so.name]["qty"], 0.0,
+                             "An unlinked note never counts against any order.")
+            self.assertEqual([utilis.effective_booking_by_batch(BOOKED)[b]["qty"] for b in BOOKED], [20.0, 20.0, 20.0])
+        finally:
+            dn.reload(); dn.cancel()
+
+    def test_no_order_means_no_order_checks_at_all(self):
+        with patch.object(frappe.db, "get_value", wraps=frappe.db.get_value) as gv:
+            utilis.require_vfy_sales_order(frappe._dict(transaction_type="VFY", customer=OTHER_CUSTOMER, custom_sales_order=None))
+            self.assertFalse(any(c.args and c.args[0] == "Sales Order" for c in gv.call_args_list))
 
     def test_other_customers_order_is_refused(self):
         dn = _make_dn(self.so.name, [10], customer=OTHER_CUSTOMER)

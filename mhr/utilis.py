@@ -2515,17 +2515,18 @@ def effective_booking_by_batch(batch_names, exclude_so=None):
 
 
 def require_vfy_sales_order(doc, method=None):
-    """MI1-I120 revision (Raj 2026-09-05): every VFY Delivery Note carries its
-    Sales Order — a submitted VFY order of the same customer. HTY and returns
-    are untouched (a return inherits the original note's order)."""
+    """MI1-I120: when a VFY Delivery Note names a Sales Order, it must be a
+    submitted, open VFY order of the same customer.
+
+    2026-09-06: the Sales Order is OPTIONAL again (the 2026-09-05 revision had
+    made it mandatory on VFY). Without one the note saves and submits exactly
+    as before — no allocation, no caps, no booking sync. HTY and returns are
+    untouched (a return inherits the original note's order)."""
     if _is_hty_doc(doc) or doc.get("is_return"):
         return
     so = doc.get("custom_sales_order")
     if not so:
-        frappe.throw(
-            _("Sales Order No. is mandatory on a VFY Delivery Note — booking and delivery meet at the Sales Order number."),
-            title=_("Sales Order required"),
-        )
+        return
     head = frappe.db.get_value("Sales Order", so, ["docstatus", "customer", "transaction_type", "status"], as_dict=True)
     if not head or cint(head.docstatus) != 1:
         frappe.throw(_("Sales Order {0} is not submitted.").format(frappe.bold(so)), title=_("Sales Order required"))
