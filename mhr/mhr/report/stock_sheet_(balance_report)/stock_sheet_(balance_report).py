@@ -91,6 +91,13 @@ def get_columns(filters=None):
         {"label": _("Buyer"), "fieldname": "Buyers", "fieldtype": "Data", "width": 180},
         {"label": _("Sales Person"), "fieldname": "Sales Person", "fieldtype": "Data", "width": 130},
         {"label": _("Lifting Terms"), "fieldname": "Lifting Terms", "fieldtype": "Data", "width": 110},
+        # MI1-I120 revision (Raj 2026-09-05): the Sales Order's delivery
+        # picture — sums over the submitted notes linked to it, no batch
+        # condition — beside its booking.
+        {"label": _("Delivered Qty"), "fieldname": "Delivered Qty", "fieldtype": "Data", "width": 110},
+        {"label": _("Delivered Weight"), "fieldname": "Delivered Weight", "fieldtype": "Data", "width": 120},
+        {"label": _("Pending Qty"), "fieldname": "Pending Qty", "fieldtype": "Data", "width": 110},
+        {"label": _("Pending Weight"), "fieldname": "Pending Weight", "fieldtype": "Data", "width": 120},
     ]
     if not is_hty:
         columns.append({"label": _("Cross Section"), "fieldname": "Cross Section", "fieldtype": "Data", "width": 110})
@@ -195,58 +202,54 @@ def get_batch_balances(batch_ids):
 
 
 def get_booked_quantities(batch_ids):
-    """Get per-booking details per batch from submitted Sales Orders.
+    """Per-booking details per batch from OPEN Sales Orders.
 
-    Returns a dict: batch_id -> list of {booked_qty, buyer, sales_person, lifting_terms}
-    Only includes bookings where remaining qty (qty - delivered_qty) > 0.
+    Returns a dict: batch_id -> list of {booked_qty, sales_order, buyer,
+    sales_person, lifting_terms, delivered_qty, delivered_weight, pending_qty,
+    pending_weight}. Only bookings with a positive quantity are listed.
+
+    MI1-I120 revision (Raj 2026-09-05): booking is released Sales-Order-wise.
+    For a VFY order the effective booking is ordered − delivered (delivered =
+    every submitted Delivery Note linked to the order, whichever batches it
+    carried; drafts and cancelled notes excluded, returns netted), floored at
+    zero and applied down the order's rows in order — so a booked batch that
+    was never the one shipped is released once the order is served, and a
+    closed or cancelled order books nothing. HTY keeps ERPNext's per-row
+    `qty − delivered_qty`. The rule lives in
+    mhr.utilis.sales_order_booking_state, shared with the Sales Order booking
+    fetch and the lot popup, so the sheet, the fetch and the validation agree.
     """
     if not batch_ids:
         return {}
 
+    from mhr.utilis import sales_order_booking_state
+
     booked_map = {}  # batch_id -> list of individual bookings
     CHUNK = 2000
+    wanted = set(batch_ids)
 
-    SOI = frappe.qb.DocType("Sales Order Item")
-    SO = frappe.qb.DocType("Sales Order")
-
-    # Step 1: Query bookings (SOI + SO) without Sales Team to avoid cartesian product
-    so_names = set()
+    # Step 1: the booking state of every open order holding one of these batches
+    state = {}
     for i in range(0, len(batch_ids), CHUNK):
-        chunk = batch_ids[i : i + CHUNK]
+        state.update(sales_order_booking_state(batch_names=batch_ids[i : i + CHUNK]))
 
-        rows = (
-            frappe.qb.from_(SOI)
-            .inner_join(SO)
-            .on(SO.name == SOI.parent)
-            .select(
-                SOI.custom_batch_no.as_("batch_no"),
-                SO.name.as_("sales_order"),
-                SOI.qty,
-                SOI.delivered_qty,
-                SO.customer_name,
-                SO.custom_lifting_terms.as_("lifting_terms"),
-            )
-            .where(SO.docstatus == 1)
-            .where(SO.status.isin(["To Deliver and Bill", "To Deliver", "To Bill", "Partially Delivered"]))
-            .where(SOI.custom_batch_no.isin(chunk))
-        ).run(as_dict=True)
-
-        for r in rows:
-            remaining = flt(r.qty) - flt(r.delivered_qty)
-            if remaining <= 0:
+    so_names = set()
+    for sales_order, st in state.items():
+        for r in st["rows"]:
+            bid = r.get("batch")
+            if bid not in wanted or flt(r.get("booked")) <= 0:
                 continue
-
-            bid = r.batch_no
-            if bid not in booked_map:
-                booked_map[bid] = []
-
-            so_names.add(r.sales_order)
-            booked_map[bid].append({
-                "booked_qty": remaining,
-                "sales_order": r.sales_order or "",
-                "buyer": r.customer_name or "",
+            so_names.add(sales_order)
+            booked_map.setdefault(bid, []).append({
+                "booked_qty": flt(r["booked"]),
+                "sales_order": sales_order,
+                "buyer": st.get("customer_name") or "",
                 "sales_person": "",
-                "lifting_terms": r.lifting_terms or "",
+                "lifting_terms": st.get("lifting_terms") or "",
+                "delivered_qty": round(flt(st.get("delivered_qty")), 2),
+                "delivered_weight": round(flt(st.get("delivered_weight")), 2),
+                "pending_qty": round(flt(st.get("pending_qty")), 2),
+                "pending_weight": round(flt(st.get("pending_weight")), 2),
             })
 
     # Step 2: Fetch sales persons per Sales Order from Sales Team child table
@@ -684,6 +687,10 @@ def get_data(filters=None):
             "_group_key": row.get("group_key") if so == 0 else None,
         }
 
+        # MI1-I120 revision: the order's delivery picture rides on its row.
+        for col in ("Delivered Qty", "Delivered Weight", "Pending Qty", "Pending Weight"):
+            base[col] = ""
+
         if so != 0 or not bookings:
             # Total/grand-total rows, or detail rows with no bookings.
             base["Sales Order"] = ""
@@ -709,6 +716,10 @@ def get_data(filters=None):
                 so_row["Buyers"] = bk.get("buyer", "")
                 so_row["Sales Person"] = bk.get("sales_person", "")
                 so_row["Lifting Terms"] = bk.get("lifting_terms", "")
+                so_row["Delivered Qty"] = bk.get("delivered_qty", "")
+                so_row["Delivered Weight"] = bk.get("delivered_weight", "")
+                so_row["Pending Qty"] = bk.get("pending_qty", "")
+                so_row["Pending Weight"] = bk.get("pending_weight", "")
                 result.append(so_row)
 
     # Append report-level grand total row
@@ -736,6 +747,10 @@ def get_data(filters=None):
         # into both fields, so both total to report_total["booked_qty"].
         "Buyer Qty": report_total["booked_qty"],
         "Lifting Terms": "",
+        "Delivered Qty": "",
+        "Delivered Weight": "",
+        "Pending Qty": "",
+        "Pending Weight": "",
         "Merge No": "",
         "Cross Section": "",
         "Production Date": "",

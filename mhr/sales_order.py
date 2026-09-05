@@ -272,39 +272,28 @@ def get_container_details(container_no, transaction_type=None, with_stock=0):
 
 
 def _booked_qty_by_batch(batch_names):
-    """Open Sales Order bookings per batch — Σ(qty − delivered_qty) over
-    submitted orders still to deliver — for many batches in one query.
-    Same rule as _get_available_qty; that one stays per batch for the
-    allocation loops, this one feeds the lot popup (MI1-I96)."""
+    """Open Sales Order bookings per batch for the lot popup (MI1-I96) — the
+    same Sales-Order-wise rule as _get_available_qty (MI1-I120 revision),
+    for many batches in one pass."""
+    from mhr.utilis import effective_booking_by_batch
+
     names = [n for n in batch_names if n]
     if not names:
         return {}
-    rows = frappe.db.sql(
-        """
-        SELECT soi.custom_batch_no, COALESCE(SUM(soi.qty - soi.delivered_qty), 0)
-        FROM `tabSales Order Item` soi
-        JOIN `tabSales Order` so ON so.name = soi.parent
-        WHERE soi.custom_batch_no IN %(names)s
-          AND so.docstatus = 1
-          AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
-        GROUP BY soi.custom_batch_no
-        """,
-        {"names": names},
-    )
-    return {r[0]: flt(r[1]) for r in rows}
+    return {b: flt(v["qty"]) for b, v in effective_booking_by_batch(names).items() if flt(v["qty"]) > 0}
 
 
 def _get_available_qty(batch_name, batch_qty):
-    """Calculate available qty = batch stock - already booked in submitted SOs."""
-    already_booked = flt(frappe.db.sql("""
-        SELECT COALESCE(SUM(soi.qty - soi.delivered_qty), 0)
-        FROM `tabSales Order Item` soi
-        JOIN `tabSales Order` so ON so.name = soi.parent
-        WHERE soi.custom_batch_no = %s
-        AND so.docstatus = 1
-        AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
-    """, batch_name)[0][0])
-    return flt(batch_qty) - already_booked
+    """Available to book = batch stock − what open Sales Orders still hold.
+
+    MI1-I120 revision (Raj 2026-09-05): booking is released Sales-Order-wise —
+    effective booking = ordered − delivered (any batches), floored at zero,
+    applied down the order's rows — via mhr.utilis.effective_booking_by_batch.
+    """
+    from mhr.utilis import effective_booking_by_batch
+
+    booked = effective_booking_by_batch([batch_name]).get(batch_name, {}).get("qty", 0.0)
+    return flt(batch_qty) - flt(booked)
 
 
 @frappe.whitelist()
@@ -327,13 +316,9 @@ def get_container_numbers(txt=""):
 
 
 def _get_available_cones(batch_name, batch_cones):
-    """Calculate available cones = batch cones - already booked cones in submitted SOs."""
-    already_booked = flt(frappe.db.sql("""
-        SELECT COALESCE(SUM(soi.custom_cone), 0)
-        FROM `tabSales Order Item` soi
-        JOIN `tabSales Order` so ON so.name = soi.parent
-        WHERE soi.custom_batch_no = %s
-        AND so.docstatus = 1
-        AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
-    """, batch_name)[0][0])
-    return int(batch_cones) - int(already_booked)
+    """Available cones = batch cones − cones still booked, under the same
+    Sales-Order-wise release rule as _get_available_qty (MI1-I120 revision)."""
+    from mhr.utilis import effective_booking_by_batch
+
+    booked = effective_booking_by_batch([batch_name]).get(batch_name, {}).get("cones", 0.0)
+    return int(batch_cones) - int(round(flt(booked)))

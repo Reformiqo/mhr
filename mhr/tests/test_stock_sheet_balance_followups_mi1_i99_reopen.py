@@ -108,6 +108,8 @@ class TestAgingColumnPosition(FrappeTestCase):
 				"Merge No", "Pulp", "Lusture", "Glue", "Balance Qty",
 				"Booked Qty", "Balance Box", "Total Booked", "Available Qty",
 				"Sales Order", "Buyer", "Sales Person", "Lifting Terms",
+				# MI1-I120 revision (Raj 2026-09-05): the order's delivery picture.
+				"Delivered Qty", "Delivered Weight", "Pending Qty", "Pending Weight",
 				"Cross Section", "Production Date", "Notes", "Location",
 				"Accepted Warehouse", "sort_order",
 			],

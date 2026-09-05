@@ -209,13 +209,18 @@ class TestBalanceReportFiltersAtQueryLevel(FrappeTestCase):
                 grand = totals[0]
 
                 # Detail rows repeat Balance once per Sales Order allocation
-                # (MI1-I94), so reconcile on unique group keys, not raw sums.
+                # (MI1-I94), so reconcile on unique stock groups, not raw sums.
+                # The group is keyed server-side as `_group_key` (MI1-I99) —
+                # the same marker the report's JS re-totals on. (Container,
+                # Lot, Cone) alone is too coarse: several groups share those
+                # three and differ by date, item or spec, so keying on them
+                # undercounted the boxes.
                 seen = set()
                 expected_boxes = 0
                 for r in rows:
                     if r.get("sort_order"):
                         continue
-                    key = (r.get("Container Number"), r.get("Lot Number"), r.get("Cone"))
+                    key = r.get("_group_key")
                     if key in seen:
                         continue
                     seen.add(key)

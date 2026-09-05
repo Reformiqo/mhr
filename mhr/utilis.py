@@ -2178,7 +2178,10 @@ def validate_so_delivery_qty(doc, method=None):
         return
 
     delivered = _delivered_against_sales_order(sales_order, exclude_dn=doc.name)
-    remaining = ordered - delivered
+    # MI1-I120 revision (Raj 2026-09-05): tolerance is the standard Over
+    # Delivery Allowance (Stock Settings, or the Item's own).
+    allowance = _over_delivery_allowance()
+    remaining = ordered * (1 + allowance / 100.0) - delivered
     if this_qty > remaining + 0.0005:
         frappe.throw(
             _(
@@ -2195,6 +2198,407 @@ def validate_so_delivery_qty(doc, method=None):
             ),
             title=_("Sales Order quantity exceeded"),
         )
+
+    # Row level as well (VFY): an over-delivery on one item cannot hide behind
+    # an under-delivery on another.
+    if _is_hty_doc(doc):
+        return
+    ordered_by_item = {}
+    for r in frappe.get_all(
+        "Sales Order Item", filters={"parent": sales_order, "parenttype": "Sales Order"},
+        fields=["item_code", "qty"],
+    ):
+        ordered_by_item[r.item_code] = ordered_by_item.get(r.item_code, 0.0) + flt(r.qty)
+    if not ordered_by_item:
+        return
+    delivered_by_item = _delivered_by_sales_order_item(sales_order, exclude_dn=doc.name)
+    this_by_item = {}
+    for r in doc.get("items") or []:
+        this_by_item[r.item_code] = this_by_item.get(r.item_code, 0.0) + flt(r.qty)
+    for item_code, this_item_qty in this_by_item.items():
+        if this_item_qty <= 0:
+            continue
+        ordered_i = flt(ordered_by_item.get(item_code, 0.0))
+        limit_i = ordered_i * (1 + _over_delivery_allowance(item_code) / 100.0)
+        delivered_i = flt(delivered_by_item.get(item_code, 0.0))
+        if delivered_i + this_item_qty > limit_i + 0.0005:
+            frappe.throw(
+                _(
+                    "Sales Order <b>{0}</b>, item <b>{1}</b>: ordered {2}, already delivered {3}, "
+                    "remaining <b>{4}</b>. This Delivery Note carries {5} of it."
+                ).format(
+                    sales_order, item_code, flt(ordered_i, 3), flt(delivered_i, 3),
+                    flt(limit_i - delivered_i, 3), flt(this_item_qty, 3),
+                ),
+                title=_("Sales Order quantity exceeded"),
+            )
+
+
+# ---------------------------------------------------------------------------
+# MI1-I120 revision (Raj 2026-09-05) — VFY: booking and delivery meet only at
+# the Sales Order number. Batches on a Sales Order are reference information;
+# the Delivery Note may carry any batch that has stock; delivered / pending are
+# sums over the submitted notes linked to the order; booking is released
+# Sales-Order-wise (effective booking = ordered − delivered, floored at zero,
+# applied down the booked rows in order). HTY keeps its previous rules.
+# ---------------------------------------------------------------------------
+
+SO_OPEN_STATUSES = ("To Deliver and Bill", "To Deliver", "To Bill", "Partially Delivered")
+
+
+def _is_hty_doc(doc):
+    return (doc.get("transaction_type") or "VFY").strip().upper() == "HTY"
+
+
+def _over_delivery_allowance(item_code=None):
+    """Percent tolerance: the Item's own Over Delivery Allowance, else Stock
+    Settings' — the standard ERPNext rule (status_updater.get_allowance_for)."""
+    if item_code:
+        from erpnext.controllers.status_updater import get_allowance_for
+
+        allowance, *_ = get_allowance_for(item_code, {}, None, None, "qty")
+        return flt(allowance)
+    return flt(frappe.get_cached_value("Stock Settings", None, "over_delivery_receipt_allowance"))
+
+
+def _delivered_by_sales_order(sales_orders, exclude_dn=None):
+    """{so: {"qty", "weight"}} over SUBMITTED Delivery Notes linked to the order
+    by the header field OR the per-row link (each row counted once), net of
+    returns (negative rows). Drafts and cancelled notes never count."""
+    sos = sorted({s for s in (sales_orders or []) if s})
+    if not sos:
+        return {}
+    rows = frappe.db.sql(
+        """
+        SELECT x.so, COALESCE(SUM(x.qty), 0), COALESCE(SUM(x.weight), 0)
+        FROM (
+            SELECT dn.custom_sales_order AS so, dni.qty AS qty, dni.total_weight AS weight
+            FROM `tabDelivery Note Item` dni
+            INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+            WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+              AND dn.custom_sales_order IN %(sos)s
+            UNION ALL
+            SELECT dni.against_sales_order, dni.qty, dni.total_weight
+            FROM `tabDelivery Note Item` dni
+            INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+            WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+              AND dni.against_sales_order IN %(sos)s
+              AND IFNULL(dn.custom_sales_order, '') != dni.against_sales_order
+        ) x
+        GROUP BY x.so
+        """,
+        {"sos": sos, "exclude": exclude_dn or ""},
+    )
+    out = {so: {"qty": 0.0, "weight": 0.0} for so in sos}
+    for so, qty, weight in rows:
+        out[so] = {"qty": flt(qty), "weight": flt(weight)}
+    return out
+
+
+def _delivered_by_sales_order_item(sales_order, exclude_dn=None):
+    """{item_code: qty} delivered against one order, same linking rule."""
+    rows = frappe.db.sql(
+        """
+        SELECT x.item_code, COALESCE(SUM(x.qty), 0)
+        FROM (
+            SELECT dni.item_code, dni.qty
+            FROM `tabDelivery Note Item` dni
+            INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+            WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+              AND (dn.custom_sales_order = %(so)s OR dni.against_sales_order = %(so)s)
+        ) x
+        GROUP BY x.item_code
+        """,
+        {"so": sales_order, "exclude": exclude_dn or ""},
+    )
+    return {item: flt(qty) for item, qty in rows}
+
+
+def _delivered_by_sales_order_row(sales_order, exclude_dn=None):
+    """{so_detail: qty} — what each Sales Order row has already had delivered.
+
+    Rows linked by ERPNext's so_detail count where they point. Notes linked by
+    the header alone (created before rows were allocated) are allocated the
+    same way a new note is: by item, down the order's rows, in the order they
+    were submitted — so the picture is one rule, not two."""
+    so_rows = frappe.get_all(
+        "Sales Order Item",
+        filters={"parent": sales_order, "parenttype": "Sales Order"},
+        fields=["name", "idx", "item_code", "qty"],
+        order_by="idx asc",
+    )
+    if not so_rows:
+        return {}
+    delivered = {r.name: 0.0 for r in so_rows}
+    linked = frappe.db.sql(
+        """
+        SELECT dni.so_detail, COALESCE(SUM(dni.qty), 0)
+        FROM `tabDelivery Note Item` dni
+        INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+        WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+          AND dni.against_sales_order = %(so)s AND IFNULL(dni.so_detail, '') != ''
+        GROUP BY dni.so_detail
+        """,
+        {"so": sales_order, "exclude": exclude_dn or ""},
+    )
+    for so_detail, qty in linked:
+        if so_detail in delivered:
+            delivered[so_detail] += flt(qty)
+    legacy = frappe.db.sql(
+        """
+        SELECT dni.item_code, dni.qty
+        FROM `tabDelivery Note Item` dni
+        INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+        WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+          AND dn.custom_sales_order = %(so)s AND IFNULL(dni.so_detail, '') = ''
+        ORDER BY dn.posting_date, dn.posting_time, dn.name, dni.idx
+        """,
+        {"so": sales_order, "exclude": exclude_dn or ""},
+        as_dict=True,
+    )
+    by_item = {}
+    for r in so_rows:
+        by_item.setdefault(r.item_code, []).append(r)
+    for row in legacy:
+        left = flt(row.qty)
+        cands = by_item.get(row.item_code) or []
+        for i, cand in enumerate(cands):
+            if left <= 0:
+                break
+            room = flt(cand.qty) - delivered[cand.name]
+            take = left if i == len(cands) - 1 else min(left, max(room, 0.0))
+            if take <= 0:
+                continue
+            delivered[cand.name] += take
+            left -= take
+    return delivered
+
+
+def sales_order_booking_state(sales_orders=None, batch_names=None, exclude_so=None):
+    """Per OPEN Sales Order: ordered / delivered / pending (qty and weight) and
+    the booking each row still holds.
+
+    VFY (Raj 2026-09-05): effective booking = max(0, ordered − delivered),
+    applied down the rows in order — a fully delivered, closed or cancelled
+    order books nothing, whichever batches were actually shipped. HTY keeps
+    ERPNext's per-row `qty − delivered_qty`.
+
+    `batch_names` selects the orders that book any of those batches;
+    `sales_orders` selects orders by name; `exclude_so` drops one (the order
+    being validated)."""
+    if batch_names is not None and not sales_orders:
+        names = [n for n in batch_names if n]
+        if not names:
+            return {}
+        sos = frappe.db.sql_list(
+            """
+            SELECT DISTINCT soi.parent
+            FROM `tabSales Order Item` soi
+            INNER JOIN `tabSales Order` so ON so.name = soi.parent
+            WHERE soi.custom_batch_no IN %(names)s
+              AND so.docstatus = 1 AND so.status IN %(statuses)s
+            """,
+            {"names": names, "statuses": SO_OPEN_STATUSES},
+        )
+    else:
+        wanted = [s for s in (sales_orders or []) if s]
+        if not wanted:
+            return {}
+        sos = frappe.get_all(
+            "Sales Order",
+            filters={"name": ["in", wanted], "docstatus": 1, "status": ["in", list(SO_OPEN_STATUSES)]},
+            pluck="name",
+        )
+    sos = [s for s in sos if s != exclude_so]
+    if not sos:
+        return {}
+
+    heads = frappe.get_all(
+        "Sales Order",
+        filters={"name": ["in", sos]},
+        fields=["name", "customer", "customer_name", "transaction_type", "status", "custom_lifting_terms"],
+    )
+    rows = frappe.get_all(
+        "Sales Order Item",
+        filters={"parent": ["in", sos], "parenttype": "Sales Order"},
+        fields=["name", "parent", "idx", "item_code", "qty", "delivered_qty", "total_weight", "custom_batch_no", "custom_cone"],
+        order_by="parent asc, idx asc",
+    )
+    delivered = _delivered_by_sales_order(sos)
+
+    state = {}
+    for h in heads:
+        d = delivered.get(h.name) or {"qty": 0.0, "weight": 0.0}
+        state[h.name] = {
+            "customer": h.customer,
+            "customer_name": h.customer_name or "",
+            "lifting_terms": h.custom_lifting_terms or "",
+            "transaction_type": (h.transaction_type or "VFY").upper(),
+            "status": h.status,
+            "ordered_qty": 0.0,
+            "ordered_weight": 0.0,
+            "delivered_qty": d["qty"],
+            "delivered_weight": d["weight"],
+            "pending_qty": 0.0,
+            "pending_weight": 0.0,
+            "effective_booking": 0.0,
+            "rows": [],
+        }
+    by_so = {}
+    for r in rows:
+        by_so.setdefault(r.parent, []).append(r)
+
+    for so, st in state.items():
+        so_rows = by_so.get(so) or []
+        st["ordered_qty"] = sum(flt(r.qty) for r in so_rows)
+        st["ordered_weight"] = sum(flt(r.total_weight) for r in so_rows)
+        st["pending_qty"] = st["ordered_qty"] - st["delivered_qty"]
+        st["pending_weight"] = st["ordered_weight"] - st["delivered_weight"]
+        hty = st["transaction_type"] == "HTY"
+        # VFY: what has been delivered (with whatever batches) consumes the
+        # order's rows from the top — the same order a note's rows are
+        # allocated in — so the booking that remains sits on the last rows.
+        delivered_left = max(0.0, st["delivered_qty"])
+        for r in so_rows:
+            qty = flt(r.qty)
+            if hty:
+                booked = max(0.0, qty - flt(r.delivered_qty))
+                cones = flt(r.custom_cone) if booked > 0 else 0.0
+            else:
+                consumed = min(delivered_left, qty) if delivered_left > 0 else 0.0
+                delivered_left -= consumed
+                booked = max(0.0, qty - consumed)
+                cones = flt(r.custom_cone) * booked / qty if qty else 0.0
+            st["rows"].append({
+                "name": r.name, "idx": r.idx, "item_code": r.item_code, "qty": qty,
+                "batch": r.custom_batch_no, "booked": booked, "booked_cones": cones,
+            })
+        st["effective_booking"] = sum(x["booked"] for x in st["rows"])
+    return state
+
+
+def effective_booking_by_batch(batch_names, exclude_so=None):
+    """{batch: {"qty", "cones"}} still booked on each batch by open Sales
+    Orders, under the Sales-Order-wise release rule above."""
+    names = {n for n in (batch_names or []) if n}
+    if not names:
+        return {}
+    out = {n: {"qty": 0.0, "cones": 0.0} for n in names}
+    for st in sales_order_booking_state(batch_names=list(names), exclude_so=exclude_so).values():
+        for r in st["rows"]:
+            if r["batch"] in out and r["booked"] > 0:
+                out[r["batch"]]["qty"] += r["booked"]
+                out[r["batch"]]["cones"] += r["booked_cones"]
+    return out
+
+
+def require_vfy_sales_order(doc, method=None):
+    """MI1-I120 revision (Raj 2026-09-05): every VFY Delivery Note carries its
+    Sales Order — a submitted VFY order of the same customer. HTY and returns
+    are untouched (a return inherits the original note's order)."""
+    if _is_hty_doc(doc) or doc.get("is_return"):
+        return
+    so = doc.get("custom_sales_order")
+    if not so:
+        frappe.throw(
+            _("Sales Order No. is mandatory on a VFY Delivery Note — booking and delivery meet at the Sales Order number."),
+            title=_("Sales Order required"),
+        )
+    head = frappe.db.get_value("Sales Order", so, ["docstatus", "customer", "transaction_type", "status"], as_dict=True)
+    if not head or cint(head.docstatus) != 1:
+        frappe.throw(_("Sales Order {0} is not submitted.").format(frappe.bold(so)), title=_("Sales Order required"))
+    if (head.transaction_type or "VFY").strip().upper() == "HTY":
+        frappe.throw(_("Sales Order {0} is HTY; this Delivery Note is VFY.").format(frappe.bold(so)), title=_("Transaction Type Mismatch"))
+    if head.customer != doc.get("customer"):
+        frappe.throw(
+            _("Sales Order {0} belongs to {1}; this Delivery Note is for {2}.").format(
+                frappe.bold(so), frappe.bold(head.customer), frappe.bold(doc.get("customer") or "")
+            ),
+            title=_("Customer mismatch"),
+        )
+    if head.status in ("Closed", "On Hold"):
+        frappe.throw(_("Sales Order {0} is {1}.").format(frappe.bold(so), frappe.bold(head.status)), title=_("Sales Order not open"))
+
+
+_ROW_COPY_SKIP = {
+    "name", "idx", "owner", "creation", "modified", "modified_by", "docstatus",
+    "parent", "parentfield", "parenttype", "doctype", "so_detail", "against_sales_order",
+    "serial_and_batch_bundle", "serial_no", "__islocal", "__unsaved",
+}
+
+
+def allocate_delivery_note_to_sales_order(doc, method=None):
+    """MI1-I120 revision (Raj 2026-09-05), before_validate: each VFY note row is
+    allocated against the order's rows of the same item, in row order,
+    consuming each row's remaining balance before moving to the next — on
+    quantity alone, never on batch. A row that spans two order rows is split
+    (same batch, warehouse and rate; ERPNext recomputes the amounts). What no
+    order row can absorb sits on the item's last row, where the caps speak.
+
+    Runs before ERPNext's validate so `so_detail` / `against_sales_order` are in
+    place for its own reference checks and, on submit, for delivered_qty and
+    the order's status. HTY notes and returns are untouched."""
+    if _is_hty_doc(doc) or doc.get("is_return"):
+        return
+    so = doc.get("custom_sales_order")
+    if not so or not frappe.db.exists("Sales Order", so):
+        return  # require_vfy_sales_order speaks on validate
+    items = list(doc.get("items") or [])
+    if not items:
+        return
+    so_rows = frappe.get_all(
+        "Sales Order Item",
+        filters={"parent": so, "parenttype": "Sales Order"},
+        fields=["name", "idx", "item_code", "qty"],
+        order_by="idx asc",
+    )
+    if not so_rows:
+        return
+    by_item = {}
+    for r in so_rows:
+        by_item.setdefault(r.item_code, []).append(r)
+    delivered = _delivered_by_sales_order_row(so, exclude_dn=doc.name)
+    remaining = {r.name: flt(r.qty) - flt(delivered.get(r.name, 0.0)) for r in so_rows}
+
+    ordered_rows = []
+    for row in items:
+        cands = by_item.get(row.item_code)
+        if not cands:
+            frappe.throw(
+                _("Row {0}: Item {1} is not on Sales Order {2}.").format(row.idx, frappe.bold(row.item_code), frappe.bold(so)),
+                title=_("Item not ordered"),
+            )
+        left = flt(row.qty)
+        if left <= 0:
+            ordered_rows.append(row)
+            continue
+        first = True
+        for i, cand in enumerate(cands):
+            if left <= 0:
+                break
+            last = i == len(cands) - 1
+            room = max(remaining[cand.name], 0.0)
+            take = left if last else min(left, room)
+            if take <= 0:
+                continue
+            if first:
+                target = row
+                first = False
+            else:
+                data = {k: v for k, v in row.as_dict().items() if k not in _ROW_COPY_SKIP and v is not None}
+                target = doc.append("items", data)
+            target.qty = take
+            if target.get("weight_per_unit"):
+                target.total_weight = flt(target.weight_per_unit) * take * flt(target.get("conversion_factor") or 1)
+            target.against_sales_order = so
+            target.so_detail = cand.name
+            ordered_rows.append(target)
+            remaining[cand.name] -= take
+            left -= take
+
+    doc.set("items", ordered_rows)
+    for i, row in enumerate(doc.items, start=1):
+        row.idx = i
 
 
 def so_delivery_progress(sales_orders):
@@ -2669,7 +3073,7 @@ def enqueue_cancel_receipts():
 @frappe.whitelist()
 def validate_so_available_qty(doc, method=None):
     """Prevent overbooking: ensure SO item qty does not exceed available stock for batches."""
-    for item in doc.items:
+    for item in doc.get("items") or []:
         if not item.custom_batch_no:
             continue
 
@@ -2678,19 +3082,12 @@ def validate_so_available_qty(doc, method=None):
             frappe.db.get_value("Batch", item.custom_batch_no, "batch_qty")
         )
 
-        # Get total already-booked qty from other submitted SOs (excluding this one)
-        already_booked = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(soi.qty - soi.delivered_qty), 0)
-            FROM `tabSales Order Item` soi
-            JOIN `tabSales Order` so ON so.name = soi.parent
-            WHERE soi.custom_batch_no = %s
-            AND so.docstatus = 1
-            AND so.name != %s
-            AND so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')
-        """,
-            (item.custom_batch_no, doc.name),
-        )[0][0]
+        # MI1-I120 revision (Raj 2026-09-05): what other open orders still hold
+        # on this batch under the Sales-Order-wise release rule — an order that
+        # has been delivered (with any batches) no longer locks the batch.
+        already_booked = effective_booking_by_batch([item.custom_batch_no], exclude_so=doc.name).get(
+            item.custom_batch_no, {}
+        ).get("qty", 0.0)
 
         available = flt(batch_balance) - flt(already_booked)
         requested = flt(item.qty)

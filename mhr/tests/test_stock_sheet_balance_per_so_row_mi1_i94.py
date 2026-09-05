@@ -135,7 +135,7 @@ class TestReportExecutesAndAgingFires(FrappeTestCase):
     def test_execute_returns_rows_with_aging(self):
         cn = frappe.db.get_value(
             "Batch",
-            filters={"custom_container_no": ["!=", ""]},
+            filters={"custom_container_no": ["!=", ""], "creation": ["<", frappe.utils.today()]},  # same-day batches render Aging blank (MI1-I94)
             fieldname="custom_container_no",
         )
         if not cn:
@@ -168,7 +168,7 @@ class TestReportExecutesAndAgingFires(FrappeTestCase):
     def test_total_rows_leave_aging_blank(self):
         cn = frappe.db.get_value(
             "Batch",
-            filters={"custom_container_no": ["!=", ""]},
+            filters={"custom_container_no": ["!=", ""], "creation": ["<", frappe.utils.today()]},  # same-day batches render Aging blank (MI1-I94)
             fieldname="custom_container_no",
         )
         if not cn:

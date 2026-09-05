@@ -86,13 +86,12 @@ class TestWithStockSubtractsOpenBookings(FrappeTestCase):
         self.assertAlmostEqual(row["available_qty"], full - float(first["batch_qty"]) / 2, places=2)
 
     def test_booking_rule_matches_get_available_qty(self):
-        """One rule for the popup and the per-batch allocation."""
+        """One rule for the popup and the per-batch allocation — since the
+        MI1-I120 revision (Raj 2026-09-05) both read
+        mhr.utilis.effective_booking_by_batch (Sales-Order-wise release)."""
         from mhr import sales_order
         for fn in (sales_order._booked_qty_by_batch, sales_order._get_available_qty):
-            src = inspect.getsource(fn)
-            self.assertIn("SUM(soi.qty - soi.delivered_qty)", src)
-            self.assertIn("so.status IN ('To Deliver and Bill', 'To Deliver', 'To Bill', 'Partially Delivered')", src)
-            self.assertIn("so.docstatus = 1", src)
+            self.assertIn("effective_booking_by_batch", inspect.getsource(fn))
         self.assertEqual(sales_order._booked_qty_by_batch([]), {})
         self.assertEqual(sales_order._booked_qty_by_batch(["__no_such_batch__"]), {})
 

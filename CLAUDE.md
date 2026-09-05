@@ -225,6 +225,39 @@ The DN reports (`dn`, `delivery_note_lot_wise`, `delivery_challan`) carry
 Sales Order / SO Total Qty / SO Delivered / SO Remaining columns for linked
 notes and stay blank for unlinked ones.
 
+**Revision (Raj 2026-09-05) — VFY: booking and delivery meet only at the
+Sales Order number.** HTY is unchanged throughout.
+
+- `require_vfy_sales_order` (validate): every VFY note carries a submitted,
+  open Sales Order of the same customer. Returns are exempt (they inherit).
+- `allocate_delivery_note_to_sales_order` (**before_validate**, so ERPNext's
+  own reference checks and, on submit, `delivered_qty` / order status see the
+  links): each VFY row is allocated against the order's rows of the same item
+  in row order, consuming each row's remaining balance; a row spanning two
+  order rows is **split** (same batch / warehouse / rate); what no row can
+  absorb sits on the item's last row for the caps to refuse. Never on batch —
+  the note may ship any stocked batch (`SHIPPED` ≠ booked in the tests).
+- Caps: total level (`_delivered_against_sales_order`) and item level
+  (`_delivered_by_sales_order_item`), both within the standard Over Delivery
+  Allowance (`_over_delivery_allowance` → Item's, else Stock Settings').
+- **Booking is released Sales-Order-wise** (`sales_order_booking_state`,
+  `effective_booking_by_batch`): effective booking = ordered − delivered
+  (sum over submitted notes linked to the order, whichever batches), floored
+  at zero, applied down the order's rows in order; closed / cancelled / fully
+  delivered orders book nothing. `_get_available_qty`, `_get_available_cones`,
+  `_booked_qty_by_batch` (lot popup), `validate_so_available_qty` (Sales
+  Order validate) and the Stock Sheet's `get_booked_quantities` all read it.
+  HTY orders keep ERPNext's per-row `qty − delivered_qty`.
+- Stock Sheet (Balance Report): per-Sales-Order rows carry Delivered Qty /
+  Delivered Weight / Pending Qty / Pending Weight; Available Qty uses the
+  effective booking.
+- Client Script `MI1-I120 — Delivery Note Sales Order by Customer`: the
+  Sales Order dropdown lists only the selected Customer's submitted open
+  orders, is read-only until a Customer is chosen, and drops an order of
+  another customer when the Customer changes.
+- `carry_sales_order_details` stamps the header Sales Order on a VFY note
+  mapped from an order (the mapper has no header field to copy it from).
+
 ### Subcontract receipt flow (MI1-I50)
 
 A "Receive entry" is any Stock Entry whose `custom_original_send_entry` points

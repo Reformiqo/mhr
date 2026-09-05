@@ -221,6 +221,11 @@ def carry_sales_order_details(source_name, target):
 
 	source = frappe.get_doc("Sales Order", source_name)
 
+	# MI1-I120 revision (Raj 2026-09-05): every VFY Delivery Note carries its
+	# Sales Order number; the mapper has no header field to copy it from.
+	if (source.get("transaction_type") or "VFY").upper() != HTY and not target.get("custom_sales_order"):
+		target.custom_sales_order = source_name
+
 	if (source.get("transaction_type") or "VFY").upper() == HTY:
 		# The mapper copies the header spec by fieldname; make the mode
 		# explicit so a Sales Order saved before transaction_type existed still

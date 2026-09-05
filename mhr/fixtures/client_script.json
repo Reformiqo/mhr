@@ -400,6 +400,17 @@
   "doctype": "Client Script",
   "dt": "Delivery Note",
   "enabled": 1,
+  "modified": "2026-09-05 15:32:14.649821",
+  "module": "Mhr",
+  "name": "MI1-I120 — Delivery Note Sales Order by Customer",
+  "script": "// MI1-I120 revision (Raj 2026-09-05): the Sales Order No. dropdown follows the\n// Customer. Only that customer's submitted, open Sales Orders are offered; the\n// field is read-only until a Customer is chosen; changing the Customer refreshes\n// the list and drops an order that belongs to someone else. VFY only — HTY is\n// unchanged throughout. The server enforces the same rule on save\n// (mhr.utilis.require_vfy_sales_order).\nfunction mi1_i120_is_vfy(frm) {\n    return (frm.doc.transaction_type || '').toUpperCase() !== 'HTY';\n}\n\nfunction mi1_i120_apply_sales_order_query(frm) {\n    if (!frm.fields_dict.custom_sales_order) return;\n    if (!mi1_i120_is_vfy(frm)) return;\n    const customer = frm.doc.customer;\n    frm.set_query('custom_sales_order', () => ({\n        filters: {\n            customer: customer || '__no_customer__',\n            docstatus: 1,\n            status: ['not in', ['Closed', 'Cancelled', 'Completed', 'On Hold']],\n        },\n    }));\n    // Blocked until a Customer is selected (a property toggle, never a value\n    // write, so a submitted note does not go \"Not Saved\" — MI1-I106).\n    frm.set_df_property('custom_sales_order', 'read_only', customer ? 0 : 1);\n}\n\nfrappe.ui.form.on('Delivery Note', {\n    refresh: mi1_i120_apply_sales_order_query,\n    transaction_type: mi1_i120_apply_sales_order_query,\n    customer(frm) {\n        if (!mi1_i120_is_vfy(frm)) return;\n        mi1_i120_apply_sales_order_query(frm);\n        // A Sales Order of another customer cannot stay on the note.\n        if (frm.doc.custom_sales_order) {\n            frappe.db.get_value('Sales Order', frm.doc.custom_sales_order, 'customer').then((r) => {\n                const so_customer = r && r.message ? r.message.customer : null;\n                if (so_customer && so_customer !== frm.doc.customer) {\n                    frm.set_value('custom_sales_order', '');\n                }\n            });\n        }\n    },\n});\n",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Delivery Note",
+  "enabled": 1,
   "modified": "2026-08-31 21:00:00.000000",
   "module": "Mhr",
   "name": "MI1 — Delivery Note Cancel in Background",

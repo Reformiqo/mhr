@@ -149,6 +149,12 @@ after_migrate = "mhr.install.after_migrate"
 
 doc_events = {
     "Delivery Note": {
+        "before_validate": [
+            # MI1-I120 revision (Raj 2026-09-05): a VFY note's rows are allocated
+            # against its Sales Order's rows (FIFO by item) before ERPNext
+            # validates the references and, on submit, updates delivered_qty.
+            "mhr.utilis.allocate_delivery_note_to_sales_order",
+        ],
         "on_submit": [
             "mhr.utilis.update_item_batch",
             # MI1-I39 P2-G: HTY-mode return DN re-credits cones on submit
@@ -164,9 +170,13 @@ doc_events = {
             # MI1-I83 (Raj 2026-07-18): auto-populate custom_notes from
             # the linked VFY Container's `notes` field when empty.
             "mhr.utilis.fetch_notes_from_container",
+            # MI1-I120 revision (Raj 2026-09-05): every VFY note carries a
+            # submitted Sales Order of the same customer. HTY / returns: no-op.
+            "mhr.utilis.require_vfy_sales_order",
             # MI1-I120 (Raj 2026-09-02): when the note names a Sales Order,
-            # block delivering more than the order's remaining quantity.
-            # No Sales Order → no-op.
+            # block delivering more than the order's remaining quantity —
+            # total level and (VFY) item level, within the standard Over
+            # Delivery Allowance. No Sales Order → no-op.
             "mhr.utilis.validate_so_delivery_qty",
             # "mhr.utilis.validate_delivery_note_batches",
             # "mhr.utilis.validate_batch_container_match",

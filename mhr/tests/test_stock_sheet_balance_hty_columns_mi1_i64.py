@@ -77,13 +77,16 @@ class TestHtyDropsMergeNoAndCrossSection(FrappeTestCase):
         self.assertEqual(i_type, i_cone + 1,
             "In HTY, Type (Pulp column) must come immediately after Cone "
             "(Merge No was between them in VFY).")
-        # Lifting Terms right before Production Date (Cross Section
-        # was between them in VFY; now gone).
+        # Lifting Terms, then the Sales Order's delivery picture (MI1-I120
+        # revision, Raj 2026-09-05: Delivered / Pending qty and weight), then
+        # Production Date — Cross Section, which sat between them in VFY, is
+        # gone in HTY.
         i_lifting = by_label.index("Lifting Terms")
-        i_prod = by_label.index("Production Date")
-        self.assertEqual(i_prod, i_lifting + 1,
-            "In HTY, Production Date must come immediately after "
-            "Lifting Terms (Cross Section was between them in VFY).")
+        self.assertEqual(
+            by_label[i_lifting + 1:i_lifting + 6],
+            ["Delivered Qty", "Delivered Weight", "Pending Qty", "Pending Weight", "Production Date"],
+            "In HTY, Production Date must follow the Delivered / Pending block "
+            "right after Lifting Terms (Cross Section was between them in VFY).")
 
 
 class TestFieldnamesStable(FrappeTestCase):
