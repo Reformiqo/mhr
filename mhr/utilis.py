@@ -2140,14 +2140,27 @@ def _delivered_against_sales_order(sales_order, exclude_dn=None):
     The two are OR'd on the row so a row linked both ways is counted once.
     Returns net of submitted return notes, whose rows carry negative qty.
     """
+    # Two indexed halves, not one OR: an OR across dn.custom_sales_order and
+    # dni.against_sales_order scanned every Delivery Note Item row (327k on
+    # the bench, ~5 s; more on prod). The second half skips rows the first
+    # already counted, so a row linked both ways is counted once.
     row = frappe.db.sql(
         """
-        SELECT COALESCE(SUM(dni.qty), 0)
-        FROM `tabDelivery Note Item` dni
-        INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
-        WHERE dn.docstatus = 1
-          AND dn.name != %(exclude)s
-          AND (dn.custom_sales_order = %(so)s OR dni.against_sales_order = %(so)s)
+        SELECT COALESCE(SUM(x.qty), 0)
+        FROM (
+            SELECT dni.qty
+            FROM `tabDelivery Note` dn
+            INNER JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+            WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+              AND dn.custom_sales_order = %(so)s
+            UNION ALL
+            SELECT dni.qty
+            FROM `tabDelivery Note Item` dni
+            INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+            WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+              AND dni.against_sales_order = %(so)s
+              AND IFNULL(dn.custom_sales_order, '') != %(so)s
+        ) x
         """,
         {"so": sales_order, "exclude": exclude_dn or ""},
     )
@@ -2304,10 +2317,17 @@ def _delivered_by_sales_order_item(sales_order, exclude_dn=None):
         SELECT x.item_code, COALESCE(SUM(x.qty), 0)
         FROM (
             SELECT dni.item_code, dni.qty
+            FROM `tabDelivery Note` dn
+            INNER JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+            WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
+              AND dn.custom_sales_order = %(so)s
+            UNION ALL
+            SELECT dni.item_code, dni.qty
             FROM `tabDelivery Note Item` dni
             INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
             WHERE dn.docstatus = 1 AND dn.name != %(exclude)s
-              AND (dn.custom_sales_order = %(so)s OR dni.against_sales_order = %(so)s)
+              AND dni.against_sales_order = %(so)s
+              AND IFNULL(dn.custom_sales_order, '') != %(so)s
         ) x
         GROUP BY x.item_code
         """,

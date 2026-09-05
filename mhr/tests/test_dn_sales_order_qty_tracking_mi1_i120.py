@@ -145,8 +145,13 @@ class TestValidateSoDeliveryQty(FrappeTestCase):
     def test_delivered_counts_header_link_or_row_link_once(self):
         from mhr import utilis
         src = inspect.getsource(utilis._delivered_against_sales_order)
-        self.assertIn("dn.custom_sales_order = %(so)s OR dni.against_sales_order = %(so)s", src,
-                      "Both link styles must count, OR'd on the row so neither double-counts.")
+        # Two indexed halves (an OR across the two link columns scanned every
+        # row); the second half excludes rows the first counted.
+        self.assertIn("AND dn.custom_sales_order = %(so)s", src)
+        self.assertIn("UNION ALL", src)
+        self.assertIn("AND dni.against_sales_order = %(so)s", src)
+        self.assertIn("AND IFNULL(dn.custom_sales_order, '') != %(so)s", src,
+                      "A row linked both ways must be counted once.")
         self.assertIn("dn.docstatus = 1", src)
 
 
