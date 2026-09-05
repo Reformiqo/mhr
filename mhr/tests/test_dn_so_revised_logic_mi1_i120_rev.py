@@ -271,9 +271,13 @@ class TestEndToEnd(_WithOrder):
         dn = _make_dn(self.so.name, [(20, SHIPPED), (10, SHIPPED_2)]); self.docs.append(dn)
         dn.insert(ignore_permissions=True)
         self.assertEqual([(r.qty, r.so_detail) for r in dn.items], [(20.0, None), (10.0, None)])
+        self.assertEqual(dn.custom_so_total_qty, 60.0, "Nothing delivered yet: remaining = ordered.")
         dn.submit()
         try:
             self.assertEqual(utilis._delivered_by_sales_order([self.so.name])[self.so.name]["qty"], 30.0)
+            self.assertEqual(utilis.get_so_remaining_qty(self.so.name), 30.0, "A new note now sees 60 − 30.")
+            self.assertEqual(utilis.get_so_remaining_qty(self.so.name, dn.name), 60.0, "The note never counts against itself.")
+            self.assertEqual(frappe.db.get_value("Delivery Note", dn.name, "custom_so_total_qty"), 60.0, "Frozen at submission.")
             self.so.reload()
             self.assertEqual([r.delivered_qty for r in self.so.items], [20.0, 10.0, 0.0], "Credited down the rows per item.")
             self.assertEqual(self.so.per_delivered, 50.0)

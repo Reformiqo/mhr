@@ -2170,14 +2170,16 @@ def validate_so_delivery_qty(doc, method=None):
         return
 
     ordered = _so_total_qty(sales_order)
-    if not flt(doc.get("custom_so_total_qty")):
-        doc.custom_so_total_qty = ordered
+    delivered = _delivered_against_sales_order(sales_order, exclude_dn=doc.name)
+    # 2026-09-05: the header's Total Quantity shows what is still deliverable
+    # on the order — ordered minus what OTHER submitted notes delivered — not
+    # the order total. Set on every validate so the stored value is right for
+    # mapped / API saves too; frozen at submission like any submitted field.
+    doc.custom_so_total_qty = flt(ordered - delivered, 3)
 
     this_qty = sum(flt(r.qty) for r in (doc.get("items") or []))
     if this_qty <= 0:
         return
-
-    delivered = _delivered_against_sales_order(sales_order, exclude_dn=doc.name)
     # MI1-I120 revision (Raj 2026-09-05): tolerance is the standard Over
     # Delivery Allowance (Stock Settings, or the Item's own).
     allowance = _over_delivery_allowance()
@@ -2601,6 +2603,21 @@ def refresh_sales_order_delivery(sales_order):
     so = frappe.get_doc("Sales Order", sales_order)
     if so.docstatus == 1 and so.status not in ("Closed", "On Hold"):
         so.set_status(update=True, update_modified=False)
+
+
+@frappe.whitelist()
+def get_so_remaining_qty(sales_order, delivery_note=None):
+    """Remaining quantity on a Sales Order for the Delivery Note header's
+    Total Quantity (2026-09-05): ordered total minus what submitted notes
+    delivered against it (header or row link, net of returns), excluding
+    `delivery_note` itself so a note never counts against its own remaining.
+    Drafts and cancelled notes never count."""
+    frappe.has_permission("Delivery Note", "read", throw=True)
+    if not sales_order:
+        return 0.0
+    ordered = _so_total_qty(sales_order)
+    delivered = _delivered_against_sales_order(sales_order, exclude_dn=delivery_note)
+    return flt(ordered - delivered, 3)
 
 
 def so_delivery_progress(sales_orders):

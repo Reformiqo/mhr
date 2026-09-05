@@ -3,7 +3,9 @@
 Raj's points, verbatim:
   1. Two new Delivery Note fields: Sales Order No. (Link → Sales Order) and
      Total Quantity (read-only).
-  2. Selecting a Sales Order auto-fetches its total ordered quantity.
+  2. Selecting a Sales Order auto-fetches its total ordered quantity —
+     revised 2026-09-05: the field shows the REMAINING quantity (ordered −
+     delivered by other submitted notes, this note excluded).
   3. Total delivered against that Sales Order (this note + every other
      submitted note against it) must not exceed the ordered quantity;
      otherwise block with a clear message.
@@ -45,14 +47,14 @@ class TestFields(FrappeTestCase):
         self.assertFalse(f.reqd, "Raj: Sales Order must not be mandatory.")
         self.assertEqual(f.label, "Sales Order No.")
 
-    def test_total_quantity_is_read_only_and_fetched_from_the_order(self):
+    def test_total_quantity_is_read_only_and_computed_not_fetched(self):
         f = frappe.get_meta("Delivery Note").get_field("custom_so_total_qty")
         self.assertIsNotNone(f, "Delivery Note.custom_so_total_qty missing.")
         self.assertEqual(f.fieldtype, "Float")
         self.assertTrue(f.read_only)
-        self.assertEqual(f.fetch_from, "custom_sales_order.total_qty",
-                         "Auto-fetch is declarative: frappe fills it when the link resolves.")
+        self.assertFalse(f.fetch_from, "2026-09-05: remaining qty is computed — a fetch_from would put the order total back.")
         self.assertEqual(f.label, "Total Quantity")
+        self.assertIn("Remaining", f.description or "")
 
     def test_fields_ship_via_fixture_under_the_customer(self):
         with open(CF_FIXTURE, encoding="utf-8") as f:
@@ -86,12 +88,33 @@ class TestValidateSoDeliveryQty(FrappeTestCase):
 
     def test_within_remaining_passes_and_fills_total_quantity(self):
         from mhr import utilis
-        doc = _dn([{"qty": 200}, {"qty": 100}])
+        doc = _dn([{"qty": 200}, {"qty": 100}], custom_so_total_qty=1000.0)
         with patch.object(utilis, "_so_total_qty", return_value=1000.0), \
              patch.object(utilis, "_delivered_against_sales_order", return_value=700.0):
             utilis.validate_so_delivery_qty(doc)          # 300 <= 1000 - 700
-        self.assertEqual(doc.custom_so_total_qty, 1000.0,
-                         "Blank Total Quantity is refreshed from the order (API / mapped saves).")
+        self.assertEqual(doc.custom_so_total_qty, 300.0,
+                         "Total Quantity shows the REMAINING order quantity (ordered − delivered by others), "
+                         "overwritten on every save so a stale fetch never survives.")
+
+    def test_remaining_qty_endpoint_excludes_the_current_note(self):
+        from mhr import utilis
+        self.assertIn(utilis.get_so_remaining_qty, frappe.whitelisted)
+        with patch.object(utilis, "_so_total_qty", return_value=1999.1), \
+             patch.object(utilis, "_delivered_against_sales_order", return_value=500.0) as dlv:
+            self.assertEqual(utilis.get_so_remaining_qty("SO-TEST", "MAT-DN-FY04726"), 1499.1)
+        dlv.assert_called_once_with("SO-TEST", exclude_dn="MAT-DN-FY04726")
+        self.assertEqual(utilis.get_so_remaining_qty(None), 0.0)
+
+    def test_client_fills_remaining_on_pick_and_on_draft_refresh(self):
+        with open(os.path.join(frappe.get_app_path("mhr"), "fixtures", "client_script.json"), encoding="utf-8") as fh:
+            cs = next(c for c in json.load(fh) if c["name"] == "MI1-I120 — Delivery Note Sales Order by Customer")
+        src = cs["script"]
+        self.assertIn("method: 'mhr.utilis.get_so_remaining_qty'", src)
+        self.assertIn("custom_sales_order: mi1_i120_set_remaining_qty,", src)
+        self.assertIn("mi1_i120_set_remaining_qty(frm);", src, "refresh recomputes an open draft")
+        self.assertIn("if (frm.doc.docstatus !== 0) return;", src, "MI1-I106: never dirty a submitted note")
+        self.assertIn("frm.precision('custom_so_total_qty')", src)
+        self.assertEqual(frappe.db.get_value("Client Script", cs["name"], "script"), src)
 
     def test_exceeding_remaining_is_blocked_with_the_numbers(self):
         from mhr import utilis

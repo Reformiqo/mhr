@@ -212,9 +212,14 @@ resolved warehouse when the master `batch_qty` is 0.
 
 ### Delivery Note ↔ Sales Order quantity cap (MI1-I120)
 
-Two optional header fields on Delivery Note: `custom_sales_order` (Link →
-Sales Order) and read-only `custom_so_total_qty` (`fetch_from
-custom_sales_order.total_qty`). When a note names an order,
+Two header fields on Delivery Note: `custom_sales_order` (Link → Sales
+Order) and read-only `custom_so_total_qty`, labelled "Total Quantity" but
+holding the **remaining** order quantity since 2026-09-05: ordered total minus
+what other submitted notes delivered (this note excluded), computed by
+`mhr.utilis.get_so_remaining_qty` on pick / draft refresh (Client Script
+`MI1-I120 — Delivery Note Sales Order by Customer`) and rewritten by
+`validate_so_delivery_qty` on every save — no `fetch_from`, which would put
+the order total back. Frozen at submission. When a note names an order,
 `validate_so_delivery_qty` blocks it if this note's qty exceeds
 `ordered − already delivered`. "Already delivered" is the sum of submitted
 Delivery Note rows linked to the order by **either** the header field **or**
