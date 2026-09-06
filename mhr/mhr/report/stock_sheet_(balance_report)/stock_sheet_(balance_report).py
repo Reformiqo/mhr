@@ -140,65 +140,165 @@ def get_external_job_work_warehouses():
     ))
 
 
-def get_batch_balances(batch_ids):
-    """Get stock balance per batch from SLE + SBE, queried in chunks.
+BALANCE_CHUNK = 5000
+SBB_STATUS_INDEX = "idx_sbb_name_status"
 
-    MI1-I82 (Raj 2026-07-16): entries in External Job Work warehouses
-    are excluded so their stock does not count as company balance.
+
+def _sbb_status_index_hint():
+    """FORCE INDEX clause for the bundle join, or '' until the MI1-I119 patch
+    has created the index (a hint naming a missing index is a SQL error).
+
+    The optimizer prefers the clustered primary key for `sbb.name = sbe.parent`
+    and reads the whole 380K-row bundle table through it, which is what made
+    a full-range run spend 73 of 85 seconds in this join. The covering
+    `(name, docstatus, is_cancelled)` index answers the same lookup from
+    ~12 MB, but MariaDB only picks it when told to. Checked once per request.
+    """
+    cached = getattr(frappe.local, "_mhr_sbb_status_index", None)
+    if cached is None:
+        cached = bool(
+            frappe.db.sql(
+                """SELECT 1 FROM information_schema.statistics
+                   WHERE table_schema = DATABASE()
+                     AND table_name = 'tabSerial and Batch Bundle'
+                     AND index_name = %s
+                   LIMIT 1""",
+                (SBB_STATUS_INDEX,),
+            )
+        )
+        frappe.local._mhr_sbb_status_index = cached
+    return f"FORCE INDEX (`{SBB_STATUS_INDEX}`)" if cached else ""
+
+
+def get_batch_warehouse_balances(batch_ids):
+    """Live stock per (batch, warehouse): {(batch_no, warehouse): qty}.
+
+    One set-based query per chunk over Serial and Batch Entry, keeping only
+    rows whose bundle is submitted and not cancelled — the same rule as
+    mhr.utilis._batch_balance_in_warehouse, and the only correct one: this
+    site holds ~51K entry rows whose bundle was deleted from under them
+    (22.6K batches would show phantom stock without the join). Pre-bundle
+    Stock Ledger rows that name the batch directly are added on top.
+    Zero-sum (batch, warehouse) pairs are dropped by the database, so the
+    result is roughly the stocked set, not every batch ever moved.
+
+    MI1-I82: External Job Work warehouses are excluded here, so nothing that
+    consumes this map ever counts a subcontractor's stock as the company's.
+    """
+    out = {}
+    names = [b for b in batch_ids if b]
+    if not names:
+        return out
+    external_wh = get_external_job_work_warehouses()
+    ext_sql = " AND sbe.warehouse NOT IN %(external)s" if external_wh else ""
+    ext_sql_sle = " AND warehouse NOT IN %(external)s" if external_wh else ""
+    params = {"external": tuple(external_wh)} if external_wh else {}
+    hint = _sbb_status_index_hint()
+
+    for i in range(0, len(names), BALANCE_CHUNK):
+        chunk = tuple(names[i : i + BALANCE_CHUNK])
+        # Bundle entries (ERPNext v15+ method).
+        for batch_no, warehouse, qty in frappe.db.sql(
+            f"""
+            SELECT sbe.batch_no, sbe.warehouse, SUM(sbe.qty)
+            FROM `tabSerial and Batch Entry` sbe
+            INNER JOIN `tabSerial and Batch Bundle` sbb {hint} ON sbb.name = sbe.parent
+            WHERE sbb.docstatus = 1 AND sbb.is_cancelled = 0
+              AND sbe.batch_no IN %(batches)s{ext_sql}
+            GROUP BY sbe.batch_no, sbe.warehouse
+            HAVING ABS(SUM(sbe.qty)) > 0.0005
+            """,
+            {"batches": chunk, **params},
+        ):
+            key = (batch_no, warehouse or "")
+            out[key] = out.get(key, 0.0) + flt(qty)
+        # Direct SLE entries (older method — batch_no on the ledger row itself).
+        for batch_no, warehouse, qty in frappe.db.sql(
+            f"""
+            SELECT batch_no, warehouse, SUM(actual_qty)
+            FROM `tabStock Ledger Entry`
+            WHERE docstatus = 1 AND is_cancelled = 0
+              AND batch_no IN %(batches)s
+              AND IFNULL(serial_and_batch_bundle, '') = ''{ext_sql_sle}
+            GROUP BY batch_no, warehouse
+            HAVING ABS(SUM(actual_qty)) > 0.0005
+            """,
+            {"batches": chunk, **params},
+        ):
+            key = (batch_no, warehouse or "")
+            out[key] = out.get(key, 0.0) + flt(qty)
+    return out
+
+
+def get_batch_balances(batch_ids, warehouse_balances=None):
+    """Get stock balance per batch: {batch_no: qty}, summed over warehouses.
+
+    MI1-I82 (Raj 2026-07-16): entries in External Job Work warehouses are
+    excluded (inside get_batch_warehouse_balances, which calls
+    get_external_job_work_warehouses) so their stock does not count as
+    company balance. Pass `warehouse_balances` to reuse a map already built.
     """
     if not batch_ids:
         return {}
-
+    if warehouse_balances is None:
+        warehouse_balances = get_batch_warehouse_balances(batch_ids)
     balance_map = {}
-    CHUNK = 2000
-    external_wh = get_external_job_work_warehouses()
-
-    SLE = frappe.qb.DocType("Stock Ledger Entry")
-    SBE = frappe.qb.DocType("Serial and Batch Entry")
-    SBB = frappe.qb.DocType("Serial and Batch Bundle")
-
-    for i in range(0, len(batch_ids), CHUNK):
-        chunk = batch_ids[i : i + CHUNK]
-
-        # Direct SLE entries (older method - batch_no on SLE itself)
-        sle_q = (
-            frappe.qb.from_(SLE)
-            .select(SLE.batch_no, Sum(SLE.actual_qty).as_("balance"))
-            .where(SLE.docstatus == 1)
-            .where(SLE.is_cancelled == 0)
-            .where(SLE.batch_no.isin(chunk))
-            .where(
-                (SLE.serial_and_batch_bundle.isnull())
-                | (SLE.serial_and_batch_bundle == "")
-            )
-            .groupby(SLE.batch_no)
-        )
-        if external_wh:
-            sle_q = sle_q.where(SLE.warehouse.notin(list(external_wh)))
-        rows = sle_q.run(as_dict=True)
-
-        for r in rows:
-            balance_map[r.batch_no] = balance_map.get(r.batch_no, 0) + flt(r.balance)
-
-        # Bundle SBE entries (ERPNext v15+ method)
-        sbe_q = (
-            frappe.qb.from_(SBE)
-            .inner_join(SBB)
-            .on(SBB.name == SBE.parent)
-            .select(SBE.batch_no, Sum(SBE.qty).as_("balance"))
-            .where(SBB.docstatus == 1)
-            .where(SBB.is_cancelled == 0)
-            .where(SBE.batch_no.isin(chunk))
-            .groupby(SBE.batch_no)
-        )
-        if external_wh:
-            sbe_q = sbe_q.where(SBB.warehouse.notin(list(external_wh)))
-        rows = sbe_q.run(as_dict=True)
-
-        for r in rows:
-            balance_map[r.batch_no] = balance_map.get(r.batch_no, 0) + flt(r.balance)
-
+    for (batch_no, _warehouse), qty in warehouse_balances.items():
+        balance_map[batch_no] = balance_map.get(batch_no, 0.0) + flt(qty)
     return balance_map
+
+
+def live_warehouses_by_batch(warehouse_balances):
+    """{batch_no: {warehouse: qty}} for the positive entries of a
+    get_batch_warehouse_balances map — indexed once so every stock group can
+    look its batches up without scanning the whole map."""
+    by_batch = {}
+    for (batch_no, warehouse), qty in warehouse_balances.items():
+        if flt(qty) > 0 and warehouse:
+            by_batch.setdefault(batch_no, {})
+            by_batch[batch_no][warehouse] = by_batch[batch_no].get(warehouse, 0.0) + flt(qty)
+    return by_batch
+
+
+def live_warehouses(batch_ids, by_batch):
+    """Warehouses holding a positive live balance of any of these batches,
+    largest first, as one display string ("Vadod - MC", or "Vadod - MC,
+    Finished Goods - MC" for a lot split across two).
+
+    MI1-I125 (Rohit 2026-09-05): the "Accepted Warehouse" column used to show
+    Container.set_warehouse — where the container was inwarded — so after a
+    Material Transfer (MAT-GD-2026-00011-1, MCL-29, Finished Goods - MC ->
+    Vadod - MC) it still named the source warehouse. MI1-I103 settled that a
+    stock movement never rewrites that field; the live location is the Serial
+    and Batch Bundle balance, which is what this returns. Empty when none of
+    the batches holds stock, so the caller can fall back to the inward value.
+    """
+    per_wh = {}
+    for batch_no in batch_ids:
+        for warehouse, qty in (by_batch.get(batch_no) or {}).items():
+            per_wh[warehouse] = per_wh.get(warehouse, 0.0) + qty
+    ordered = sorted(per_wh.items(), key=lambda kv: (-kv[1], kv[0]))
+    return ", ".join(wh for wh, _qty in ordered)
+
+
+def get_batch_rows(batch_ids):
+    """Attribute rows of the given batches, in chunks, in the shape Step 3
+    groups on. Only the stocked batches come through here (MI1-I119)."""
+    rows = []
+    for i in range(0, len(batch_ids), BALANCE_CHUNK):
+        rows += frappe.db.sql(
+            """
+            SELECT name AS batch_id, item, custom_container_no AS container_no,
+                   custom_lot_no AS lot_no, custom_cone AS cone, custom_pulp AS pulp,
+                   custom_lusture AS lusture, custom_glue AS glue, custom_grade AS grade,
+                   creation, batch_qty AS net_weight, custom_merge_no AS merge_no
+            FROM `tabBatch`
+            WHERE name IN %(names)s
+            """,
+            {"names": tuple(batch_ids[i : i + BALANCE_CHUNK])},
+            as_dict=True,
+        )
+    return rows
 
 
 def get_booked_quantities(batch_ids):
@@ -294,27 +394,21 @@ def get_data(filters=None):
     transaction_type = filters.get("transaction_type")
 
 
-    # Step 1: Query filtered batches
+    # Step 1: Query filtered batches — names first.
+    #
+    # MI1-I119 (Raj 2026-09-02): a full-range run loaded all 378K batches with
+    # twelve columns, then aggregated their bundle balances 2000 at a time
+    # through the bundle table's primary key — 85 s locally, 73 of them in
+    # that join, and frappe flipped the report into prepared-report mode
+    # (which is why prod showed "Rebuild" / "Generate New Report" and the HTY
+    # run never came back). Now: names only, balances through the covering
+    # `idx_sbb_name_status` index (mhr.patches.v1_0.add_serial_batch_bundle_
+    # status_index) in chunks of 5000 that return only non-zero (batch,
+    # warehouse) pairs, then the full rows for the ~80K batches that actually
+    # hold stock — the only ones the sheet can render. Same figures, ~6x
+    # faster, and the report runs inline again.
     Batch = frappe.qb.DocType("Batch")
-    select_fields = [
-        Batch.name.as_("batch_id"),
-        Batch.item,
-        Batch.custom_container_no.as_("container_no"),
-        Batch.custom_lot_no.as_("lot_no"),
-        Batch.custom_cone.as_("cone"),
-        Batch.custom_pulp.as_("pulp"),
-        Batch.custom_lusture.as_("lusture"),
-        Batch.custom_glue.as_("glue"),
-        Batch.custom_grade.as_("grade"),
-        Batch.creation,
-        Batch.batch_qty.as_("net_weight"),
-        Batch.custom_merge_no.as_("merge_no"),
-    ]
-
-    query = (
-        frappe.qb.from_(Batch)
-        .select(*select_fields)
-    )
+    query = frappe.qb.from_(Batch).select(Batch.name.as_("batch_id"))
 
     if fdt:
         query = query.where(Batch.creation >= fdt)
@@ -376,17 +470,26 @@ def get_data(filters=None):
             return []
         query = query.where(Batch.custom_container_no.isin(list(allowed_containers)))
 
-    batches = query.run(as_dict=True)
+    batch_ids = query.run(pluck="batch_id")
+    if not batch_ids:
+        return []
+
+    # Step 2: Live stock per batch and per (batch, warehouse)
+    warehouse_balances = get_batch_warehouse_balances(batch_ids)
+    balance_map = get_batch_balances(batch_ids, warehouse_balances)
+    stocked_by_batch = live_warehouses_by_batch(warehouse_balances)
+
+    # Only batches with stock can appear on the sheet (Step 4 drops the rest),
+    # so only those need their attributes loaded.
+    stocked_ids = [b for b in batch_ids if flt(balance_map.get(b, 0)) > 0]
+    if not stocked_ids:
+        return []
+    batches = get_batch_rows(stocked_ids)
     if not batches:
         return []
 
-    batch_ids = [b.batch_id for b in batches]
-
-    # Step 2: Get stock balance per batch
-    balance_map = get_batch_balances(batch_ids)
-
     # Step 2b: Get per-booking details per batch
-    booked_map = get_booked_quantities(batch_ids)
+    booked_map = get_booked_quantities(stocked_ids)
 
     # Step 2c: Get cross_section, notes, warehouse from Container doctype
     container_keys = set()
@@ -459,12 +562,16 @@ def get_data(filters=None):
                 "production_date": ci.get("production_date", ""),
                 "notes": ci.get("notes", ""),
                 "location": ci.get("location", ""),
+                # MI1-I125: resolved from live stock once the group is
+                # complete (see below); the inward warehouse is the fallback.
                 "accepted_warehouse": ci.get("accepted_warehouse", ""),
+                "stocked_batches": [],
             }
 
         if flt(balance_map.get(b.batch_id, 0)) > 0:
             groups[key]["balance"] += flt(b.net_weight)
             groups[key]["balance_box"] += 1
+            groups[key]["stocked_batches"].append(b.batch_id)
 
         # Collect individual bookings for this batch, consolidate by sales order
         bk_list = booked_map.get(b.batch_id)
@@ -514,6 +621,10 @@ def get_data(filters=None):
         if g["balance_box"] > 0 and flt(g["balance"]) > 0:
             g["sort_order"] = 0
             g["report_date"] = g["batch_date"].strftime("%d/%m/%Y")
+            # MI1-I125: where the stock IS, not where the container came in.
+            g["accepted_warehouse"] = (
+                live_warehouses(g["stocked_batches"], stocked_by_batch) or g["accepted_warehouse"]
+            )
             g["available_qty"] = round(flt(g["balance"]) - flt(g["booked_qty"]), 2)
             # Identifies which rendered rows came out of this one stock group.
             # Step 8 emits one full row per Sales Order booking, repeating

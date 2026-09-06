@@ -37,7 +37,7 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 
 - `Delivery Challan`
 - `Meher Creation`
-- `Stock Sheet (Balance Report)` — has Company filter + Accepted Warehouse column (recent commit `fa85a96`)
+- `Stock Sheet (Balance Report)` — Company filter + Accepted Warehouse column. **Accepted Warehouse is the live location** since MI1-I125 (2026-09-06): the warehouse(s) holding the group's Serial and Batch Bundle balance, largest first, falling back to `Container.set_warehouse` only when nothing is stocked — a Material Transfer therefore shows its target. **Runs inline** since MI1-I119: see *Balance report performance* below.
 - `Stock Sheet (Balance Report Simple)`
 - `Stock Sheet (Inward Cone Wise)` (+ `v2`)
 - `Stock Sheets (Inward Coneless Stock )`
@@ -46,6 +46,37 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Subcontracting Stock Tracking` — MI1-I123; the whole job-work chain in one row set (Send → Job Work Received → lot in the target warehouse → Delivery Notes → balance), 17 FRD columns + optional stock-validation columns, six statuses, an unlinked-receipts section and a server-built total row. See *Subcontracting Stock Tracking report* below.
 - `DN` and `Delivery Note Lot-Wise` — **Merge No comes from the Container master per (container, lot)** via `mhr.mhr.report.dn.dn._merge_numbers_by_container_and_lot` (0b370d3, MI1-I116), never from `dn.custom_merge_no`, which is a note-level aggregate and showed the first container's value on every row.
 - `Delivery Trip Simplified` — MI1-I35; one row per Delivery Stop. MI1-I122 added a Transaction Type filter (VFY / HTY, blank = both) and column, read from the stop's Delivery Note, else the Trip, else `VFY` for legacy documents — the same `IFNULL → VFY` rule as Delivery Challan.
+
+**Balance report performance (MI1-I119, 2026-09-06).** A full-range run of
+Stock Sheet (Balance Report) took ~85 s on the 378K-batch replica, 73 s of it
+in `get_batch_balances`: every Serial and Batch Entry row joined to its bundle
+through the bundle table's clustered primary key (380K wide rows, not in the
+buffer pool). frappe flips `Report.prepared_report` to 1 by itself the first
+time a run passes 15 s (`report.py :: enable_prepared_report`), which is why
+prod showed "Rebuild" / "Generate New Report" and the HTY run never came back.
+Three changes, same figures (verified cell-for-cell against the old code):
+
+- `mhr.patches.v1_0.add_serial_batch_bundle_status_index` adds two covering
+  indexes: `idx_sbb_name_status (name, docstatus, is_cancelled)` on the bundle
+  table and `idx_sbe_batch_cover (batch_no, parent, warehouse, qty)` on the
+  entry table, so the join runs on indexes alone. `get_batch_warehouse_balances`
+  names the bundle index with `FORCE INDEX` (the optimizer prefers the primary
+  key otherwise) only when it exists (`_sbb_status_index_hint`); the entry
+  index the optimizer picks itself. Chunks of 5000, plain `frappe.db.sql`, and
+  `HAVING ABS(SUM(qty)) > 0.0005` so only stocked (batch, warehouse) pairs
+  travel back. ~4 s instead of 73 s.
+- **The bundle join is not optional.** ~51K Serial and Batch Entry rows on this
+  site have no bundle behind them (22.6K batches); summing entries by their own
+  `docstatus` shows phantom stock. Every balance helper keeps the
+  `sbb.docstatus = 1 AND sbb.is_cancelled = 0` join.
+- `get_data` queries batch names first, aggregates balances, and loads full
+  rows (`get_batch_rows`) and bookings only for the ~80K stocked batches the
+  sheet can render.
+- `mhr.patches.v1_0.set_stock_sheet_balance_report_inline` resets the flag the
+  watcher had set. The standard report JSON cannot: `before_export` writes
+  `prepared_report: 0` into the file, but re-importing a JSON over an existing
+  Report does not apply it (verified with `import_file_by_path(force=True)`).
+  The 15 s watcher remains the safety valve.
 
 **Report optimization pattern** (applied across all 4 stock reports, 2026-02-08):
 
@@ -87,8 +118,11 @@ and Batch Bundle** (`mhr.note._clamp_batch_qty_to_available`,
 already sent to a subcontractor still looks available. The Stock Entry form
 passes its source (`from_warehouse` → a row's `s_warehouse` → the Container's
 Accepted Warehouse) and refuses to fetch without one; Delivery Note passes none
-and is unchanged. It also orders by `custom_supplier_batch_no` and re-sorts
-numerically, because the column is Data and SQL puts `'10'` before `'9'`.
+and is unchanged. The scan window is ordered
+`CAST(custom_supplier_batch_no AS UNSIGNED)` (MI1-I124, 2026-09-05) and the
+result re-sorted numerically: the column is Data, and a text order put `'1',
+'10', '100', '101'` first, so "Count 10" fetched 1, 10, 11, 12, 13, 14, 100,
+101, 102, 103 instead of 1 to 10.
 
 **`Batch.batch_qty` is not a live quantity.** ERPNext keeps it
 *incrementally* (`serial_batch_bundle.update_batch_qty` adds each posted

@@ -291,7 +291,13 @@ def fetch_batches(
             # MI1-I103: there was no order_by at all — MAT-GD-2026-00008 landed
             # 6876, 6870, 6872, 6879, 6874. This decides which rows survive the
             # scan limit; the numeric sort below decides how they are presented.
-            order_by="custom_supplier_batch_no asc, name asc",
+            # MI1-I124 (2026-09-05): the window itself must be numeric. The
+            # column is Data, so "custom_supplier_batch_no asc" put '1', '10',
+            # '100', '101' ... first and "Count 10" on MCIR-03 came back as
+            # 1, 10, 11, 12, 13, 14, 100, 101, 102, 103 — the string-smallest
+            # ten, re-sorted — instead of 1 to 10. CAST orders the digits as a
+            # number; the raw value breaks ties and orders non-numeric values.
+            order_by="CAST(custom_supplier_batch_no AS UNSIGNED) asc, custom_supplier_batch_no asc, name asc",
             limit=scan_limit,
         )
         # MI1-I71 (Raj 2026-07-15): the client uses `batch_qty` to

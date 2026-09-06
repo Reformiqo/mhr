@@ -24,3 +24,5 @@ mhr.patches.v1_0.backfill_hty_batch_spec_values #2026-08-24
 mhr.patches.v1_0.heal_container_accepted_warehouse #2026-08-25
 mhr.patches.v1_0.heal_container_location_notes #2026-08-31
 mhr.patches.v1_0.heal_receive_batch_qty #2026-09-06
+mhr.patches.v1_0.add_serial_batch_bundle_status_index #2026-09-06
+mhr.patches.v1_0.set_stock_sheet_balance_report_inline #2026-09-06

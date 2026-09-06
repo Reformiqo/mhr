@@ -132,7 +132,11 @@ class TestSupplierBatchOrdering(FrappeTestCase):
 	def test_the_query_orders_too(self):
 		"""The SQL order decides which rows survive the scan limit."""
 		source = inspect.getsource(note.fetch_batches)
-		self.assertIn('order_by="custom_supplier_batch_no asc, name asc"', source)
+		# MI1-I124: the window is numeric now — CAST first, the raw value as tiebreak.
+		self.assertIn(
+			'order_by="CAST(custom_supplier_batch_no AS UNSIGNED) asc, custom_supplier_batch_no asc, name asc"',
+			source,
+		)
 
 
 class TestFetchBatchesScanAndTrim(FrappeTestCase):
