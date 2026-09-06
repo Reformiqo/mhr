@@ -1401,5 +1401,61 @@
    }
   ],
   "timeout": 0
+ },
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2026-09-06 00:00:00",
+  "module": "Mhr",
+  "name": "Subcontracting Stock Tracking",
+  "prepared_report": 0,
+  "query": null,
+  "ref_doctype": "Stock Entry",
+  "reference_report": null,
+  "report_name": "Subcontracting Stock Tracking",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Subcontracting Stock Tracking",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock User"
+   },
+   {
+    "parent": "Subcontracting Stock Tracking",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Stock Manager"
+   },
+   {
+    "parent": "Subcontracting Stock Tracking",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Subcontracting Stock Tracking",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "HTY User"
+   },
+   {
+    "parent": "Subcontracting Stock Tracking",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "VFY User"
+   }
+  ],
+  "timeout": 0
  }
 ]

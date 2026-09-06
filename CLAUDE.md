@@ -43,6 +43,7 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Stock Sheets (Inward Coneless Stock )`
 - `Stock Sheets (Inward Rest Stock )`
 - `Subcontractor Material Tracking` — MI1-I50; sent / received / pending per Send-to-Subcontractor item, filterable by date / supplier / status
+- `Subcontracting Stock Tracking` — MI1-I123; the whole job-work chain in one row set (Send → Job Work Received → lot in the target warehouse → Delivery Notes → balance), 17 FRD columns + optional stock-validation columns, six statuses, an unlinked-receipts section and a server-built total row. See *Subcontracting Stock Tracking report* below.
 - `DN` and `Delivery Note Lot-Wise` — **Merge No comes from the Container master per (container, lot)** via `mhr.mhr.report.dn.dn._merge_numbers_by_container_and_lot` (0b370d3, MI1-I116), never from `dn.custom_merge_no`, which is a note-level aggregate and showed the first container's value on every row.
 - `Delivery Trip Simplified` — MI1-I35; one row per Delivery Stop. MI1-I122 added a Transaction Type filter (VFY / HTY, blank = both) and column, read from the stop's Delivery Note, else the Trip, else `VFY` for legacy documents — the same `IFNULL → VFY` rule as Delivery Challan.
 
@@ -328,6 +329,50 @@ fast-no-op for every other Stock Entry. Flow:
    `mhr.overrides.stock_entry_dashboard.get_dashboard_data` (self-referential
    link, uses `non_standard_fieldnames` to point at `custom_original_send_entry`).
 6. `Subcontractor Material Tracking` report aggregates all of this for review.
+7. `Subcontracting Stock Tracking` (MI1-I123) follows the chain past the
+   receipt to the Delivery Notes — see the next section.
+
+### Subcontracting Stock Tracking report (MI1-I123)
+
+`mhr/mhr/report/subcontracting_stock_tracking/`. Built on what MHR records,
+not on the standard links the FRD assumed (`outgoing_stock_entry` /
+`ste_detail` are never filled on this site; they are honoured if present).
+
+- **Receipts are found by the header link** `custom_original_send_entry` and
+  their rows matched to Send rows on `mhr.utilis._subcontract_match_key`
+  (item + supplier batch), replaying `apply_subcontract_receipt`'s FIFO over
+  the *submitted* receipts in posting order. Cancelled receipts drop out by
+  themselves; a Send row whose replay disagrees with its stored
+  `custom_received_qty` is flagged rather than silently trusted.
+- **A lot is a receipt row that lands stock** (`t_warehouse` set): the sent
+  batch coming back, or the new batch `create_receive_batches` named. ERPNext
+  cannot post a both-warehouse row inside a Repack with bundles, so a Repack
+  receipt is source-only rows + target-only finished rows; a finished row is
+  attached to the Send row with the same supplier batch, else to the single
+  row the receipt consumed, else to its first consumed row (flagged). A
+  consumed row with nothing landed gets a receipt-only row.
+- **Row grain** = Send row × receipt × batch. Rows that share a lot (the same
+  batch returned in two instalments) form a group: Delivery Note lines are
+  allocated across the group in receipt order (returns drain the last row),
+  Stock in Hand is the lot's Serial and Batch Bundle balance shown on the
+  group's first row only, and the reconciliation flags compare the lot as a
+  whole. Nothing is counted twice.
+- **Delivered** = submitted Delivery Note rows for item + batch shipped from
+  the target warehouse (FRD J5); shipments from elsewhere are flagged, not
+  counted. Returns are negative lines.
+- **Status** (sheet 7, first match wins): Fully Delivered > Partially
+  Delivered > Pending > Partially Received > Stock Available > Fully
+  Received. `derive_status` is the single place.
+- **Totals**: `add_total_row` is 0 — Sent / Pending / Subcontractor balance
+  are Send-row values repeated on every lot row, so the total row is built
+  in `build_total_row` on distinct Send rows; the JS renders it bold without
+  a link. `prepared_report` is 0 on purpose: nineteen interactive filters
+  need an inline run (0.6 s on the local data).
+- Sends come through `frappe.get_list`, so Company / Warehouse user
+  permissions apply (FR-17). Business Line is `transaction_type`, blank =
+  VFY like every legacy document. Unlinked job-work receipts
+  (`stock_entry_type LIKE 'Job Work%'`, no link) are listed after the linked
+  rows with a flag, never dropped.
 
 ### Client-side JS hooks
 
