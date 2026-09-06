@@ -282,33 +282,47 @@ def fetch_batches(
     requested = cint(limit) or 0
     scan_limit = min(requested * SCAN_MULTIPLIER, MAX_SCAN) if requested else MAX_SCAN
 
-    batches = frappe.get_all(
-        "Batch",
-        filters=filters,
-        or_filters=or_filters,
-        fields=["name", "item", "item_name", "batch_qty", "stock_uom", "custom_supplier_batch_no", "custom_cone", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_fsc", "custom_lot_no", "custom_container_no", "custom_notes"],
-        # MI1-I103: there was no order_by at all — MAT-GD-2026-00008 landed
-        # 6876, 6870, 6872, 6879, 6874. This decides which rows survive the
-        # scan limit; the numeric sort below decides how they are presented.
-        order_by="custom_supplier_batch_no asc, name asc",
-        limit=scan_limit,
-    )
+    def _scan(scan_limit):
+        rows = frappe.get_all(
+            "Batch",
+            filters=filters,
+            or_filters=or_filters,
+            fields=["name", "item", "item_name", "batch_qty", "stock_uom", "custom_supplier_batch_no", "custom_cone", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_fsc", "custom_lot_no", "custom_container_no", "custom_notes"],
+            # MI1-I103: there was no order_by at all — MAT-GD-2026-00008 landed
+            # 6876, 6870, 6872, 6879, 6874. This decides which rows survive the
+            # scan limit; the numeric sort below decides how they are presented.
+            order_by="custom_supplier_batch_no asc, name asc",
+            limit=scan_limit,
+        )
+        # MI1-I71 (Raj 2026-07-15): the client uses `batch_qty` to
+        # populate the new DN row's qty. Historically that was the
+        # ORIGINAL batch qty at creation, which overdrafts partially-
+        # consumed batches (submit fails with negative-stock). Clamp
+        # each batch's `batch_qty` to the current AVAILABLE balance
+        # (from Serial and Batch Bundle), so the row lands with a qty
+        # that will actually submit.
+        _clamp_batch_qty_to_available(rows, is_return, warehouse)
+        # MI1-I85 (Raj 2026-07-18): drop batches whose clamped qty is
+        # 0 — they'd become zero-quantity DN rows which can never
+        # submit. On return receipts (is_return=True), the clamp isn't
+        # applied, so batch_qty stays as the master value; keep those.
+        kept = [b for b in rows if float(b.get("batch_qty") or 0) > 0] if is_return is False else rows
+        return rows, kept
 
-    # MI1-I71 (Raj 2026-07-15): the client uses `batch_qty` to
-    # populate the new DN row's qty. Historically that was the
-    # ORIGINAL batch qty at creation, which overdrafts partially-
-    # consumed batches (submit fails with negative-stock). Clamp
-    # each batch's `batch_qty` to the current AVAILABLE balance
-    # (from Serial and Batch Bundle), so the row lands with a qty
-    # that will actually submit.
-    _clamp_batch_qty_to_available(batches, is_return, warehouse)
-
-    # MI1-I85 (Raj 2026-07-18): drop batches whose clamped qty is
-    # 0 — they'd become zero-quantity DN rows which can never
-    # submit. On return receipts (is_return=True), the clamp isn't
-    # applied, so batch_qty stays as the master value; keep those.
-    if is_return is False:
-        batches = [b for b in batches if float(b.get("batch_qty") or 0) > 0]
+    scanned, batches = _scan(scan_limit)
+    # MI1-I118 follow-up (prod MCGPPC-117-1, 2026-09-06): the string-ordered
+    # window can be mostly consumed bags — '1', '10', '100', '101' ... go
+    # out first — so "fetch 2" came back with 1. Widen the scan while the
+    # window was full, fewer than requested survive, and the ceiling is not
+    # reached yet.
+    while (
+        requested
+        and len(batches) < requested
+        and len(scanned) >= scan_limit
+        and scan_limit < MAX_SCAN
+    ):
+        scan_limit = min(scan_limit * SCAN_MULTIPLIER, MAX_SCAN)
+        scanned, batches = _scan(scan_limit)
 
     batches.sort(key=supplier_batch_sort_key)
 

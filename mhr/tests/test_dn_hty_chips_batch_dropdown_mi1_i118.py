@@ -187,6 +187,27 @@ class TestFetchBatchesChipsExemption(FrappeTestCase):
             self.skipTest("MCZFT-01 not on this bench.")
         self.assertTrue(all(int(r["custom_cone"] or 0) > 0 for r in rows))
 
+    def test_scan_widens_until_the_requested_count_survives(self):
+        """Prod MCGPPC-117-1: the first string-ordered window ('1','10','100',
+        ...) was mostly delivered bags, so fetch_batches(2) returned 1. The
+        scan must widen (x5, up to MAX_SCAN) while the window is full and
+        fewer than requested survive."""
+        def rows(n, start=0):
+            return [{"name": f"B-{i}", "custom_supplier_batch_no": str(i), "batch_qty": 25.0} for i in range(start, start + n)]
+        def fake_get_all(*a, **k):
+            return rows(k["limit"])
+        def fake_clamp(batches, is_return, warehouse=None):
+            for b in batches:          # only every 30th bag still holds stock
+                b["batch_qty"] = 25.0 if int(b["name"].split("-")[1]) % 30 == 0 else 0.0
+        with patch.object(frappe, "get_all", side_effect=fake_get_all) as get_all, \
+             patch.object(note, "_clamp_batch_qty_to_available", side_effect=fake_clamp):
+            out = note.fetch_batches(2, container_no="X")
+        self.assertEqual(len(out), 2, "Two survivors were reachable within the ceiling.")
+        limits = [c.kwargs["limit"] for c in get_all.call_args_list]
+        self.assertEqual(limits[0], 2 * note.SCAN_MULTIPLIER, "First window unchanged (MI1-I103).")
+        self.assertGreater(len(limits), 1, "The window was widened.")
+        self.assertTrue(all(l <= note.MAX_SCAN for l in limits))
+
     def test_explicit_cone_still_filters_exactly(self):
         src = inspect.getsource(note.fetch_batches)
         self.assertIn('if is_return is False and not filters.get("custom_cone"):', src)
