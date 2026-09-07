@@ -757,6 +757,28 @@ function so_hty_apply_fetch_by(frm) {
     }
 }
 
+// MI1-I129: true while the field still has focus — the value is a work in
+// progress. Arms a one-shot blur listener that re-runs the field handler on
+// the final value (Enter blurs the input); same rule as the VFY script's
+// mi1_so_still_typing. Script writes (frm.set_value) never have focus.
+function so_hty_still_typing(frm, fieldname) {
+    const field = frm.fields_dict[fieldname];
+    const $input = field && field.$input;
+    if (!$input || !$input.length || !$input.is(':focus')) return false;
+    if (!$input.data('so_hty_enter_blurs')) {
+        $input.data('so_hty_enter_blurs', true);
+        $input.on('keydown', (e) => { if (e.key === 'Enter') $input.blur(); });
+    }
+    if (!$input.data('so_hty_lookup_on_leave')) {
+        $input.data('so_hty_lookup_on_leave', true);
+        $input.one('blur', () => {
+            $input.removeData('so_hty_lookup_on_leave');
+            frm.trigger(fieldname);
+        });
+    }
+    return true;
+}
+
 function so_hty_open_lot_popup(frm) {
     const container_no = frm.doc.custom_container_no;
     frappe.call({
@@ -918,6 +940,9 @@ frappe.ui.form.on('Sales Order', {
             frm.set_value('custom_lot_no', '');
             return;
         }
+        // MI1-I129 (2026-09-07): the Data control fires this 500 ms after every
+        // pause in typing; look the number up once the field is left instead.
+        if (so_hty_still_typing(frm, 'custom_container_no')) return;
         // MI1-I91 (Raj 2026-09-03): entering a Container opens the LOT popup
         // (Lot No + Item, available stock > 0 only) — the same step the VFY
         // booking flow starts with. The batch-level Select Batch popup stays

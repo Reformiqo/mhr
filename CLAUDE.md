@@ -192,6 +192,14 @@ Note in all modes are untouched.
   visible list per mode and is the one call in `sales_order_hty.js` that also
   runs on a VFY doc — it trims a dropdown, never a value. The VFY "Sales Order
   Booking" Client Script is untouched.
+- **Container No is looked up once the field is left (MI1-I129, both modes).**
+  `custom_container_no` is a Data field and frappe's Data control runs the
+  field handler 500 ms after every pause in typing, so the VFY lot lookup ran
+  on "MC" and announced "No lots found for container MC" mid-entry.
+  `mi1_so_still_typing` (Sales Order Booking script) and `so_hty_still_typing`
+  (`sales_order_hty.js`) return while the input has focus and arm a one-shot
+  blur listener that re-runs the handler on the final value; Enter blurs the
+  input. Script writes (`frm.set_value`) never have focus and run at once.
 - **Lot popup offers only bookable lots (MI1-I96, both modes).**
   `get_container_details(container_no, with_stock=1)` keeps a (lot, item)
   only if its batches' Serial and Batch Bundle balance minus what open Sales
