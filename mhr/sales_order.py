@@ -322,3 +322,133 @@ def _get_available_cones(batch_name, batch_cones):
 
     booked = effective_booking_by_batch([batch_name]).get(batch_name, {}).get("cones", 0.0)
     return int(batch_cones) - int(round(flt(booked)))
+
+
+# ---------------------------------------------------------------------------
+# MI1-I128 (Rohit 2026-09-07): the Sales Order's Set Source Warehouse must be
+# the warehouse the selected Container was inwarded to.
+# ---------------------------------------------------------------------------
+# "Inward warehouse" is Container.set_warehouse (the Accepted Warehouse the
+# inward Purchase Receipt posted to — MI1-I103), read per (container, lot);
+# when a legacy Container never had it filled, the Purchase Receipt that names
+# the container is asked the same way heal_container_accepted_warehouse does.
+# Stock that was moved since (MI1-I125: a Material Transfer to Vadod - MC) is
+# no longer at the inward warehouse, so a warehouse that currently HOLDS the
+# container's batches is accepted as well — refusing it would make the order
+# impossible to raise anywhere. Both come back from
+# get_container_source_warehouse, which the two lot pickers call to fill a
+# blank Set Source Warehouse, and validate_so_source_warehouse enforces on
+# submit. An order without a Container is untouched.
+
+
+def _container_inward_warehouses(container_no, lot_no=None):
+    """Distinct inward warehouses of the submitted Container doc(s) for this
+    container (and lot, when given): Container.set_warehouse, else the
+    warehouse its non-return Purchase Receipts posted to."""
+    filters = {"container_no": container_no, "docstatus": 1}
+    if lot_no:
+        filters["lot_no"] = lot_no
+    rows = frappe.get_all("Container", filters=filters, fields=["name", "set_warehouse"])
+    if not rows and lot_no:
+        rows = frappe.get_all("Container", filters={"container_no": container_no, "docstatus": 1},
+                              fields=["name", "set_warehouse"])
+    inward = sorted({r.set_warehouse for r in rows if r.set_warehouse})
+    if inward:
+        return inward
+    receipts = frappe.db.sql(
+        """
+        SELECT DISTINCT pri.warehouse
+        FROM `tabPurchase Receipt` pr
+        INNER JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name
+        WHERE pr.custom_container_no = %s AND pr.docstatus = 1
+          AND IFNULL(pr.is_return, 0) = 0 AND IFNULL(pri.warehouse, '') != ''
+        """,
+        (container_no,),
+    )
+    return sorted({r[0] for r in receipts if r[0]})
+
+
+def _container_live_warehouses(container_no, lot_no=None):
+    """Warehouses currently holding a positive Serial and Batch Bundle balance
+    of the container's (lot's) batches, largest first."""
+    lot_sql = " AND b.custom_lot_no = %(lot_no)s" if lot_no else ""
+    rows = frappe.db.sql(
+        f"""
+        SELECT sbb.warehouse, SUM(sbe.qty) AS qty
+        FROM `tabBatch` b
+        INNER JOIN `tabSerial and Batch Entry` sbe ON sbe.batch_no = b.name
+        INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+        WHERE b.custom_container_no = %(container_no)s{lot_sql}
+          AND sbb.docstatus = 1 AND sbb.is_cancelled = 0
+          AND sbb.type_of_transaction IN ('Inward', 'Outward')
+        GROUP BY sbb.warehouse
+        HAVING SUM(sbe.qty) > 0
+        ORDER BY qty DESC
+        """,
+        {"container_no": container_no, "lot_no": lot_no},
+    )
+    return [r[0] for r in rows if r[0]]
+
+
+@frappe.whitelist()
+def get_container_source_warehouse(container_no, lot_no=None):
+    """{inward: [..], live: [..], suggested: str|None} for the lot pickers:
+    `suggested` is the inward warehouse when there is exactly one, else the
+    warehouse holding most of the stock."""
+    container_no = (container_no or "").strip()
+    lot_no = (lot_no or "").strip() or None
+    if not container_no:
+        return {"inward": [], "live": [], "suggested": None}
+    inward = _container_inward_warehouses(container_no, lot_no)
+    live = _container_live_warehouses(container_no, lot_no)
+    suggested = inward[0] if len(inward) == 1 else (live[0] if live else (inward[0] if inward else None))
+    return {"inward": inward, "live": live, "suggested": suggested}
+
+
+def validate_so_source_warehouse(doc, method=None):
+    """before_submit: Set Source Warehouse (and every row's warehouse) must be
+    where the Container was inwarded, or where its stock now is."""
+    container_no = (doc.get("custom_container_no") or "").strip()
+    if not container_no:
+        return
+    lot_no = (doc.get("custom_lot_no") or "").strip() or None
+    inward = _container_inward_warehouses(container_no, lot_no)
+    live = _container_live_warehouses(container_no, lot_no)
+    allowed = set(inward) | set(live)
+    label = frappe._(" / ").join(inward) if inward else None
+
+    def _expected():
+        parts = []
+        if inward:
+            parts.append(frappe._("inwarded to {0}").format(frappe.bold(label)))
+        if live:
+            parts.append(frappe._("stock currently in {0}").format(frappe.bold(", ".join(live))))
+        return frappe._(" — ").join(parts)
+
+    if not doc.get("set_warehouse"):
+        frappe.throw(
+            frappe._("Set Source Warehouse is mandatory when a Container is selected. Container {0} was {1}.").format(
+                frappe.bold(container_no), _expected() or frappe._("not found in stock")
+            ),
+            title=frappe._("Source Warehouse Required"),
+        )
+    if not allowed:
+        # Nothing known about where this container lives (no inward record,
+        # no stock): nothing to compare against; the availability check on
+        # validate already decides what can be booked.
+        return
+    if doc.set_warehouse not in allowed:
+        frappe.throw(
+            frappe._("Set Source Warehouse {0} does not match Container {1}, which was {2}.").format(
+                frappe.bold(doc.set_warehouse), frappe.bold(container_no), _expected()
+            ),
+            title=frappe._("Source Warehouse Mismatch"),
+        )
+    for row in doc.get("items") or []:
+        if row.get("warehouse") and row.warehouse not in allowed:
+            frappe.throw(
+                frappe._("Row {0}: Delivery Warehouse {1} does not match Container {2}, which was {3}.").format(
+                    row.idx, frappe.bold(row.warehouse), frappe.bold(container_no), _expected()
+                ),
+                title=frappe._("Source Warehouse Mismatch"),
+            )

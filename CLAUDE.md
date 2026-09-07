@@ -99,6 +99,7 @@ Three changes, same figures (verified cell-for-cell against the old code):
 - `Stock Entry.on_submit` → `mhr.utilis.apply_subcontract_receipt` (MI1-I50 P3)
 - `Stock Entry.on_cancel` → `mhr.utilis.revert_subcontract_receipt` (MI1-I50 P3)
 - `Sales Order.validate` → `mhr.utilis.validate_so_available_qty`, `mhr.sales_order_hty.validate_hty_sales_order` (MI1-I90)
+- `Sales Order.before_submit` → `mhr.sales_order.validate_so_source_warehouse` (MI1-I128)
 
 **A stock movement never rewrites a Container's inward attributes** (MI1-I103).
 `update_batch_warehouse_on_stock_entry` and its `on_cancel` twin used to write
@@ -200,6 +201,18 @@ Note in all modes are untouched.
   (`sales_order_hty.js`) return while the input has focus and arm a one-shot
   blur listener that re-runs the handler on the final value; Enter blurs the
   input. Script writes (`frm.set_value`) never have focus and run at once.
+- **Set Source Warehouse must be the Container's inward warehouse (MI1-I128,
+  both modes).** `mhr.sales_order.validate_so_source_warehouse` runs on
+  `before_submit`: with a Container on the header, `set_warehouse` is
+  mandatory and it (and every row's warehouse) must be `Container.set_warehouse`
+  of that container / lot — else the warehouse its non-return Purchase Receipt
+  posted to — **or** a warehouse currently holding the container's Serial and
+  Batch Bundle balance (stock moved by a Material Transfer, MI1-I125, is not at
+  the inward warehouse any more). Nothing known on either count → no
+  comparison; the availability check decides. Both lot pickers call
+  `get_container_source_warehouse` to fill a blank Set Source Warehouse with
+  the inward warehouse (else the one holding most stock). Orders without a
+  Container are untouched.
 - **Lot popup offers only bookable lots (MI1-I96, both modes).**
   `get_container_details(container_no, with_stock=1)` keeps a (lot, item)
   only if its batches' Serial and Batch Bundle balance minus what open Sales

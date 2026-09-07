@@ -261,6 +261,12 @@ doc_events = {
             # leave Total Quantity at 0. Fills a blank only.
             "mhr.utilis.ensure_total_qty",
         ],
+        "before_submit": [
+            # MI1-I128 (Rohit 2026-09-07): Set Source Warehouse must be where
+            # the selected Container was inwarded (or where its stock now
+            # is). No-op without a Container.
+            "mhr.sales_order.validate_so_source_warehouse",
+        ],
     },
     "Delivery Trip": {
         "validate": [

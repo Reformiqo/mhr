@@ -832,6 +832,21 @@ function so_hty_apply_lot_pick(frm, row) {
     frm.refresh_field('custom_denier');
     // Keep the main-tab Daniar in step so the form reads as it does in VFY.
     if (frm.fields_dict.custom_daniar) frm.set_value('custom_daniar', row.item || '');
+    so_hty_fill_source_warehouse(frm, row.lot_no);
+}
+
+// MI1-I128: same rule as the VFY script — a blank Set Source Warehouse takes
+// the Container's inward warehouse on lot pick; submit enforces it.
+function so_hty_fill_source_warehouse(frm, lot_no) {
+    if (frm.doc.set_warehouse || !frm.doc.custom_container_no) return;
+    frappe.call({
+        method: 'mhr.sales_order.get_container_source_warehouse',
+        args: { container_no: frm.doc.custom_container_no, lot_no: lot_no || frm.doc.custom_lot_no || '' },
+        callback: function (r) {
+            const suggested = r.message && r.message.suggested;
+            if (suggested && !frm.doc.set_warehouse) frm.set_value('set_warehouse', suggested);
+        },
+    });
 }
 
 function so_hty_fetch_by_allocation(frm) {
