@@ -60,7 +60,7 @@ class TestVfyBookingScript(FrappeTestCase):
         self.assertIn("$input.one('blur'", fn, "one-shot re-run when the field is left")
         self.assertIn("frm.trigger(fieldname);", fn)
         self.assertIn("if (e.key === 'Enter') $input.blur();", fn, "Enter confirms the value")
-        self.assertIn("removeData('mi1_lookup_on_leave')", fn, "the guard re-arms for the next edit")
+        self.assertIn("removeData('mhr_lookup_on_leave')", fn, "the guard re-arms for the next edit")
 
     def test_no_lots_message_kept_for_a_complete_unknown_number(self):
         self.assertIn("No lots found for container {0}", self.src)

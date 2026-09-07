@@ -765,14 +765,14 @@ function so_hty_still_typing(frm, fieldname) {
     const field = frm.fields_dict[fieldname];
     const $input = field && field.$input;
     if (!$input || !$input.length || !$input.is(':focus')) return false;
-    if (!$input.data('so_hty_enter_blurs')) {
-        $input.data('so_hty_enter_blurs', true);
+    if (!$input.data('mhr_enter_blurs')) {
+        $input.data('mhr_enter_blurs', true);
         $input.on('keydown', (e) => { if (e.key === 'Enter') $input.blur(); });
     }
-    if (!$input.data('so_hty_lookup_on_leave')) {
-        $input.data('so_hty_lookup_on_leave', true);
+    if (!$input.data('mhr_lookup_on_leave')) {
+        $input.data('mhr_lookup_on_leave', true);
         $input.one('blur', () => {
-            $input.removeData('so_hty_lookup_on_leave');
+            $input.removeData('mhr_lookup_on_leave');
             frm.trigger(fieldname);
         });
     }

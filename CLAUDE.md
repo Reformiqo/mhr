@@ -247,7 +247,14 @@ Both read the Serial and Batch Bundle balance, overwrite `batch_qty` with it
 and name the `warehouse` holding it; the Select handler builds rows from that
 response (never from `fetch_batches`, whose result it discards) and writes
 that warehouse on the row. The extra arguments are default-off, so other
-callers see the historical result. **A container whose batches exist but hold
+callers see the historical result. **The container is looked up once the field is left, not while typing**
+(MI1-I127, 2026-09-07): Container No is a Data field and frappe's Data control
+runs the handler 500 ms after every pause in typing, so `hty_still_typing`
+(and `mi1_i101_still_typing` in the Container Notes script) return while the
+input has focus and re-run the handler on blur; Enter blurs. The explainer's
+`frappe.db.count('Batch', {filters: {...}})` counts this container only — the
+filters used to be passed as the args object, so "MCF" was announced with the
+site's whole Batch count. **A container whose batches exist but hold
 no stock is announced, not silent** (MI1-I114: MCDL-07 had been delivered in
 full, the popup did not open, and the still-filling Notes field made it look
 broken); MI1-I71's silence survives only for a number that matches no HTY

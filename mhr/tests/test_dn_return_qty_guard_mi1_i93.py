@@ -79,12 +79,17 @@ class TestConeQtyCalcuationReturnGuard(FrappeTestCase):
 		self.assertIn(GUARD, self.src[idx: idx + 200])
 
 	def test_qty_is_still_written_for_non_returns(self):
-		"""Guard only — the recalculation itself must remain intact."""
-		self.assertIn("let new_qty = (database_qty * cone) / cone_copy;", self.src)
+		"""Guard only — the recalculation itself must remain intact.
+
+		2026-09-06: the rule moved into mi1_cone_qty_from_batch (master x cone /
+		cone_copy, capped at the batch's available balance); both call sites
+		still run it for non-return notes."""
+		self.assertIn("let new_qty = mi1_cone_qty_from_batch(r.message, row);", self.src)
 		self.assertEqual(
-			self.src.count("let new_qty = (database_qty * cone) / cone_copy;"), 2,
+			self.src.count("let new_qty = mi1_cone_qty_from_batch(r.message, row);"), 2,
 			"Both recalculation sites must still exist for non-return DNs.",
 		)
+		self.assertIn("let proportional = (master * cone) / cone_copy;", self.src)
 
 
 class TestRowAddingScriptsReturnGuard(FrappeTestCase):
