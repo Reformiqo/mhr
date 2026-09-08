@@ -46,10 +46,14 @@ class TestReceiveBatchMasterIsNotPreset(FrappeTestCase):
         self.assertIn("s.type_of_transaction = 'Inward'", src)
         self.assertIsInstance(utilis.receive_created_batch_balances(), dict)
 
-    def test_patch_registered_last(self):
+    def test_patch_registered_after_the_container_heals(self):
+        """Appended after the MI1-I103 heals (patches.txt is append-only);
+        later tickets append after it, so "last" is not a stable pin."""
         with open(os.path.join(frappe.get_app_path("mhr"), "patches.txt")) as fh:
-            lines = [l.strip() for l in fh if l.strip()]
-        self.assertTrue(lines[-1].startswith("mhr.patches.v1_0.heal_receive_batch_qty"))
+            lines = [l.strip().split()[0] for l in fh if l.strip() and not l.startswith("#")]
+        self.assertIn("mhr.patches.v1_0.heal_receive_batch_qty", lines)
+        self.assertGreater(lines.index("mhr.patches.v1_0.heal_receive_batch_qty"),
+                           lines.index("mhr.patches.v1_0.heal_container_location_notes"))
         mod = frappe.get_module("mhr.patches.v1_0.heal_receive_batch_qty")
         self.assertTrue(callable(mod.execute))
 

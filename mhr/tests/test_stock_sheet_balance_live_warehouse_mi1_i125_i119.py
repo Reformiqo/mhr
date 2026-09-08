@@ -226,3 +226,134 @@ class TestFetchBatchesNumericWindow(FrappeTestCase):
                               fields=["custom_supplier_batch_no"], order_by="custom_supplier_batch_no asc", limit=12)
         self.assertNotEqual([x.custom_supplier_batch_no for x in text], [x.custom_supplier_batch_no for x in numeric],
                             "the text order is the bug; the two windows must differ on this container")
+
+
+class TestWholeSiteBalanceMap(FrappeTestCase):
+    """MI1-I119 follow-up (prod 2026-09-08): the full-range run took 16 s on
+    prod and frappe flipped the report back into prepared mode; every HTY run
+    died sorting int cones against blank ones."""
+
+    def test_cache_key_is_content_addressed(self):
+        r = _report()
+        key = r.balance_cache_key()
+        sbb_count, sbb_modified = frappe.db.sql("SELECT COUNT(*), MAX(modified) FROM `tabSerial and Batch Bundle`")[0]
+        sle_modified = frappe.db.sql("SELECT MAX(modified) FROM `tabStock Ledger Entry`")[0][0]
+        self.assertEqual(key, f"{r.BALANCE_CACHE_KEY}:{sbb_count}:{sbb_modified}:{sle_modified}:"
+                              + "|".join(sorted(r.get_external_job_work_warehouses())))
+        self.assertEqual(r.balance_cache_key(), key, "stable while nothing moves")
+
+    def test_whole_site_map_equals_the_chunked_aggregate_and_caches(self):
+        r = _report()
+        frappe.local._mhr_all_warehouse_balances = None
+        frappe.cache().delete_value(r.balance_cache_key())
+        fresh = r.get_all_warehouse_balances()
+        self.assertTrue(fresh)
+        sample = list(fresh)[:50]
+        direct = r.get_batch_warehouse_balances([b for b, _w in sample])
+        for k in sample:
+            self.assertAlmostEqual(fresh[k], direct[k], places=3)
+        # Second call: served from Redis (a fresh request), same content.
+        frappe.local._mhr_all_warehouse_balances = None
+        cached = r.get_all_warehouse_balances()
+        self.assertEqual(len(cached), len(fresh))
+        self.assertEqual(cached[sample[0]], fresh[sample[0]])
+        self.assertIsNotNone(r._read_cached_map(r.balance_cache_key()))
+
+    def test_use_cache_false_never_touches_redis(self):
+        r = _report()
+        frappe.local._mhr_all_warehouse_balances = None
+        frappe.cache().delete_value(r.balance_cache_key())
+        r.get_all_warehouse_balances(use_cache=False)
+        self.assertIsNone(r._read_cached_map(r.balance_cache_key()))
+
+    def test_full_range_and_narrow_paths_agree(self):
+        """The same lot through both code paths — whole-site map filtered in
+        Python versus names-first — must render identically."""
+        r = _report()
+        b = _pick_stocked_batch()
+        if not b:
+            self.skipTest("No stocked batch.")
+        narrow = [x for x in r.execute({"container": b.custom_container_no, "lot_no": b.custom_lot_no})[1] if x["sort_order"] == 0]
+        wide = [x for x in r.execute({})[1] if x["sort_order"] == 0 and x["Container Number"] == b.custom_container_no
+                and x["Lot Number"] == b.custom_lot_no]
+        key = lambda x: (x["Item"], x["Cone"], x["Grade"], x["Sales Order"])
+        self.assertEqual(sorted(map(key, narrow)), sorted(map(key, wide)))
+        for n, w in zip(sorted(narrow, key=key), sorted(wide, key=key)):
+            for col in ("Balance", "Balance Box", "Accepted Warehouse", "Booked Qty", "Available Qty"):
+                self.assertEqual(n[col], w[col], col)
+
+    def test_hty_lot_with_coned_and_coneless_rows_sorts(self):
+        """Prod Prepared Report 3jhahn82je: TypeError '<' between int and str."""
+        r = _report()
+        mixed = frappe.db.sql("""SELECT custom_container_no FROM `tabBatch` WHERE custom_transaction_type = 'HTY'
+                                 GROUP BY custom_container_no, custom_lot_no
+                                 HAVING SUM(IFNULL(custom_cone, 0) = 0) > 0 AND SUM(IFNULL(custom_cone, 0) > 0) > 0 LIMIT 1""")
+        if not mixed:
+            self.skipTest("No HTY lot with both coned and coneless batches on this bench.")
+        cols, data = r.execute({"container": mixed[0][0], "transaction_type": "HTY"})
+        self.assertIsInstance(data, list)
+        rows = [{"batch_date": frappe.utils.getdate("2026-01-01"), "container_no": "C", "lot_no": "L", "sort_order": 0, "cone": 12},
+                {"batch_date": frappe.utils.getdate("2026-01-01"), "container_no": "C", "lot_no": "L", "sort_order": 0, "cone": ""},
+                {"batch_date": frappe.utils.getdate("2026-01-01"), "container_no": "C", "lot_no": "L", "sort_order": 1, "cone": ""}]
+        rows.sort(key=lambda x: (-x["batch_date"].toordinal(), x["container_no"], x["lot_no"], x["sort_order"], frappe.utils.cint(x["cone"])))
+        self.assertEqual([x["cone"] for x in rows], ["", 12, ""])
+
+    def test_inline_patch_re_registered(self):
+        with open(PATCHES) as f:
+            lines = [l.strip() for l in f if l.strip()]
+        self.assertIn("mhr.patches.v1_0.set_stock_sheet_balance_report_inline #2026-09-08", lines,
+                      "the 2026-09-06 run was undone by frappe's 15 s watcher; a new line re-runs the reset")
+
+
+class TestBalanceCacheWarmup(FrappeTestCase):
+
+    def test_hooks_queue_a_warmup_on_every_stock_movement(self):
+        events = frappe.get_hooks("doc_events")
+        target = "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup"
+        for dt in ("Stock Entry", "Delivery Note", "Purchase Receipt", "Stock Reconciliation"):
+            for ev in ("on_submit", "on_cancel"):
+                self.assertIn(target, events[dt].get(ev, []), f"{dt}.{ev}")
+        self.assertIn("mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).warm_balance_cache",
+                      frappe.get_hooks("scheduler_events")["hourly"])
+
+    def test_warm_builds_once_then_reports_warm(self):
+        r = _report()
+        frappe.local._mhr_all_warehouse_balances = None
+        frappe.cache().delete_value(r.balance_cache_key())
+        self.assertEqual(r.warm_balance_cache(), "built")
+        frappe.local._mhr_all_warehouse_balances = None
+        self.assertEqual(r.warm_balance_cache(), "warm")
+
+    def test_enqueue_is_deduplicated_and_never_raises(self):
+        r = _report()
+        import inspect
+        src = inspect.getsource(r.enqueue_balance_cache_warmup)
+        self.assertIn("deduplicate=True", src)
+        self.assertIn("job_id=WARM_JOB_ID", src)
+        self.assertIn("enqueue_after_commit=True", src)
+        r.enqueue_balance_cache_warmup(frappe._dict(name="x"))  # must not raise
+
+
+class TestKeepInline(FrappeTestCase):
+    """frappe's 15 s watcher flips the report into prepared mode during a
+    slow run; a run that started inline undoes that flip when it finishes."""
+
+    def test_flip_during_an_inline_run_is_undone(self):
+        r = _report()
+        frappe.db.set_value("Report", r.REPORT_NAME, "prepared_report", 1, update_modified=False)
+        r.keep_inline(started_inline=True)
+        self.assertEqual(frappe.db.get_value("Report", r.REPORT_NAME, "prepared_report"), 0)
+
+    def test_a_deliberate_prepared_setting_is_respected(self):
+        r = _report()
+        frappe.db.set_value("Report", r.REPORT_NAME, "prepared_report", 1, update_modified=False)
+        r.keep_inline(started_inline=False)
+        self.assertEqual(frappe.db.get_value("Report", r.REPORT_NAME, "prepared_report"), 1)
+        frappe.db.set_value("Report", r.REPORT_NAME, "prepared_report", 0, update_modified=False)
+
+    def test_execute_calls_it(self):
+        import inspect
+        r = _report()
+        src = inspect.getsource(r.execute)
+        self.assertIn("started_inline = _runs_inline()", src)
+        self.assertIn("keep_inline(started_inline)", src)

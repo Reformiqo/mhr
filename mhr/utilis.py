@@ -2075,7 +2075,13 @@ def update_pr_with_container_details():
     frappe.db.commit()
 
 
-update_pr_with_container_details()
+# 2026-09-08: `update_pr_with_container_details()` used to be CALLED here, at
+# module level — so every import of mhr.utilis (each gunicorn worker start,
+# each background worker, each test process, the first request that touched
+# a report) rewrote the container fields on every Purchase Receipt and
+# committed, ~0.8 s on this replica and a commit inside whatever transaction
+# happened to be open. It was a one-off backfill left behind; the function
+# stays callable, the import-time call is gone.
 
 
 @frappe.whitelist()

@@ -72,11 +72,39 @@ Three changes, same figures (verified cell-for-cell against the old code):
 - `get_data` queries batch names first, aggregates balances, and loads full
   rows (`get_batch_rows`) and bookings only for the ~80K stocked batches the
   sheet can render.
+- **Full-range runs use one whole-site balance map** (2026-09-08, after prod
+  measured 16 s and flipped back). With no Container / Lot / Cone filter,
+  `get_all_warehouse_balances` aggregates every batch once and keeps the map
+  in Redis under `balance_cache_key()` — `COUNT(*)` + `MAX(modified)` of the
+  bundle table, `MAX(modified)` of the ledger, the External Job Work set — so
+  any stock movement is a new key and a repeat run (dates, Company, mode)
+  skips the aggregate. Date / container filters are then applied to the ~80K
+  stocked rows in Python. This is not the time-based "second cache layer"
+  the note below warns about: prepared_report is off here and the key is
+  content-addressed. The legacy Stock Ledger pass runs once for a large set.
+  **The map is kept warm in the background**: `enqueue_balance_cache_warmup`
+  runs on submit / cancel of Stock Entry, Delivery Note, Purchase Receipt and
+  Stock Reconciliation (deduplicated job id `mhr::warm_balance_map`, long
+  queue, after commit) and `warm_balance_cache` runs hourly, so a user's run
+  finds the map ready: full range 2.9 s warm / 13.7 s cold locally. Reads go
+  through `_read_cached_map` (raw Redis) because `RedisWrapper.get_value`
+  remembers a miss for the rest of the request. A narrow set (Container /
+  Lot / Cone filter, or fewer than `WHOLE_SITE_FROM` batches after the date
+  and container filters) still takes the names-first path (~1 s).
+- **Sort on `cint(cone)`.** Batch.custom_cone is an Int; Chips rows (cone 0,
+  HTY) and total rows carry "", and Python cannot order 12 against "" — every
+  HTY run on prod died in Step 7 (Prepared Report 3jhahn82je). That was the
+  "HTY is not generating" half of the ticket.
 - `mhr.patches.v1_0.set_stock_sheet_balance_report_inline` resets the flag the
-  watcher had set. The standard report JSON cannot: `before_export` writes
+  watcher had set (re-registered with a new date comment on 2026-09-08 so it
+  runs again after the 16 s run had flipped it back). The standard report JSON cannot: `before_export` writes
   `prepared_report: 0` into the file, but re-importing a JSON over an existing
   Report does not apply it (verified with `import_file_by_path(force=True)`).
-  The 15 s watcher remains the safety valve.
+  **The report puts itself back inline** (`keep_inline`, 2026-09-08): if a
+  run started with the flag at 0 and frappe's 15 s watcher flipped it while
+  the run was going (the cold build after a stock movement is the one run that
+  can), the flip is undone when the run completes; a flag that was already 1
+  at the start is an administrator's choice and is respected.
 
 **Report optimization pattern** (applied across all 4 stock reports, 2026-02-08):
 
@@ -441,6 +469,13 @@ not on the standard links the FRD assumed (`outgoing_stock_entry` /
 - `doctype_js = { "Sales Order": "public/js/sales_order_hty.js", "Stock Entry": "public/js/stock_entry.js" }`
 - `public/js/sales_order.js` was deleted upstream (it duplicated the "Sales Order Booking" Client Script's handlers). `sales_order_hty.js` is HTY-gated throughout and that Client Script is VFY-gated, so the two never act on the same document and load order does not matter.
 - Stock Entry button "Submit in Background" added for **MI1-I26** to dodge gunicorn HTTP timeouts on large transfers (e.g. 245 batches in one Material Transfer).
+
+**`mhr.utilis` no longer runs anything at import time** (2026-09-08). It
+used to call `update_pr_with_container_details()` at module level — an
+UPDATE over every Purchase Receipt plus `frappe.db.commit()` on every worker
+start, test process and first report request (~0.8 s, and a commit inside
+whatever transaction was open). The function is still callable; nothing may
+be executed at import in this module.
 
 ### Whitelisted endpoints
 

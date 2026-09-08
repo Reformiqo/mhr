@@ -156,6 +156,8 @@ doc_events = {
             "mhr.utilis.allocate_delivery_note_to_sales_order",
         ],
         "on_submit": [
+            # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
+            "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
             "mhr.utilis.update_item_batch",
             # MI1-I39 P2-G: HTY-mode return DN re-credits cones on submit
             # (symmetric with the VFY cancel-time reversal).
@@ -165,6 +167,8 @@ doc_events = {
             "mhr.utilis.sync_sales_order_delivery",
         ],
         "on_cancel": [
+            # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
+            "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
             "mhr.utilis.reverse_item_batch",
             "mhr.utilis.sync_sales_order_delivery",
         ],
@@ -233,6 +237,8 @@ doc_events = {
             "mhr.utilis.create_receive_batches",
         ],
         "on_submit": [
+            # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
+            "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
             # MI1-I103: update_batch_warehouse_on_stock_entry was removed —
             # it overwrote the Container's inward warehouse. See mhr/utilis.py.
             # MI1-I50 P3: push received qty back onto the source Send entry
@@ -240,6 +246,8 @@ doc_events = {
             "mhr.utilis.apply_subcontract_receipt",
         ],
         "on_cancel": [
+            # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
+            "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
             # MI1-I103: revert_batch_warehouse_on_stock_entry removed with it.
             # MI1-I50 P3: undo the received-qty bump on the source.
             "mhr.utilis.revert_subcontract_receipt",
@@ -268,6 +276,16 @@ doc_events = {
             "mhr.sales_order.validate_so_source_warehouse",
         ],
     },
+    "Purchase Receipt": {
+        # MI1-I119: any stock movement queues a rebuild of the Stock Sheet
+        # whole-site balance map (deduplicated background job).
+        "on_submit": ["mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup"],
+        "on_cancel": ["mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup"],
+    },
+    "Stock Reconciliation": {
+        "on_submit": ["mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup"],
+        "on_cancel": ["mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup"],
+    },
     "Delivery Trip": {
         "validate": [
             # MI1-I31: auto-fetch default customer address into each Stop
@@ -290,7 +308,9 @@ scheduler_events = {
     # 		"mhr.tasks.daily"
     # 	],
     	"hourly": [
-    		"mhr.batch.enqueue_recalculate_batch_qty"
+    		"mhr.batch.enqueue_recalculate_batch_qty",
+    		# MI1-I119: keep the Stock Sheet's whole-site balance map warm.
+    		"mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).warm_balance_cache",
     	],
     # 	"weekly": [
     # 		"mhr.tasks.weekly"

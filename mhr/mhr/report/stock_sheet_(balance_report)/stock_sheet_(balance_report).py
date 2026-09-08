@@ -3,13 +3,18 @@
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, date_diff, flt, getdate, today
+from frappe.utils import add_days, cint, date_diff, flt, getdate, today
 from frappe.query_builder.functions import Sum
 from collections import defaultdict
+from datetime import datetime
+
+
+REPORT_NAME = "STOCK SHEET (BALANCE REPORT)"
 
 
 def execute(filters=None):
     filters = filters or {}
+    started_inline = _runs_inline()
     # MI1-I61 (Raj 2026-06-27): scope by 'HTY User' / 'VFY User' role.
     from mhr.utilis import enforce_role_scoped_transaction_type
     filters = enforce_role_scoped_transaction_type(filters)
@@ -23,7 +28,36 @@ def execute(filters=None):
     # Transaction Type was selected. The shared helper is untouched; other
     # reports still use it.
     data = get_data(filters)
+    keep_inline(started_inline)
     return columns, data
+
+
+def _runs_inline():
+    try:
+        return not frappe.db.get_value("Report", REPORT_NAME, "prepared_report")
+    except Exception:
+        return False
+
+
+def keep_inline(started_inline):
+    """MI1-I119: frappe starts a 15 s timer with every inline run and, if the
+    run is still going when it fires, sets Report.prepared_report = 1 in a
+    side connection (report.py :: enable_prepared_report). The one run that
+    can still take that long here is the cold build of the whole-site balance
+    map right after a stock movement, before the background warm-up has
+    finished — and that single run then switched every user to "Generate New
+    Report" until someone reset the flag (prod, 2026-09-06 and 2026-09-08).
+    A report the users want inline puts itself back: if this run started
+    inline and the flag flipped while it ran, the flip is undone. A flag that
+    was already 1 when the run started is an administrator's choice and is
+    left alone."""
+    if not started_inline:
+        return
+    try:
+        if frappe.db.get_value("Report", REPORT_NAME, "prepared_report"):
+            frappe.db.set_value("Report", REPORT_NAME, "prepared_report", 0, update_modified=False)
+    except Exception:
+        frappe.log_error(title="Stock Sheet (Balance Report): could not keep the report inline")
 
 
 def get_columns(filters=None):
@@ -170,6 +204,13 @@ def _sbb_status_index_hint():
     return f"FORCE INDEX (`{SBB_STATUS_INDEX}`)" if cached else ""
 
 
+LEGACY_SLE_WHOLE_TABLE_FROM = 20000
+WHOLE_SITE_FROM = 50000
+BALANCE_CACHE_TTL = 6 * 3600
+BALANCE_CACHE_KEY = "mhr:balance_report:warehouse_balances"
+WARM_JOB_ID = "mhr::warm_balance_map"
+
+
 def get_batch_warehouse_balances(batch_ids):
     """Live stock per (batch, warehouse): {(batch_no, warehouse): qty}.
 
@@ -178,9 +219,11 @@ def get_batch_warehouse_balances(batch_ids):
     mhr.utilis._batch_balance_in_warehouse, and the only correct one: this
     site holds ~51K entry rows whose bundle was deleted from under them
     (22.6K batches would show phantom stock without the join). Pre-bundle
-    Stock Ledger rows that name the batch directly are added on top.
-    Zero-sum (batch, warehouse) pairs are dropped by the database, so the
-    result is roughly the stocked set, not every batch ever moved.
+    Stock Ledger rows that name the batch directly are added on top — per
+    chunk for a small set, in ONE whole-table pass for a large one (prod:
+    0.16 s once versus 0.02 s x 100 chunks). Zero-sum (batch, warehouse)
+    pairs are dropped by the database, so the result is roughly the stocked
+    set, not every batch ever moved.
 
     MI1-I82: External Job Work warehouses are excluded here, so nothing that
     consumes this map ever counts a subcontractor's stock as the company's.
@@ -194,6 +237,7 @@ def get_batch_warehouse_balances(batch_ids):
     ext_sql_sle = " AND warehouse NOT IN %(external)s" if external_wh else ""
     params = {"external": tuple(external_wh)} if external_wh else {}
     hint = _sbb_status_index_hint()
+    legacy_per_chunk = len(names) < LEGACY_SLE_WHOLE_TABLE_FROM
 
     for i in range(0, len(names), BALANCE_CHUNK):
         chunk = tuple(names[i : i + BALANCE_CHUNK])
@@ -212,6 +256,8 @@ def get_batch_warehouse_balances(batch_ids):
         ):
             key = (batch_no, warehouse or "")
             out[key] = out.get(key, 0.0) + flt(qty)
+        if not legacy_per_chunk:
+            continue
         # Direct SLE entries (older method — batch_no on the ledger row itself).
         for batch_no, warehouse, qty in frappe.db.sql(
             f"""
@@ -227,7 +273,116 @@ def get_batch_warehouse_balances(batch_ids):
         ):
             key = (batch_no, warehouse or "")
             out[key] = out.get(key, 0.0) + flt(qty)
+
+    if not legacy_per_chunk:
+        wanted = set(names)
+        for batch_no, warehouse, qty in frappe.db.sql(
+            f"""
+            SELECT batch_no, warehouse, SUM(actual_qty)
+            FROM `tabStock Ledger Entry`
+            WHERE docstatus = 1 AND is_cancelled = 0
+              AND IFNULL(batch_no, '') != ''
+              AND IFNULL(serial_and_batch_bundle, '') = ''{ext_sql_sle}
+            GROUP BY batch_no, warehouse
+            HAVING ABS(SUM(actual_qty)) > 0.0005
+            """,
+            params,
+        ):
+            if batch_no in wanted:
+                key = (batch_no, warehouse or "")
+                out[key] = out.get(key, 0.0) + flt(qty)
     return out
+
+
+def balance_cache_key():
+    """Content address of the whole-site balance map: it changes the moment a
+    bundle or ledger row is written, so a cached map can never be stale — a
+    new Delivery Note, Stock Entry or cancellation bumps MAX(modified) (and
+    the bundle count), and an External Job Work flag flip changes the set."""
+    sbb_count, sbb_modified = frappe.db.sql("SELECT COUNT(*), MAX(modified) FROM `tabSerial and Batch Bundle`")[0]
+    sle_modified = frappe.db.sql("SELECT MAX(modified) FROM `tabStock Ledger Entry`")[0][0]
+    external = "|".join(sorted(get_external_job_work_warehouses()))
+    return f"{BALANCE_CACHE_KEY}:{sbb_count}:{sbb_modified}:{sle_modified}:{external}"
+
+
+def get_all_warehouse_balances(use_cache=True):
+    """The whole site's live (batch, warehouse) balances — what every run
+    without a Container / Lot / Cone filter needs, whatever its dates.
+
+    MI1-I119 (prod 2026-09-08): on prod the chunked aggregate over all 506K
+    batches is ~10 s and a full-range run landed at 16 s — past the 15 s mark
+    at which frappe flips the report back into prepared mode. The map depends
+    on nothing but the stock tables, so it is kept in Redis under a key that
+    encodes their state (balance_cache_key): any stock movement gives a new
+    key, and a repeat run — a date, company or mode change, which is how the
+    sheet is actually used — skips the aggregate entirely. This is not the
+    "second cache layer" CLAUDE.md warns about (a time-based copy next to
+    prepared_report): prepared_report is off for this report, and the key is
+    content-addressed, so no user can see a figure that a transaction has
+    since changed. One request never computes it twice (frappe.local)."""
+    cached = getattr(frappe.local, "_mhr_all_warehouse_balances", None)
+    if cached is not None:
+        return cached
+    key = balance_cache_key() if use_cache else None
+    out = _read_cached_map(key) if use_cache else None
+    if not isinstance(out, dict):
+        names = frappe.db.sql_list("SELECT name FROM `tabBatch`")
+        out = get_batch_warehouse_balances(names)
+        if use_cache:
+            frappe.cache().set_value(key, out, expires_in_sec=BALANCE_CACHE_TTL)
+    frappe.local._mhr_all_warehouse_balances = out
+    return out
+
+
+def _read_cached_map(key):
+    """Redis read that bypasses frappe.local.cache. RedisWrapper.get_value
+    remembers a miss (None) for the rest of the request and set_value with an
+    expiry does not refresh that memory, so a build right after a miss would
+    read back None in the same process (the warm-up job, and the tests)."""
+    import pickle
+
+    cache = frappe.cache()
+    try:
+        raw = cache.get(cache.make_key(key))
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        return pickle.loads(raw)
+    except Exception:
+        return None
+
+
+def warm_balance_cache():
+    """Build the whole-site map for the current stock state if Redis does not
+    hold it yet. Runs in the long queue after any stock movement
+    (enqueue_balance_cache_warmup) and hourly as a safety net, so the sheet
+    almost always finds the map ready and a run stays well inside the 15 s
+    after which frappe would flip it back into prepared mode."""
+    key = balance_cache_key()
+    if isinstance(_read_cached_map(key), dict):
+        return "warm"
+    frappe.local._mhr_all_warehouse_balances = None
+    get_all_warehouse_balances()
+    return "built"
+
+
+def enqueue_balance_cache_warmup(doc=None, method=None):
+    """doc_events hook on the stock documents (submit / cancel): queue one
+    warm-up after the transaction commits. Deduplicated by job id, so a
+    hundred Delivery Notes in a minute queue one job, and a failure to
+    enqueue never blocks the document."""
+    try:
+        frappe.enqueue(
+            "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).warm_balance_cache",
+            queue="long",
+            job_id=WARM_JOB_ID,
+            deduplicate=True,
+            enqueue_after_commit=True,
+        )
+    except Exception:
+        frappe.log_error(title="Stock Sheet balance cache warm-up not queued")
 
 
 def get_batch_balances(batch_ids, warehouse_balances=None):
@@ -238,7 +393,7 @@ def get_batch_balances(batch_ids, warehouse_balances=None):
     get_external_job_work_warehouses) so their stock does not count as
     company balance. Pass `warehouse_balances` to reuse a map already built.
     """
-    if not batch_ids:
+    if not batch_ids and warehouse_balances is None:
         return {}
     if warehouse_balances is None:
         warehouse_balances = get_batch_warehouse_balances(batch_ids)
@@ -408,23 +563,23 @@ def get_data(filters=None):
     # hold stock — the only ones the sheet can render. Same figures, ~6x
     # faster, and the report runs inline again.
     Batch = frappe.qb.DocType("Batch")
-    query = frappe.qb.from_(Batch).select(Batch.name.as_("batch_id"))
+    conditions = []
 
     if fdt:
-        query = query.where(Batch.creation >= fdt)
+        conditions.append(Batch.creation >= fdt)
     if tdt:
         # MI1-I91: Batch.creation is a DATETIME, so `creation <= '2026-08-11'`
         # resolves to `<= 2026-08-11 00:00:00` and silently drops every batch
         # created *today*. Compare against the start of the next day so To Date
         # is inclusive of the whole day, which is what the filter label implies.
-        query = query.where(Batch.creation < add_days(getdate(tdt), 1))
+        conditions.append(Batch.creation < add_days(getdate(tdt), 1))
 
     if container:
-        query = query.where(Batch.custom_container_no == container)
+        conditions.append(Batch.custom_container_no == container)
     if lot_no:
-        query = query.where(Batch.custom_lot_no == lot_no)
+        conditions.append(Batch.custom_lot_no == lot_no)
     if cone:
-        query = query.where(Batch.custom_cone == cone)
+        conditions.append(Batch.custom_cone == cone)
 
     # Container-scoped filters (company + transaction type).
     #
@@ -468,25 +623,60 @@ def get_data(filters=None):
     if allowed_containers is not None:
         if not allowed_containers:
             return []
-        query = query.where(Batch.custom_container_no.isin(list(allowed_containers)))
+        conditions.append(Batch.custom_container_no.isin(list(allowed_containers)))
 
-    batch_ids = query.run(pluck="batch_id")
-    if not batch_ids:
-        return []
+    def _batch_query(*select):
+        q = frappe.qb.from_(Batch).select(*select)
+        for c in conditions:
+            q = q.where(c)
+        return q
 
-    # Step 2: Live stock per batch and per (batch, warehouse)
-    warehouse_balances = get_batch_warehouse_balances(batch_ids)
-    balance_map = get_batch_balances(batch_ids, warehouse_balances)
+    # How many batches do the filters leave? A narrow set (one container, a
+    # lot, a fortnight of inward) is named and aggregated directly — that is
+    # the sub-second path a scoped run always had. A wide set (a full year,
+    # a whole Company or mode) reads the whole-site map instead of naming
+    # hundreds of thousands of batches first.
+    from frappe.query_builder.functions import Count
+
+    filtered_count = _batch_query(Count(Batch.name).as_("n")).run(pluck="n")[0]
+    query = _batch_query(Batch.name.as_("batch_id"))
+    if container or lot_no or cone or filtered_count < WHOLE_SITE_FROM:
+        # A narrow set: name it, then aggregate only its batches.
+        batch_ids = query.run(pluck="batch_id")
+        if not batch_ids:
+            return []
+        # Step 2: Live stock per batch and per (batch, warehouse)
+        warehouse_balances = get_batch_warehouse_balances(batch_ids)
+        balance_map = get_batch_balances(batch_ids, warehouse_balances)
+        # Only batches with stock can appear on the sheet (Step 4 drops the
+        # rest), so only those need their attributes loaded.
+        stocked_ids = [b for b in batch_ids if flt(balance_map.get(b, 0)) > 0]
+        batches = get_batch_rows(stocked_ids)
+    else:
+        # Dates, Company and Transaction Type alone: the whole site's balance
+        # map (cached — see get_all_warehouse_balances) names the ~80K stocked
+        # batches; their rows are loaded once and the filters applied to those
+        # in Python, instead of naming all 500K batches first.
+        warehouse_balances = get_all_warehouse_balances()
+        balance_map = get_batch_balances(list(warehouse_balances), warehouse_balances)
+        stocked_all = [b for b, q in balance_map.items() if flt(q) > 0]
+        batches = get_batch_rows(stocked_all)
+        lo = datetime.combine(getdate(fdt), datetime.min.time()) if fdt else None
+        hi = datetime.combine(add_days(getdate(tdt), 1), datetime.min.time()) if tdt else None
+        batches = [
+            b for b in batches
+            if (lo is None or b.creation >= lo)
+            and (hi is None or b.creation < hi)
+            and (allowed_containers is None or (b.container_no or "") in allowed_containers)
+        ]
+        stocked_ids = [b.batch_id for b in batches]
     stocked_by_batch = live_warehouses_by_batch(warehouse_balances)
-
-    # Only batches with stock can appear on the sheet (Step 4 drops the rest),
-    # so only those need their attributes loaded.
-    stocked_ids = [b for b in batch_ids if flt(balance_map.get(b, 0)) > 0]
-    if not stocked_ids:
-        return []
-    batches = get_batch_rows(stocked_ids)
     if not batches:
         return []
+    # Primary-key order, as the single Batch query used to return them: the
+    # first batch of a group decides its Merge No, and rows with equal sort
+    # keys keep their insertion order.
+    batches.sort(key=lambda b: b.batch_id)
 
     # Step 2b: Get per-booking details per batch
     booked_map = get_booked_quantities(stocked_ids)
@@ -710,6 +900,13 @@ def get_data(filters=None):
             )
 
     # Step 7: Combine and sort
+    #
+    # MI1-I119 (prod 2026-09-08): `cone` is an Int on the Batch, so detail rows
+    # carry 12 while a Chips row (cone 0, HTY — MI1-I91) and every total row
+    # carry "" — and Python refuses to order 12 against "". Every HTY run on
+    # prod died here with "'<' not supported between instances of 'int' and
+    # 'str'" (Prepared Report 3jhahn82je), which is the "HTY is not
+    # generating" half of the ticket. Sort on the integer value; blanks are 0.
     all_rows = main_rows + lot_totals + container_totals
     all_rows.sort(
         key=lambda r: (
@@ -717,7 +914,7 @@ def get_data(filters=None):
             r["container_no"],
             r["lot_no"] if r["lot_no"] else "\xff",
             r["sort_order"],
-            r["cone"] or "",
+            cint(r["cone"]),
         )
     )
 
