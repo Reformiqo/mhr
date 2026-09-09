@@ -125,9 +125,16 @@ def get_data(filters):
             SUBSTRING_INDEX(MAX(b.custom_lusture), '-', -1) AS `lusture`,
             SUBSTRING_INDEX(MAX(b.custom_grade), '-', -1) AS `grade`,
             SUM(dni.qty) AS `total_qty`,
-            -- Merge No is filled in afterwards from the Container master,
-            -- keyed on this row's container AND lot.
-            -- See _merge_numbers_by_container_and_lot.
+            -- MI1-I132: Merge No, like Pulp/Glue/Lusture/Grade above, is
+            -- per-row from the linked Batch — Container.create_batches()
+            -- stamps custom_merge_no on every batch it creates, so it is
+            -- exact and unambiguous. It used to be resolved afterwards from
+            -- the Container master keyed on (container_no, lot_no)
+            -- (_merge_numbers_by_container_and_lot, MI1-I116) — but a
+            -- container_no + lot_no pair is not unique to one Container
+            -- document, and rows for two such documents were comma-joined
+            -- ("H38x, S5dx") instead of showing the row's own batch's value.
+            COALESCE(MAX(b.custom_merge_no), '') AS `merge_no`,
             dni.custom_lot_no AS `lot_no`,
             -- Item Length: prefer the Batch master's
             -- custom_total_item_length when populated; fall back to
@@ -172,72 +179,7 @@ def get_data(filters):
         as_dict=True,
     )
 
-    # Merge No is VFY-only (see get_columns), so skip the lookup entirely on
-    # HTY where the column is not rendered.
-    if transaction_type != "HTY":
-        merge_numbers = _merge_numbers_by_container_and_lot(rows)
-        for row in rows:
-            row["merge_no"] = merge_numbers.get(_container_lot_key(row)) or ""
-
     # MI1-I120: SO Total / Delivered / Remaining per Sales Order; rows
     # without one stay blank.
     from mhr.utilis import annotate_so_progress
     return annotate_so_progress(rows)
-
-
-def _container_lot_key(row):
-    """(container_no, lot_no), normalised the same way on both sides."""
-    return (
-        (row.get("container_no") or row.get("container") or "").strip(),
-        (row.get("lot_no") or "").strip(),
-    )
-
-
-def _merge_numbers_by_container_and_lot(rows):
-    """(container_no, lot_no) -> the Merge No the Container master holds.
-
-    This used to come off the Delivery Note header
-    (dn.custom_merge_no), which set_header_container_info_from_items fills by
-    aggregating the note's rows. Being per-note, it showed the same value on
-    every row of the note whatever that row's container was — the same fault
-    the Pulp / Glue / Lusture / Grade columns above were already fixed for.
-    Merge No belongs to the container, so it is read from the Container master.
-
-    Keyed on the LOT as well as the container, because a container_no is not
-    unique: it carries one Container document per lot. MCJC-1111 holds H30X
-    against lot 6032025 and TRYL against lot 01012001, so a report row for lot
-    01012001 must read TRYL alone — keying on the container by itself put both
-    on every row of that container. The report already groups by
-    dni.custom_lot_no, so the pair is exactly this row's own identity.
-
-    Values are still comma-joined for the case where two Container documents
-    share one container and lot, the way supplier_batch_no is joined.
-
-    One query for the whole report rather than a join or a correlated
-    subquery — several Container documents share a container_no, and joining
-    on it multiplies the report's rows. That is the same reason the
-    transaction_type filter above uses EXISTS.
-    """
-    # MI1-I116: shared with Delivery Note Lot-Wise, whose rows spell the
-    # column `container_no` — accept either, as _container_lot_key does.
-    containers = sorted(
-        {(row.get("container") or row.get("container_no") or "").strip() for row in rows} - {""}
-    )
-    if not containers:
-        return {}
-
-    container_rows = frappe.get_all(
-        "Container",
-        # Cancelled containers are not part of the stock story any more, and
-        # their merge numbers should not surface against a delivery.
-        filters={"container_no": ("in", containers), "docstatus": ("<", 2)},
-        fields=["container_no", "lot_no", "merge_no"],
-    )
-
-    by_key = {}
-    for container in container_rows:
-        merge_no = (container.get("merge_no") or "").strip()
-        if merge_no:
-            by_key.setdefault(_container_lot_key(container), set()).add(merge_no)
-
-    return {key: ", ".join(sorted(merge_numbers)) for key, merge_numbers in by_key.items()}
