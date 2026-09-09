@@ -1547,6 +1547,85 @@ def get_item_batch(batch, with_available=0):
     return out
 
 
+def get_item_warehouse_totals(item_code, warehouse):
+    """MI1-I133: live Qty + total Cone of `item_code` currently sitting in
+    `warehouse` — the Job Work Received header's Received Item / Received
+    Total Qty / Received Total Cone fields, for both HTY and VFY.
+
+    Summed over every Batch of that item holding a live balance there
+    (Serial and Batch Bundle, the same source every other live figure in
+    this app reads — never Batch.batch_qty, which is not live), plus any
+    pre-bundle Stock Ledger row that names the batch directly, matching
+    get_batch_warehouse_balances in the Stock Sheet (Balance Report). Cone
+    is summed from Batch.custom_cone over exactly the batches that
+    contributed to the qty total, so a batch with zero balance here (fully
+    delivered, or its stock is elsewhere) never counts.
+
+    Both stages filter by `item_code` directly on the Bundle / Ledger row —
+    both carry it natively — rather than joining through Batch: on this
+    bench a handful of yarn specs used in nearly every test transaction
+    have 50K-130K live (batch, warehouse) rows, and joining through Batch's
+    unindexed `item` column turned this from single-digit milliseconds into
+    a 56 s full scan. A realistic item (hundreds of live batches, not
+    hundreds of thousands) answers in well under 100 ms either way.
+
+    Returns {"qty": float, "cone": int}; {"qty": 0.0, "cone": 0} when either
+    argument is blank or nothing resolves.
+    """
+    empty = {"qty": 0.0, "cone": 0}
+    item_code = (item_code or "").strip()
+    warehouse = (warehouse or "").strip()
+    if not item_code or not warehouse:
+        return empty
+
+    balances = {}
+    for batch_no, qty in frappe.db.sql(
+        """
+        SELECT sbe.batch_no, SUM(sbe.qty)
+        FROM `tabSerial and Batch Bundle` sbb
+        INNER JOIN `tabSerial and Batch Entry` sbe ON sbe.parent = sbb.name
+        WHERE sbb.item_code = %(item_code)s AND sbb.warehouse = %(warehouse)s
+          AND sbb.docstatus = 1 AND sbb.is_cancelled = 0
+        GROUP BY sbe.batch_no
+        HAVING ABS(SUM(sbe.qty)) > 0.0005
+        """,
+        {"item_code": item_code, "warehouse": warehouse},
+    ):
+        balances[batch_no] = balances.get(batch_no, 0.0) + flt(qty)
+    for batch_no, qty in frappe.db.sql(
+        """
+        SELECT sle.batch_no, SUM(sle.actual_qty)
+        FROM `tabStock Ledger Entry` sle
+        WHERE sle.item_code = %(item_code)s AND sle.warehouse = %(warehouse)s
+          AND sle.docstatus = 1 AND sle.is_cancelled = 0
+          AND IFNULL(sle.batch_no, '') != '' AND IFNULL(sle.serial_and_batch_bundle, '') = ''
+        GROUP BY sle.batch_no
+        HAVING ABS(SUM(sle.actual_qty)) > 0.0005
+        """,
+        {"item_code": item_code, "warehouse": warehouse},
+    ):
+        balances[batch_no] = balances.get(batch_no, 0.0) + flt(qty)
+
+    stocked = [b for b, q in balances.items() if flt(q) > 0.0005]
+    if not stocked:
+        return empty
+
+    total_qty = sum(balances[b] for b in stocked)
+    total_cone = frappe.db.sql(
+        "SELECT SUM(IFNULL(custom_cone, 0)) FROM `tabBatch` WHERE name IN %(names)s",
+        {"names": tuple(stocked)},
+    )
+    return {"qty": flt(total_qty), "cone": cint(total_cone[0][0]) if total_cone and total_cone[0][0] else 0}
+
+
+@frappe.whitelist()
+def get_received_item_totals(item_code, warehouse):
+    """MI1-I133: whitelisted wrapper for the Job Work Received header's
+    Received Item -> Received Total Qty / Received Total Cone refresh."""
+    frappe.has_permission("Stock Entry", "read", throw=True)
+    return get_item_warehouse_totals(item_code, warehouse)
+
+
 @frappe.whitelist()
 def update_item_batch(doc, method=None):
     for item in doc.items:

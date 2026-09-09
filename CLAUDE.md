@@ -481,6 +481,25 @@ fast-no-op for every other Stock Entry. Flow:
    case a Send entry's grade ever arrived as MI1-I107's bare HTY form
    ('AA EVEN') rather than the Item Specification docname
    ('Grade-AA EVEN') every Container.grade and VFY Batch holds.
+9. **Received Item / Received Total Qty / Received Total Cone** (MI1-I133,
+   2026-09-09). Three new header fields, VFY and HTY alike:
+   `custom_received_item` (Link -> Item, plain, unfiltered — the same
+   fieldtype and lack of query Container's own Item field has) lets the
+   user pick which item the two read-only totals describe;
+   `custom_received_total_qty` (Float) / `custom_received_total_cone` (Int)
+   show that item's LIVE Qty and total Cone currently in the document's
+   Default Target Warehouse (`to_warehouse`), recomputed the instant either
+   field changes and once more on load of a draft (never on a submitted
+   doc — MI1-I106). `mhr.utilis.get_item_warehouse_totals(item_code,
+   warehouse)` sums Serial and Batch Bundle balances (never
+   `Batch.batch_qty`) filtered directly by `item_code` on the Bundle /
+   Ledger row itself — joining through Batch's unindexed `item` column
+   instead turned a handful of yarn specs used in nearly every test
+   transaction (50K-130K live batch rows on this bench) from single-digit
+   milliseconds into a 56 s full scan; Cone is `SUM(Batch.custom_cone)`
+   over exactly the batches that contributed to the Qty. A batch fully
+   moved out of that warehouse drops out on its own — this is a live
+   balance, not a running receipt total.
 
 ### Subcontracting Stock Tracking report (MI1-I123)
 
