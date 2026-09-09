@@ -296,6 +296,14 @@ def make_receive_from_subcontractor(source_name):
     for f in carry_header:
         v = source.get(f)
         if v is not None and source.meta.has_field(f):
+            # MI1-I130: the Send entry's own value already passed Link
+            # validation when the Send entry itself was saved, so this copy
+            # is safe by construction for real data — the resolve is a
+            # defensive no-op for the common case and only does real work if
+            # a Send entry from before this change (or from the HTY batch
+            # picker, MI1-I107) carries an unprefixed grade.
+            if f in STOCK_ENTRY_SPEC_LINK_FIELDS:
+                v = spec_link_value(STOCK_ENTRY_SPEC_LINK_FIELDS[f], v)
             receipt.set(f, v)
 
     # Items — only those with pending qty > 0.
@@ -488,6 +496,108 @@ _RECEIVE_BATCH_SPEC_FIELDS = (
     ("custom_notes", "custom_notes"),
     ("custom_cross_section", "cross_section"),
 )
+
+# MI1-I130 (Rohit 2026-09-08): these five Stock Entry header fields became
+# Link(Item Specification) so Job Work Received offers the same dropdown as
+# Container Inward, instead of a plain text box. The specification_type is
+# what scopes each field's dropdown to its own pool of Item Specification
+# records (mi1_i80_apply_batch_query_filters in "Stock Entry Container Info"
+# — the same rule Container.js has used since MI1-I80) and what
+# spec_link_value() below tries as a prefix.
+STOCK_ENTRY_SPEC_LINK_FIELDS = {
+    "custom_glue": "Glue",
+    "custom_pulp": "Pulp",
+    "custom_lusture": "Lusture",
+    "custom_grade": "Grade",
+    "custom_fsc": "FSC",
+}
+
+# The Container fields resolve_container_spec reads — always the prefixed
+# Item Specification docname (Container.grade is a Link like every one of
+# these; MI1-I107's plain-value stripping happens only when a HTY value is
+# copied onto a *Batch*, never on the Container itself), plus the two plain
+# free-text fields the ticket also expects to default: Merge No and Cross
+# Section are Data on Container too — no dropdown there either — so they
+# come along unchanged, exactly as Container Inward shows them.
+CONTAINER_SPEC_FIELDS = ("glue", "pulp", "lusture", "grade", "fsc", "merge_no", "cross_section", "notes")
+
+
+def spec_link_value(specification_type, raw):
+    """Resolve `raw` to a real Item Specification docname for
+    `specification_type`, trying the value as given, then prefixed.
+
+    MI1-I107 leaves an HTY Batch's custom_grade as the bare value ('AA
+    EVEN'), not the Item Specification docname ('Grade-AA EVEN') every VFY
+    Batch and every Container.grade holds — so a value carried from a Send
+    entry's header (itself once populated from an HTY batch pick) can reach
+    here unprefixed. Frappe validates every Link field on insert(), before
+    any doc_events hook gets a chance to run (`_validate_links()` precedes
+    `run_before_save_methods()` in both `Document.insert()` and `.save()`),
+    so normalizing has to happen at the point of assignment, not in a
+    `validate` hook. Returns `raw` unchanged when neither form resolves, so a
+    genuinely bad value still surfaces as Frappe's own Link error rather than
+    disappearing silently.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return raw
+    if frappe.db.exists("Item Specification", raw):
+        return raw
+    candidate = f"{specification_type}-{raw}"
+    if frappe.db.exists("Item Specification", candidate):
+        return candidate
+    return raw
+
+
+def resolve_container_spec(container_no, lot_no=None, transaction_type=None):
+    """Container Inward spec for a (container_no, lot_no) pair — MI1-I130.
+
+    `container_no` is not unique (many lots share a number, see
+    resolve_container_notes); `lot_no` narrows to the exact document. Falls
+    back to `container_no` (+ `transaction_type`, the same disambiguator
+    resolve_container_notes uses) alone when `lot_no` is blank or matches no
+    submitted Container, so a Lot No the user hasn't finished typing yet
+    still resolves something rather than nothing. Returns None when nothing
+    resolves at all.
+    """
+    container_no = (container_no or "").strip()
+    if not container_no:
+        return None
+    lot_no = (lot_no or "").strip()
+    filters = {"container_no": container_no, "docstatus": 1}
+    if lot_no:
+        filters["lot_no"] = lot_no
+    fields = list(CONTAINER_SPEC_FIELDS)
+    rows = frappe.get_all(
+        "Container", filters=filters, fields=fields,
+        order_by="posting_date desc, modified desc", limit=1,
+    )
+    if not rows and lot_no:
+        fallback_filters = {"container_no": container_no, "docstatus": 1}
+        if transaction_type:
+            fallback_filters["transaction_type"] = (transaction_type or "VFY").upper()
+        rows = frappe.get_all(
+            "Container", filters=fallback_filters, fields=fields,
+            order_by="posting_date desc, modified desc", limit=1,
+        )
+    if not rows:
+        return None
+    return {f: (rows[0].get(f) or "") for f in CONTAINER_SPEC_FIELDS}
+
+
+@frappe.whitelist()
+def get_received_container_spec(container_no, lot_no=None, transaction_type=None):
+    """MI1-I130: backs the Job Work Received header's on-change handler for
+    Received Container Number / Received Lot No, so picking a different
+    container / lot than the one sent (Raj 2026-09-03) refreshes Glue / Pulp
+    / Lusture / Grade / FSC / Merge No / Cross Section / Notes to match —
+    exactly as selecting a Container shows them on Container Inward. Returns
+    None when nothing resolves, so the caller leaves the fields exactly as
+    they are (still carrying the Send entry's values, or the user's own
+    edits).
+    """
+    frappe.has_permission("Stock Entry", "write", throw=True)
+    return resolve_container_spec(container_no, lot_no, transaction_type)
 
 
 def set_receive_purpose(doc, method=None):

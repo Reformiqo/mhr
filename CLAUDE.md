@@ -421,6 +421,66 @@ fast-no-op for every other Stock Entry. Flow:
 6. `Subcontractor Material Tracking` report aggregates all of this for review.
 7. `Subcontracting Stock Tracking` (MI1-I123) follows the chain past the
    receipt to the Delivery Notes — see the next section.
+8. **Glue / Pulp / Lusture / Grade / FSC are dropdowns on the receive header
+   too** (MI1-I130, 2026-09-08). These five Stock Entry custom fields were
+   Data; they are now Link(Item Specification), the same fieldtype
+   Container's own glue/pulp/lusture/grade/fsc already use, so Job Work
+   Received offers the identical dropdown Container Inward does — on data
+   that was already compatible (every existing non-blank value on this
+   bench matched an Item Specification docname before the change). Merge No
+   and Cross Section stay Data: Container's own fields of those names are
+   Data too, so there is nothing to link them to. `mhr.utilis.
+   get_received_container_spec(container_no, lot_no, transaction_type)`
+   (client: "Stock Entry Container Info") refetches all eight Container
+   fields — the five links plus Merge No / Cross Section / Notes — the
+   moment the user leaves Received Container Number / Received Lot No
+   having picked a different one than the Send entry's (Raj 2026-09-03),
+   replacing the defaults; `setup()` scopes each dropdown to its own
+   `specification_type`, mirroring Container.js (MI1-I80).
+   **`mhr_bind_leave` binds straight to the input's own native `blur` and
+   `keydown` events, once, eagerly (from `refresh()`) — not to
+   `frm.trigger(fieldname)` or a lazily-armed listener.** Three walkthrough
+   rounds each found a different way the obvious version breaks, because
+   Received Container Number / Received Lot No are plain Data fields and
+   frappe's Data control (`data.js :: bind_change_event`) fires the same
+   field's own doc_event handler through TWO independent, unsynchronized
+   paths — a native (non-debounced) `'change'` listener that only fires on
+   blur, and a 500 ms-debounced `'input'` listener that fires mid-typing,
+   still focused:
+     1. A listener ARMED LAZILY (only from inside a guard that itself only
+        ever runs via one of those two triggers) is never armed at all if
+        the user types continuously and hits Enter before either ever
+        fires — Enter did nothing, no blur, no fetch (MI1-I127's original
+        pattern, inherited here at first).
+     2. Relying on `frm.trigger(fieldname)` firing again on blur breaks
+        ordinary typing: the mid-typing debounce already wrote the in-
+        progress value into the model, so frappe's own model-diff
+        (`validate_and_set_in_model :: is_value_same`) skips re-invoking
+        the handler on the later blur — nothing "changed" as far as the
+        model is concerned. Tab silently stopped refetching.
+     3. Even a directly-bound native `'blur'` listener that reads
+        `frm.doc.<fieldname>` can fire with a STALE value: `'blur'` fires
+        *before* the native `'change'` event that writes the model, and
+        that write is itself async (`frappe.run_serially`) — a fast type-
+        then-Enter sent the previous lot number to the server. Fixed by
+        reading `field.$input.val()` directly instead of the model.
+   The net design: bind to blur/keydown directly, unconditionally, once;
+   never rely on `frm.trigger` or the model being current; read the DOM.
+   **The same three-part flaw is latent in MI1-I127's `hty_still_typing` /
+   `mi1_i101_still_typing` and MI1-I129's `mi1_so_still_typing` /
+   `so_hty_still_typing`** (Delivery Note, Sales Order Booking,
+   `sales_order_hty.js`) — those shipped before this was understood and are
+   unchanged by this ticket; flagged, not fixed, pending a decision on
+   whether to touch already-deployed tickets.
+   **Frappe validates every Link field inside
+   `insert()`/`save()` before any `doc_events` hook runs** — `_validate_links()`
+   precedes `run_before_save_methods()` in both — so a `validate` hook can
+   never repair a bad Link value in time; `mhr.utilis.spec_link_value`
+   normalizes at the one place that still needs it instead: the
+   `carry_header` copy in `make_receive_from_subcontractor`, defensively, in
+   case a Send entry's grade ever arrived as MI1-I107's bare HTY form
+   ('AA EVEN') rather than the Item Specification docname
+   ('Grade-AA EVEN') every Container.grade and VFY Batch holds.
 
 ### Subcontracting Stock Tracking report (MI1-I123)
 
