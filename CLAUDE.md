@@ -38,6 +38,7 @@ All have `prepared_report: 1` enabled (Redis caching is handled by Frappe — do
 - `Delivery Challan`
 - `Meher Creation`
 - `Stock Sheet (Balance Report)` — Company filter + Accepted Warehouse column. **Accepted Warehouse is the live location** since MI1-I125 (2026-09-06): the warehouse(s) holding the group's Serial and Batch Bundle balance, largest first, falling back to `Container.set_warehouse` only when nothing is stocked — a Material Transfer therefore shows its target. **Runs inline** since MI1-I119: see *Balance report performance* below.
+- `Stock Sheet (Balance Report) v2` — MI1-I135 (2026-09-10); see *Stock Sheet (Balance Report) v2* below.
 - `Stock Sheet (Balance Report Simple)`
 - `Stock Sheet (Inward Cone Wise)` (+ `v2`)
 - `Stock Sheets (Inward Coneless Stock )`
@@ -569,6 +570,94 @@ future slow run flips it again. This is the exact flapping the balance
 report needed a manually re-registered patch to fix on 2026-09-08 after one
 slow run undid the first fix — the hourly job exists so that never needs a
 second ticket here.
+
+### Stock Sheet (Balance Report) v2 (MI1-I135)
+
+`mhr/mhr/report/stock_sheet_(balance_report)_v2/`. "Create an exact replica
+of Stock Sheet (Balance Report) ... as a new report without modifying the
+existing report," with the changes in an FRD reviewed and corrected by
+Reformiqo's own analyst (`MHR_Stock_Sheet_Book2_Reviewed_v3.0.xlsx`) — the
+original report is untouched (`git diff` on it is empty) and stays the
+trusted, live-balance-sourced figure; this is a second, separate view.
+
+- **Four new columns, immediately after Glue and before Balance Qty**: In
+  Qty (Container Inward + Job Work Received produce rows), Out Qty
+  (non-return deliveries), GR Received (return deliveries, `ABS()`'d —
+  return qty is stored negative), Job work Send Qty (Send to Subcontractor
+  issue rows). **Balance Qty itself changes formula**: In Qty − Out Qty +
+  GR Received − Job work Send Qty (the FRD's own sheet 1 marks this "accepted
+  as given"), replacing the live Serial and Batch Bundle balance — Balance
+  Box follows the same shape over row counts. Everything else (Booked Qty,
+  Available Qty — now Balance minus Booked using the new Balance —
+  Delivered/Pending, Accepted Warehouse, HTY/VFY column swaps, per-Sales-
+  Order row expansion, lot/container/grand totals) is untouched: `get_data`
+  is the original's, byte for byte, with the group's `balance`/`balance_box`
+  fed from the movement ledger instead of the live balance at the one point
+  they are set, and the four raw movement figures riding along on every row
+  and total the same way `balance`/`balance_box` already did.
+- **Real schema, not the FRD's placeholder field names** (its own sheet 1
+  flagged them as needing confirmation): there is no "Container Item"
+  doctype — a Container's items are `Batch Items`, joined through
+  `tabContainer` for `container_no`/`lot_no`. Stock Entry Detail carries no
+  container/lot columns at all (see the Subcontract receipt flow note
+  above) — Send to Subcontractor's container/lot are its own header fields
+  (`custom_container_number` / `custom_lot_no`); Job Work Received's are the
+  *received* header fields (`custom_received_container_no` /
+  `custom_received_lot_no`). `get_movement_totals()` in the report module
+  builds all five sources as separate parametrized queries merged into one
+  Python dict (the established "chunk per source, aggregate in Python"
+  pattern), not the FRD's single UNION ALL CTE.
+- **Item code casing drifts between sources on this bench** — `50D/8F` on
+  `Batch`, `50D/8f` on `Batch Items`, the identical pattern MI1-I132 hit on
+  Delivery Note batches. `_movement_key()` upper-cases item_code (and
+  `cint()`s cone) on both sides of every lookup so a Container Inward row
+  and its Batch always land in the same bucket — first shipped with the
+  wrong assumption that these agreed, caught by a real-data test that
+  returned nothing until the fix.
+- **Batch attribute loading is no longer gated on live SBB balance for a
+  Container/Lot/Cone-filtered (or otherwise narrow) run.** The original
+  loads only batches with a live balance because ITS visibility rule IS the
+  live balance (a pure optimization). Here the visibility rule is the
+  movement ledger, so that same gate would silently drop a batch whose
+  movement-ledger balance is positive but whose live SBB balance happens to
+  be zero — exactly what a Job Work Received produce-only batch (no
+  Container Inward record, MI1-I50) looks like, and caught the same way, by
+  a test that returned zero rows until the fix. The **whole-site
+  (unfiltered) path still gates on the live-balance map** (`get_all_
+  warehouse_balances`, imported from the original) — there is no whole-site
+  index of "batches touched by any of the five tracked movements" to name
+  the candidate set without a 500K-row `Batch` scan, so an unfiltered run of
+  this report can under-report a lot whose stock left the live-balance set
+  through a movement type this report does not track. A Container/Lot
+  filter always gets the ungated, correct answer.
+- **Known limitation, carried verbatim from the FRD's own "Issues to Settle"
+  sheet (Issue 7)**: Balance Qty here covers only the five movement sources
+  above. It does not cover Purchase Receipt, Material Issue, Stock
+  Reconciliation, transfers between the company's own warehouses, or scrap.
+  If any of those touch VFY/HTY stock, this report's Balance Qty can
+  disagree with the original report and with Stock Ledger for the same row
+  — "Accepted Warehouse" (still live-SBB-sourced, unchanged) can therefore
+  show a location on a row whose movement-ledger Balance Qty is small, zero,
+  or disagrees with what is actually in that warehouse.
+- Every other "Issues to Settle" item resolved to the FRD's own recommended
+  fix rather than a fresh guess: Out Qty and Delivered Qty stay genuinely
+  different (Out Qty = every non-return delivery; Delivered Qty = only
+  deliveries against the row's own Sales Order, unchanged from the
+  original); Available Qty keeps reading "Total Booked" exactly as the
+  original does today (the FRD's own fallback when Book2's "Booked Qty"
+  wording was ambiguous); FSC/Denier/Count get no new columns — Denier is
+  already the existing "Item" column in VFY, and the FRD's own finalized
+  "RESULTING COLUMN ORDER" never lists the other two.
+- `mhr.patches.v1_0.add_dn_item_container_lot_index` — `idx_dni_container_lot
+  (custom_container_no, custom_lot_no)` on Delivery Note Item. Neither
+  column carried an index, so a single-container narrow run of the Out
+  Qty / GR Received query full-scanned the whole 327K-row table (~3.5 s);
+  with the index, a Container/Lot-filtered run of this report is ~1-2 s. An
+  unfiltered run stays close to the 15 s inline budget (~14 s locally,
+  `keep_inline` is the safety net) — a whole-site cache of the movement map,
+  mirroring `get_all_warehouse_balances`, is the natural next optimization
+  if that proves too tight in practice; not built pre-emptively for a report
+  with no real usage yet.
 
 ### Client-side JS hooks
 
