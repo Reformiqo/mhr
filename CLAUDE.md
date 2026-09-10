@@ -543,6 +543,33 @@ not on the standard links the FRD assumed (`outgoing_stock_entry` /
   (`stock_entry_type LIKE 'Job Work%'`, no link) are listed after the linked
   rows with a flag, never dropped.
 
+### Core ERPNext reports kept inline (MI1-I131)
+
+The 15 s auto-prepared-report watcher documented under *Balance report
+performance* above (`frappe.core.doctype.report.report ::
+enable_prepared_report`) isn't scoped to mhr's own reports — it flips
+`Report.prepared_report` to 1 for **any** Script Report, mhr-owned or core,
+the first time one run takes longer than 15 s. ERPNext's standard "Stock
+Ledger" report got flipped that way on this site on 2025-05-30
+(`modified_by: Administrator` — the watcher's own background thread, never
+a deliberate admin choice), so every open of it since showed "This is a
+background report. Please set the appropriate filters and then generate a
+new one." instead of running, however complete the filters were — reported
+as "the Stock Ledger Report is not getting generated."
+
+`mhr.patches.v1_0.set_stock_ledger_report_inline` reset the flag once, the
+same shape as `set_stock_sheet_balance_report_inline`. But Stock Ledger's
+`execute()` lives in ERPNext, not mhr, so it cannot be given the balance
+report's own self-healing `keep_inline` check (that needs to run *inside*
+the single report call that might trip the watcher). `mhr.utilis.
+keep_core_reports_inline` — hourly, alongside `warm_balance_cache` — is the
+only available safety valve: it resets `prepared_report` back to 0 for every
+name in `CORE_REPORTS_TO_KEEP_INLINE` (currently just `"Stock Ledger"`) if a
+future slow run flips it again. This is the exact flapping the balance
+report needed a manually re-registered patch to fix on 2026-09-08 after one
+slow run undid the first fix — the hourly job exists so that never needs a
+second ticket here.
+
 ### Client-side JS hooks
 
 - `doctype_js = { "Sales Order": "public/js/sales_order_hty.js", "Stock Entry": "public/js/stock_entry.js" }`

@@ -311,6 +311,9 @@ scheduler_events = {
     		"mhr.batch.enqueue_recalculate_batch_qty",
     		# MI1-I119: keep the Stock Sheet's whole-site balance map warm.
     		"mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).warm_balance_cache",
+    		# MI1-I131: reset core ERPNext reports (Stock Ledger) frappe's own
+    		# 15s watcher flipped into background-report mode.
+    		"mhr.utilis.keep_core_reports_inline",
     	],
     # 	"weekly": [
     # 		"mhr.tasks.weekly"

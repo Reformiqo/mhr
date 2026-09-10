@@ -4040,3 +4040,29 @@ def get_hty_batches_for_containers(container_names):
             }
         )
     return payload
+
+
+# MI1-I131: core ERPNext reports we want to always run inline, never as a
+# background "Generate New Report" job. Its own execute() isn't ours to
+# edit, so unlike the mhr-owned reports (see Stock Sheet (Balance Report)'s
+# keep_inline) there is no way to reset the flag from inside a single run
+# the moment frappe's own 15 s watcher (report.py :: enable_prepared_report)
+# flips it — this hourly job is the only available safety valve.
+CORE_REPORTS_TO_KEEP_INLINE = ("Stock Ledger",)
+
+
+def keep_core_reports_inline():
+    """Reset `Report.prepared_report` back to 0 for CORE_REPORTS_TO_KEEP_INLINE.
+
+    mhr.patches.v1_0.set_stock_ledger_report_inline did this once already;
+    the balance report needed its own equivalent patch re-registered days
+    later (2026-09-08) after a single slow run flipped it right back — so
+    this runs hourly (scheduler_events, like warm_balance_cache) rather than
+    relying on a one-time fix holding forever.
+    """
+    for report in CORE_REPORTS_TO_KEEP_INLINE:
+        try:
+            if frappe.db.get_value("Report", report, "prepared_report"):
+                frappe.db.set_value("Report", report, "prepared_report", 0, update_modified=False)
+        except Exception:
+            frappe.log_error(title=f"keep_core_reports_inline: could not reset {report}")
