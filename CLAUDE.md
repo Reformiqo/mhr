@@ -123,7 +123,7 @@ Three changes, same figures (verified cell-for-cell against the old code):
 - `Delivery Note.on_cancel` → `mhr.utilis.reverse_item_batch`
 - `Delivery Note.validate` → `set_delivery_note_user`, `set_return_cone_from_original`, `calculate_delivery_note_totals`, `fetch_notes_from_container` (MI1-I83), `validate_so_delivery_qty` (MI1-I120)
 - `Batch.validate` → `mhr.batch_qr_code.set_si_qrcode`
-- `Stock Entry.validate` → `mhr.utilis.update_stock_entry`, `mhr.utilis.validate_hty_stock_entry`, `mhr.utilis.validate_subcontract_receipt` (MI1-I50 P3)
+- `Stock Entry.validate` → `mhr.utilis.update_stock_entry`, `mhr.utilis.validate_hty_stock_entry`, `mhr.utilis.validate_subcontract_receipt` (MI1-I50 P3), `mhr.utilis.calculate_received_totals` (MI1-I133 follow-up)
 - `Stock Entry.before_submit` → `mhr.utilis.create_receive_batches` (MI1-I50)
 - `Stock Entry.on_submit` → `mhr.utilis.apply_subcontract_receipt` (MI1-I50 P3)
 - `Stock Entry.on_cancel` → `mhr.utilis.revert_subcontract_receipt` (MI1-I50 P3)
@@ -483,24 +483,32 @@ fast-no-op for every other Stock Entry. Flow:
    ('AA EVEN') rather than the Item Specification docname
    ('Grade-AA EVEN') every Container.grade and VFY Batch holds.
 9. **Received Item / Received Total Qty / Received Total Cone** (MI1-I133,
-   2026-09-09). Three new header fields, VFY and HTY alike:
-   `custom_received_item` (Link -> Item, plain, unfiltered — the same
-   fieldtype and lack of query Container's own Item field has) lets the
-   user pick which item the two read-only totals describe;
-   `custom_received_total_qty` (Float) / `custom_received_total_cone` (Int)
-   show that item's LIVE Qty and total Cone currently in the document's
-   Default Target Warehouse (`to_warehouse`), recomputed the instant either
-   field changes and once more on load of a draft (never on a submitted
-   doc — MI1-I106). `mhr.utilis.get_item_warehouse_totals(item_code,
-   warehouse)` sums Serial and Batch Bundle balances (never
-   `Batch.batch_qty`) filtered directly by `item_code` on the Bundle /
-   Ledger row itself — joining through Batch's unindexed `item` column
-   instead turned a handful of yarn specs used in nearly every test
-   transaction (50K-130K live batch rows on this bench) from single-digit
-   milliseconds into a 56 s full scan; Cone is `SUM(Batch.custom_cone)`
-   over exactly the batches that contributed to the Qty. A batch fully
-   moved out of that warehouse drops out on its own — this is a live
-   balance, not a running receipt total.
+   2026-09-09; corrected 2026-09-10). Three header fields, VFY and HTY
+   alike: `custom_received_item` (Link -> Item, plain, unfiltered — the
+   same fieldtype and lack of query Container's own Item field has) is the
+   FRD's "pick which item this is" control; `custom_received_total_qty`
+   (Float) / `custom_received_total_cone` (Int) are read-only totals that
+   **no longer read `custom_received_item` at all**.
+   **Round 1 (shipped 2026-09-09)** read the live Serial and Batch Bundle
+   balance of the picked Received Item in the document's Default Target
+   Warehouse. **Raj's follow-up (2026-09-10, screenshot: MAT-GD-2026-00016,
+   both totals reading 0 despite Target Warehouse rows plainly carrying
+   Qty/Cone) corrected this**: a still-draft receipt has not posted
+   anything to the ledger yet, so a first-time item's live balance reads 0
+   regardless of what the draft's own rows already say. **The real,
+   intended rule**: `mhr.utilis.calculate_received_totals` (Stock Entry
+   `validate`, unconditional — no stock_entry_type gate) sums `qty` and
+   `custom_cone` across THIS document's own Item rows that carry a Target
+   Warehouse; a row's own Source Warehouse, if also set (an ordinary
+   single-pair Material Transfer row), does not disqualify it — only a
+   pure source-only row (Target Warehouse blank) is excluded. The Client
+   Script mirrors this exactly client-side (no server round trip), wired to
+   `items_add` / `items_remove` / a row's own `qty` / `custom_cone` /
+   `t_warehouse` changes, plus `custom_received_item` / `to_warehouse` /
+   load-of-a-draft for good measure (MI1-I106: never on a submitted doc).
+   `get_item_warehouse_totals` / `get_received_item_totals` (the Round 1
+   warehouse-balance query and its whitelisted wrapper) are deleted, not
+   deprecated — nothing else called them.
 
 ### Subcontracting Stock Tracking report (MI1-I123)
 

@@ -228,6 +228,11 @@ doc_events = {
             "mhr.utilis.validate_hty_stock_entry",
             # MI1-I50 P3: refuse over-receipts beyond the source's tolerance.
             "mhr.utilis.validate_subcontract_receipt",
+            # MI1-I133 follow-up (Raj 2026-09-10): Received Total Qty / Cone
+            # are a sum over this doc's own Target Warehouse rows — the
+            # authoritative, server-side recompute so a save is correct
+            # regardless of what the client sent.
+            "mhr.utilis.calculate_received_totals",
         ],
         "before_submit": [
             # MI1-I50 (Raj 2026-09-03): generate a Batch for every row on a
