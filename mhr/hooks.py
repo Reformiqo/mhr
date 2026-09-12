@@ -158,6 +158,8 @@ doc_events = {
         "on_submit": [
             # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
             "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
+            # MI1-I135: same reasoning, for the v2 report's own movement map.
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
             "mhr.utilis.update_item_batch",
             # MI1-I39 P2-G: HTY-mode return DN re-credits cones on submit
             # (symmetric with the VFY cancel-time reversal).
@@ -169,6 +171,8 @@ doc_events = {
         "on_cancel": [
             # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
             "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
+            # MI1-I135: same reasoning, for the v2 report's own movement map.
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
             "mhr.utilis.reverse_item_batch",
             "mhr.utilis.sync_sales_order_delivery",
         ],
@@ -201,6 +205,17 @@ doc_events = {
             # so a fetch_from declaration won't work — server hook does
             # the resolution via Container.container_no lookup.
             "mhr.utilis.set_batch_transaction_type_from_container",
+        ],
+    },
+    "Container": {
+        "on_submit": [
+            # MI1-I135: Container Inward is one of the five movement sources
+            # Stock Sheet (Balance Report) v2 aggregates — queue a rebuild of
+            # its own whole-site movement map (deduplicated job).
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
+        ],
+        "on_cancel": [
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
         ],
     },
     # MI1: send outbound mail immediately instead of waiting on the
@@ -244,6 +259,8 @@ doc_events = {
         "on_submit": [
             # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
             "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
+            # MI1-I135: same reasoning, for the v2 report's own movement map.
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
             # MI1-I103: update_batch_warehouse_on_stock_entry was removed —
             # it overwrote the Container's inward warehouse. See mhr/utilis.py.
             # MI1-I50 P3: push received qty back onto the source Send entry
@@ -253,6 +270,8 @@ doc_events = {
         "on_cancel": [
             # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
             "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",
+            # MI1-I135: same reasoning, for the v2 report's own movement map.
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
             # MI1-I103: revert_batch_warehouse_on_stock_entry removed with it.
             # MI1-I50 P3: undo the received-qty bump on the source.
             "mhr.utilis.revert_subcontract_receipt",
@@ -316,8 +335,10 @@ scheduler_events = {
     		"mhr.batch.enqueue_recalculate_batch_qty",
     		# MI1-I119: keep the Stock Sheet's whole-site balance map warm.
     		"mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).warm_balance_cache",
-    		# MI1-I131: reset core ERPNext reports (Stock Ledger) frappe's own
-    		# 15s watcher flipped into background-report mode.
+    		# MI1-I135: keep the v2 report's own whole-site movement map warm.
+    		"mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.warm_movement_cache",
+    		# MI1-I131 / MI1-I135: reset any report in REPORTS_TO_KEEP_INLINE
+    		# that frappe's own 15s watcher flipped into background-report mode.
     		"mhr.utilis.keep_core_reports_inline",
     	],
     # 	"weekly": [

@@ -84,14 +84,15 @@ class TestHourlySelfHeal(FrappeTestCase):
         self.assertEqual(frappe.db.get_value("Report", REPORT, "modified"), modified_before)
 
     def test_stock_ledger_is_the_report_covered(self):
-        self.assertIn(REPORT, utilis.CORE_REPORTS_TO_KEEP_INLINE)
+        self.assertIn(REPORT, utilis.REPORTS_TO_KEEP_INLINE)
 
     def test_a_missing_report_does_not_raise(self):
-        utilis.CORE_REPORTS_TO_KEEP_INLINE = ("MI1-I131-No-Such-Report",)
+        original = utilis.REPORTS_TO_KEEP_INLINE
+        utilis.REPORTS_TO_KEEP_INLINE = ("MI1-I131-No-Such-Report",)
         try:
             utilis.keep_core_reports_inline()  # must not raise
         finally:
-            utilis.CORE_REPORTS_TO_KEEP_INLINE = (REPORT,)
+            utilis.REPORTS_TO_KEEP_INLINE = original
 
 
 class TestWiring(FrappeTestCase):

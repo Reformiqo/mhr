@@ -114,6 +114,16 @@
   {
    "hidden": 0,
    "is_query_report": 1,
+   "label": "STOCK SHEET (BALANCE REPORT) v2",
+   "link_count": 0,
+   "link_to": "STOCK SHEET (BALANCE REPORT) v2",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
    "label": "STOCK SHEET (INWARD CONE WISE)",
    "link_count": 0,
    "link_to": "STOCK SHEET (INWARD CONE WISE)",
@@ -142,7 +152,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-02-19 06:51:15.834591",
+ "modified": "2026-09-12 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Mhr",
  "name": "Meher",

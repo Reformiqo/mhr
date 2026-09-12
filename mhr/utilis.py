@@ -3995,17 +3995,29 @@ def get_hty_batches_for_containers(container_names):
     return payload
 
 
-# MI1-I131: core ERPNext reports we want to always run inline, never as a
-# background "Generate New Report" job. Its own execute() isn't ours to
-# edit, so unlike the mhr-owned reports (see Stock Sheet (Balance Report)'s
-# keep_inline) there is no way to reset the flag from inside a single run
-# the moment frappe's own 15 s watcher (report.py :: enable_prepared_report)
-# flips it — this hourly job is the only available safety valve.
-CORE_REPORTS_TO_KEEP_INLINE = ("Stock Ledger",)
+# MI1-I131 (name kept from when this covered only core ERPNext reports —
+# "Stock Ledger", whose execute() isn't ours to edit, so it cannot be given
+# the mhr-owned reports' own in-run keep_inline check). MI1-I135
+# (2026-09-12) added the two mhr-owned balance reports too: their own
+# keep_inline runs inside the SAME request/transaction as the run it is
+# protecting, and a real investigation caught the exact gap — frappe's 15 s
+# watcher (report.py :: enable_prepared_report) commits `prepared_report=1`
+# from an independent connection in a background thread, and under
+# MySQL's REPEATABLE READ that commit is invisible to a transaction that
+# was already open when it landed, so keep_inline's own read of the flag
+# at the end of that same request can still see 0 and silently no-op —
+# the flip survives, with no Error Log entry, until something in a FRESH
+# transaction (this hourly job) reads it. Confirmed live: the v2 report
+# got stuck this way on roughly half of a handful of unfiltered opens.
+REPORTS_TO_KEEP_INLINE = (
+    "Stock Ledger",
+    "STOCK SHEET (BALANCE REPORT)",
+    "STOCK SHEET (BALANCE REPORT) v2",
+)
 
 
 def keep_core_reports_inline():
-    """Reset `Report.prepared_report` back to 0 for CORE_REPORTS_TO_KEEP_INLINE.
+    """Reset `Report.prepared_report` back to 0 for REPORTS_TO_KEEP_INLINE.
 
     mhr.patches.v1_0.set_stock_ledger_report_inline did this once already;
     the balance report needed its own equivalent patch re-registered days
@@ -4013,7 +4025,7 @@ def keep_core_reports_inline():
     this runs hourly (scheduler_events, like warm_balance_cache) rather than
     relying on a one-time fix holding forever.
     """
-    for report in CORE_REPORTS_TO_KEEP_INLINE:
+    for report in REPORTS_TO_KEEP_INLINE:
         try:
             if frappe.db.get_value("Report", report, "prepared_report"):
                 frappe.db.set_value("Report", report, "prepared_report", 0, update_modified=False)

@@ -26,6 +26,8 @@ import os
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from mhr import utilis
+
 CONTAINER_NO = "MI1I135-TEST"
 LOT_NO = "L1"
 ITEM = "MI1I135-TEST-ITEM"
@@ -493,3 +495,231 @@ class TestRealDataRegression(FrappeTestCase):
                 continue
             self.assertEqual(r["In Qty"], round(r["In Qty"], 2),
                              f"In Qty carries float noise: {r['In Qty']!r}")
+
+
+class TestMovementMapCaching(FrappeTestCase):
+    """MI1-I135 follow-up (2026-09-12, "still the report is not fixed"): a
+    live investigation caught the report getting stuck in background mode
+    on roughly half of a handful of unfiltered opens — get_movement_totals()
+    alone took ~6-7 s unfiltered, on top of the original report's own
+    whole-site scan, putting some runs over frappe's 15 s watcher. The
+    whole-site (unfiltered) call is now cached the same way
+    get_all_warehouse_balances caches the balance map."""
+
+    def setUp(self):
+        m = _get_module()
+        self.key = m.movement_cache_key()
+        frappe.cache().delete_value(self.key)
+
+    def tearDown(self):
+        frappe.cache().delete_value(self.key)
+
+    def test_unfiltered_call_is_cached(self):
+        m = _get_module()
+        first = m.get_movement_totals()
+        cached = m._original._read_cached_map(self.key)
+        self.assertIsInstance(cached, dict)
+        self.assertEqual(cached, first)
+
+    def test_second_unfiltered_call_skips_the_five_expensive_queries(self):
+        """A warm hit still runs movement_cache_key()'s own three cheap
+        MAX(modified) probes — that IS the content-addressing check — but
+        must never re-run any of the five per-source movement aggregations
+        (each easily identified: every one GROUPs BY the movement key)."""
+        m = _get_module()
+        m.get_movement_totals()  # populates the cache
+        calls = []
+        original_sql = frappe.db.sql
+
+        def _tracking_sql(*args, **kwargs):
+            calls.append(args[0] if args else "")
+            return original_sql(*args, **kwargs)
+
+        frappe.db.sql = _tracking_sql
+        try:
+            m.get_movement_totals()
+        finally:
+            frappe.db.sql = original_sql
+        expensive = [c for c in calls if "GROUP BY" in c]
+        self.assertEqual(expensive, [], "a warm cache hit must not re-run any movement aggregation query")
+
+    def test_narrow_filtered_call_is_never_cached(self):
+        """A Container/Lot/Cone-filtered call is already fast and must stay
+        live — caching every distinct filter combination would grow
+        unbounded and could go stale between the container's own writes."""
+        m = _get_module()
+        m.get_movement_totals(container=CONTAINER_NO, lot_no=LOT_NO)
+        self.assertIsNone(m._original._read_cached_map(self.key))
+
+    def test_warm_movement_cache_builds_once_then_reports_warm(self):
+        m = _get_module()
+        self.assertEqual(m.warm_movement_cache(), "built")
+        self.assertEqual(m.warm_movement_cache(), "warm")
+
+    def test_cache_key_changes_when_a_container_is_touched(self):
+        m = _get_module()
+        key_before = m.movement_cache_key()
+        c = self._touch_a_container()
+        try:
+            key_after = m.movement_cache_key()
+            self.assertNotEqual(key_before, key_after)
+        finally:
+            frappe.db.sql("DELETE FROM `tabContainer` WHERE name=%s", (c,))
+
+    @staticmethod
+    def _touch_a_container():
+        c = frappe.new_doc("Container")
+        c.container_no = "MI1I135-CACHEKEY-TOUCH"
+        c.transaction_type = "VFY"
+        c.posting_date = frappe.utils.nowdate()
+        c.flags.ignore_validate = True
+        c.flags.ignore_mandatory = True
+        c.insert(ignore_permissions=True)
+        return c.name
+
+
+class TestKeepInlineSurvivesTheRepeatableReadRace(FrappeTestCase):
+    """MI1-I135 follow-up (2026-09-12, "still the report is not fixed" —
+    reported a second time, after a live stress test caught the report
+    getting stuck on attempt 4 of 7 unfiltered opens and staying stuck).
+
+    keep_inline() used to read the flag with a plain SELECT
+    (frappe.db.get_value) inside the SAME REPEATABLE READ transaction as the
+    run it protects. frappe's 15s watcher runs on an INDEPENDENT connection
+    and commits prepared_report=1 the moment 15s elapses — a plain SELECT on
+    a transaction whose snapshot predates that commit can still see the
+    pre-flip 0 and silently no-op, with no Error Log entry either way. The
+    fix is a single conditional UPDATE: InnoDB always evaluates a DML
+    statement's WHERE clause against the LATEST COMMITTED row ("current
+    read"), never an older consistent-read snapshot, so it correctly finds
+    and undoes a same-run flip regardless of when this transaction opened.
+    """
+
+    REPORT = "STOCK SHEET (BALANCE REPORT) v2"
+
+    def setUp(self):
+        self._original = frappe.db.get_value("Report", self.REPORT, "prepared_report")
+        frappe.db.set_value("Report", self.REPORT, "prepared_report", 0, update_modified=False)
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.set_value("Report", self.REPORT, "prepared_report", self._original, update_modified=False)
+        frappe.db.commit()
+
+    def test_survives_a_flip_committed_after_this_transactions_snapshot(self):
+        """Reproduces the exact race with two real connections: this
+        transaction's snapshot is opened BEFORE a separate connection
+        commits the flip, mirroring the watcher's independent connection."""
+        import pymysql
+
+        m = _get_module()
+
+        # Open this transaction's REPEATABLE READ snapshot before the
+        # external commit below, exactly like a request that had already
+        # started running the report when the watcher fires.
+        frappe.db.sql("SELECT COUNT(*) FROM `tabReport`")
+
+        conn2 = pymysql.connect(
+            host=frappe.conf.db_host or "localhost",
+            user=frappe.conf.db_name,
+            password=frappe.conf.db_password,
+            database=frappe.conf.db_name,
+            port=int(frappe.conf.db_port or 3306),
+        )
+        try:
+            with conn2.cursor() as cur:
+                cur.execute("UPDATE `tabReport` SET prepared_report=1 WHERE name=%s", (self.REPORT,))
+            conn2.commit()
+        finally:
+            conn2.close()
+
+        # Sanity check the race is real: a plain read on the older
+        # transaction must NOT see the external commit.
+        self.assertEqual(
+            frappe.db.get_value("Report", self.REPORT, "prepared_report"), 0,
+            "test setup invalid: this transaction's snapshot already sees the external commit",
+        )
+
+        m.keep_inline(started_inline=True)
+
+        frappe.db.commit()
+        committed = frappe.db.sql(
+            "SELECT prepared_report FROM `tabReport` WHERE name=%s", (self.REPORT,)
+        )[0][0]
+        self.assertEqual(committed, 0, "keep_inline must undo a flip even when its own read sees stale data")
+
+    def test_does_nothing_when_the_run_did_not_start_inline(self):
+        m = _get_module()
+        frappe.db.set_value("Report", self.REPORT, "prepared_report", 1, update_modified=False)
+        frappe.db.commit()
+        m.keep_inline(started_inline=False)
+        self.assertEqual(frappe.db.get_value("Report", self.REPORT, "prepared_report"), 1)
+
+    def test_is_a_no_op_when_never_flipped(self):
+        m = _get_module()
+        modified_before = frappe.db.get_value("Report", self.REPORT, "modified")
+        m.keep_inline(started_inline=True)
+        self.assertEqual(frappe.db.get_value("Report", self.REPORT, "modified"), modified_before)
+
+
+class TestKeepReportsInlineCoversBothBalanceReports(FrappeTestCase):
+    """MI1-I131's hourly self-heal generalised: mhr-owned reports have their
+    own in-run keep_inline, but that runs inside the SAME request/
+    transaction as the run it protects, and a live investigation found the
+    exact gap — frappe's 15 s watcher commits prepared_report=1 from an
+    independent connection, and under MySQL REPEATABLE READ that commit can
+    be invisible to keep_inline's own read at the end of the same request,
+    so the flip survives with no Error Log entry. The hourly job (a fresh
+    transaction every time) is the backstop of last resort."""
+
+    def test_both_balance_reports_are_covered(self):
+        self.assertIn("STOCK SHEET (BALANCE REPORT)", utilis.REPORTS_TO_KEEP_INLINE)
+        self.assertIn("STOCK SHEET (BALANCE REPORT) v2", utilis.REPORTS_TO_KEEP_INLINE)
+        self.assertIn("Stock Ledger", utilis.REPORTS_TO_KEEP_INLINE)
+
+    def test_resets_v2_when_flipped(self):
+        original = frappe.db.get_value("Report", "STOCK SHEET (BALANCE REPORT) v2", "prepared_report")
+        frappe.db.set_value("Report", "STOCK SHEET (BALANCE REPORT) v2", "prepared_report", 1, update_modified=False)
+        try:
+            utilis.keep_core_reports_inline()
+            self.assertEqual(
+                frappe.db.get_value("Report", "STOCK SHEET (BALANCE REPORT) v2", "prepared_report"), 0
+            )
+        finally:
+            frappe.db.set_value(
+                "Report", "STOCK SHEET (BALANCE REPORT) v2", "prepared_report", original, update_modified=False
+            )
+
+
+class TestWarmupHooksAreWired(FrappeTestCase):
+
+    def test_registered_on_container_submit_and_cancel(self):
+        import mhr.hooks as hooks
+        for event in ("on_submit", "on_cancel"):
+            self.assertIn(
+                "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
+                hooks.doc_events["Container"][event],
+            )
+
+    def test_registered_on_stock_entry_submit_and_cancel(self):
+        import mhr.hooks as hooks
+        for event in ("on_submit", "on_cancel"):
+            self.assertIn(
+                "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
+                hooks.doc_events["Stock Entry"][event],
+            )
+
+    def test_registered_on_delivery_note_submit_and_cancel(self):
+        import mhr.hooks as hooks
+        for event in ("on_submit", "on_cancel"):
+            self.assertIn(
+                "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_movement_cache_warmup",
+                hooks.doc_events["Delivery Note"][event],
+            )
+
+    def test_hourly_scheduler_keeps_the_movement_map_warm(self):
+        import mhr.hooks as hooks
+        self.assertIn(
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.warm_movement_cache",
+            hooks.scheduler_events["hourly"],
+        )

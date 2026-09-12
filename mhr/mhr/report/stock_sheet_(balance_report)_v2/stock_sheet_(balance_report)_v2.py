@@ -88,12 +88,38 @@ def _runs_inline():
 def keep_inline(started_inline):
     """Same safety valve as the original report's own keep_inline (MI1-I119)
     — a separate Report record, so a separate flag frappe's 15s watcher can
-    flip independently."""
+    flip independently.
+
+    MI1-I135 (2026-09-12, "still the report is not fixed"): a live
+    stress test caught this exact self-heal silently failing to self-heal.
+    frappe's watcher runs in a background thread on its OWN connection and
+    commits `prepared_report=1` the moment 15s elapses — but a plain SELECT
+    (frappe.db.get_value) inside THIS request's already-open REPEATABLE READ
+    transaction reads that transaction's snapshot, taken before this run
+    even started, so it can still see the pre-flip 0 and no-op even though
+    the flip already landed in the database (no Error Log entry either way
+    — nothing raised, it just silently did nothing). The flip then survives
+    until the next request happens to run in a fresh transaction, or until
+    the hourly `keep_core_reports_inline` job fires — which does not exist
+    at all if the scheduler is disabled (confirmed on this bench:
+    `bench scheduler status`), or is up to an hour late otherwise.
+
+    A conditional UPDATE does not have this gap: InnoDB always evaluates a
+    DML statement's WHERE clause against the LATEST COMMITTED row ("current
+    read"), never a transaction's older consistent-read snapshot — the same
+    property that lets one transaction's UPDATE see a row another
+    transaction inserted after this one began. So this single statement
+    correctly finds and undoes a same-run flip regardless of when this
+    request's transaction was opened, with no separate read step to go
+    stale.
+    """
     if not started_inline:
         return
     try:
-        if frappe.db.get_value("Report", REPORT_NAME, "prepared_report"):
-            frappe.db.set_value("Report", REPORT_NAME, "prepared_report", 0, update_modified=False)
+        frappe.db.sql(
+            "UPDATE `tabReport` SET prepared_report=0 WHERE name=%s AND prepared_report=1",
+            (REPORT_NAME,),
+        )
     except Exception:
         frappe.log_error(title="Stock Sheet (Balance Report) v2: could not keep the report inline")
 
@@ -121,7 +147,85 @@ def _movement_key(container_no, item_code, lot_no, cone):
     return (container_no or "", (item_code or "").upper(), lot_no or "", cint(cone))
 
 
+MOVEMENT_CACHE_TTL = 6 * 3600
+MOVEMENT_CACHE_KEY = "mhr:balance_report_v2:movement_map"
+MOVEMENT_WARM_JOB_ID = "mhr::warm_movement_map"
+
+
+def movement_cache_key():
+    """Content address of the whole-site movement map: changes the moment a
+    relevant Container, Stock Entry or Delivery Note is created, edited,
+    submitted or cancelled. A child row (Batch Items / Stock Entry Detail /
+    Delivery Note Item) is saved as part of its parent document, which
+    always bumps the PARENT's own `modified` — so tracking the three parent
+    doctypes here is sufficient, the same reasoning balance_cache_key (the
+    original report) already relies on for its own child-table sources."""
+    container_modified = frappe.db.sql("SELECT MAX(modified) FROM `tabContainer`")[0][0]
+    se_modified = frappe.db.sql("SELECT MAX(modified) FROM `tabStock Entry`")[0][0]
+    dn_modified = frappe.db.sql("SELECT MAX(modified) FROM `tabDelivery Note`")[0][0]
+    return f"{MOVEMENT_CACHE_KEY}:{container_modified}:{se_modified}:{dn_modified}"
+
+
 def get_movement_totals(container=None, lot_no=None, cone=None):
+    """Cached wrapper around _compute_movement_totals for the one call shape
+    that is actually expensive: no Container / Lot / Cone filter at all (a
+    full unfiltered run of the report). MI1-I135 (2026-09-12): this
+    aggregation alone took ~6-7 s unfiltered, on top of the original
+    report's own whole-site balance scan — enough to put some unfiltered
+    runs of this report over frappe's 15 s prepared-report threshold, and a
+    live investigation caught the report getting stuck in background mode
+    on roughly half of a handful of unfiltered opens (see REPORTS_TO_KEEP_
+    INLINE in mhr.utilis for the exact race). Content-addressed the same
+    way get_all_warehouse_balances caches the balance map: any relevant
+    document changing the Container / Stock Entry / Delivery Note tables
+    gives a new key, so a cached map can never read stale.
+
+    A narrow (container/lot/cone-filtered) call is already fast — see the
+    docstring below — and is never cached, matching the original report's
+    own names-first-vs-whole-site split.
+    """
+    if container or lot_no or cone:
+        return _compute_movement_totals(container, lot_no, cone)
+    key = movement_cache_key()
+    cached = _original._read_cached_map(key)
+    if isinstance(cached, dict):
+        return cached
+    totals = _compute_movement_totals()
+    frappe.cache().set_value(key, totals, expires_in_sec=MOVEMENT_CACHE_TTL)
+    return totals
+
+
+def warm_movement_cache():
+    """Build the whole-site movement map if Redis does not hold it yet.
+    Runs in the long queue after any Container / Stock Entry / Delivery
+    Note submit or cancel (enqueue_movement_cache_warmup) and hourly as a
+    safety net, mirroring warm_balance_cache exactly."""
+    key = movement_cache_key()
+    if isinstance(_original._read_cached_map(key), dict):
+        return "warm"
+    get_movement_totals()
+    return "built"
+
+
+def enqueue_movement_cache_warmup(doc=None, method=None):
+    """doc_events hook (Container / Stock Entry / Delivery Note submit and
+    cancel): queue one warm-up after the transaction commits. Deduplicated
+    by job id, so a burst of documents in a minute queues one job, and a
+    failure to enqueue never blocks the document — mirrors
+    enqueue_balance_cache_warmup exactly."""
+    try:
+        frappe.enqueue(
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.warm_movement_cache",
+            queue="long",
+            job_id=MOVEMENT_WARM_JOB_ID,
+            deduplicate=True,
+            enqueue_after_commit=True,
+        )
+    except Exception:
+        frappe.log_error(title="Stock Sheet (Balance Report) v2 movement cache warm-up not queued")
+
+
+def _compute_movement_totals(container=None, lot_no=None, cone=None):
     """(container_no, item_code, lot_no, cone) -> qty/box movement totals,
     one entry per FRD sheet-1 row: In Qty (Container Inward + Job Work
     Received produce rows), Out Qty (non-return deliveries), GR Received

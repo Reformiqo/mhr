@@ -573,11 +573,17 @@ report's own self-healing `keep_inline` check (that needs to run *inside*
 the single report call that might trip the watcher). `mhr.utilis.
 keep_core_reports_inline` — hourly, alongside `warm_balance_cache` — is the
 only available safety valve: it resets `prepared_report` back to 0 for every
-name in `CORE_REPORTS_TO_KEEP_INLINE` (currently just `"Stock Ledger"`) if a
-future slow run flips it again. This is the exact flapping the balance
-report needed a manually re-registered patch to fix on 2026-09-08 after one
-slow run undid the first fix — the hourly job exists so that never needs a
-second ticket here.
+name in `REPORTS_TO_KEEP_INLINE` (renamed from `CORE_REPORTS_TO_KEEP_INLINE`
+when MI1-I135 added both mhr-owned balance reports to it too) if a future
+slow run flips it again. This is the exact flapping the balance report
+needed a manually re-registered patch to fix on 2026-09-08 after one slow
+run undid the first fix — the hourly job exists so that never needs a
+second ticket here. **This hourly job is a second-line backstop only** — it
+does nothing at all if the scheduler is disabled (true on this local
+bench), and even where it runs can leave a report stuck for up to an hour.
+See *Stock Sheet (Balance Report) v2*'s own note on `keep_inline`'s
+REPEATABLE READ race for the fix that actually closes this for the
+mhr-owned reports without depending on the scheduler.
 
 ### Stock Sheet (Balance Report) v2 (MI1-I135)
 
@@ -660,12 +666,54 @@ trusted, live-balance-sourced figure; this is a second, separate view.
   (custom_container_no, custom_lot_no)` on Delivery Note Item. Neither
   column carried an index, so a single-container narrow run of the Out
   Qty / GR Received query full-scanned the whole 327K-row table (~3.5 s);
-  with the index, a Container/Lot-filtered run of this report is ~1-2 s. An
-  unfiltered run stays close to the 15 s inline budget (~14 s locally,
-  `keep_inline` is the safety net) — a whole-site cache of the movement map,
-  mirroring `get_all_warehouse_balances`, is the natural next optimization
-  if that proves too tight in practice; not built pre-emptively for a report
-  with no real usage yet.
+  with the index, a Container/Lot-filtered run of this report is ~1-2 s.
+- **The whole-site (unfiltered) movement map is cached** (2026-09-12, "still
+  the report is not fixed" — an unfiltered run's own aggregation alone took
+  ~6-7 s on top of the original report's whole-site balance scan, and a live
+  stress test caught the report stuck showing "This is a background
+  report..." on several of a handful of unfiltered opens in a row).
+  `get_movement_totals()` is cached the same way `get_all_warehouse_balances`
+  caches the balance map — content-addressed on `MAX(modified)` of
+  Container / Stock Entry / Delivery Note (a child row bumps its own
+  parent's `modified` on save, so tracking the three parents is enough),
+  warmed by `enqueue_movement_cache_warmup` on submit/cancel of those three
+  doctypes and hourly (`warm_movement_cache`). A Container/Lot/Cone-filtered
+  call is never cached — already fast, and caching every distinct filter
+  combination would grow unbounded.
+- **`keep_inline`'s self-heal had a real, confirmed race — fixed by making
+  the reset a single conditional `UPDATE`, not a read-then-write.** frappe's
+  15 s watcher (`report.py :: enable_prepared_report`) runs on an
+  independent connection and commits `prepared_report=1` mid-run. The
+  original shape — `frappe.db.get_value(...)` then `frappe.db.set_value(...)`
+  — reads that flag with a plain SELECT inside the SAME REPEATABLE READ
+  transaction as the run it protects; if that transaction's snapshot
+  predates the watcher's commit, the SELECT still sees the pre-flip 0 and
+  silently no-ops (no Error Log entry either way), and the flip survives
+  until a later request happens to open a fresh transaction, or the hourly
+  job fires — nothing at all if the scheduler is disabled, as it is on this
+  local bench (`bench scheduler status`). Proven live with two real
+  connections: a plain SELECT on a transaction opened before an external
+  commit cannot see that commit, but `UPDATE \`tabReport\` SET
+  prepared_report=0 WHERE name=%s AND prepared_report=1` issued on that
+  SAME stale-snapshot transaction *does* find and reset the row — InnoDB
+  always evaluates a DML statement's WHERE clause against the latest
+  committed data ("current read"), never an older consistent-read snapshot.
+  Confirmed end-to-end: a genuinely slow (~20 s) unfiltered run still
+  returns real data (frappe never aborts the run in progress), and the
+  very next request runs inline and fast — the flip never survives past the
+  run that caused it. **The original report's own `keep_inline` has the
+  identical latent race** — not touched, since MI1-I135 must not modify the
+  existing report, but the same fix would apply there too if it is ever
+  seen to stick.
+- `REPORTS_TO_KEEP_INLINE` (`mhr.utilis`, MI1-I131's hourly job, renamed
+  from `CORE_REPORTS_TO_KEEP_INLINE`) now also covers both mhr-owned
+  balance reports, as a second-line backstop behind the `keep_inline` fix
+  above — useful chiefly where the scheduler actually runs (this local
+  bench's does not).
+- Added to the "Meher" workspace's Reports card, right after the original
+  report — it was missing from Desk navigation entirely (discoverable only
+  via Awesomebar search or the Report List) until this ticket's own
+  stability follow-up caught it.
 
 ### Client-side JS hooks
 
