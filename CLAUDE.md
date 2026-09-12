@@ -705,6 +705,38 @@ trusted, live-balance-sourced figure; this is a second, separate view.
   identical latent race** — not touched, since MI1-I135 must not modify the
   existing report, but the same fix would apply there too if it is ever
   seen to stick.
+- **Round 3 (2026-09-12, "this is not happening please check" — a live
+  screenshot of the report stuck showing "This report was generated just
+  now... click Rebuild"): the conditional-UPDATE fix above was necessary but
+  not sufficient — it was gated on `started_inline`, and that gate itself
+  was a closed loop with no way out.** The gate only let `keep_inline()`
+  reset the flag when THIS SAME call had observed `prepared_report` as 0 at
+  its own start. But `frappe.desk.query_report.run()` only calls a report
+  module's `execute()` directly while the flag reads 0 *at the moment a
+  request starts* — the instant it reads 1, every subsequent open is routed
+  around `execute()` entirely into "check for a completed Prepared Report"
+  handling, and even the "Rebuild" button doesn't call `execute()` inline —
+  it just enqueues `frappe.core.doctype.prepared_report.prepared_report.
+  generate_report` as a background job, which eventually calls the SAME
+  `execute()`, which ALSO sees the flag already at 1 at ITS start and so,
+  under the old gate, ALSO declined to reset it. Once flipped, nothing
+  short of the hourly `keep_core_reports_inline` job (needs the scheduler,
+  disabled on this bench for two months — see MI1-I138) or a manual DB
+  write could ever clear it — reproduced directly: forcing the flag to 1
+  and then calling `execute()` in-process left it at 1 afterward, proving
+  the gate itself was the bug, not just a slow scheduler. Fixed by dropping
+  `started_inline` entirely — `keep_inline()` now unconditionally resets
+  the flag after any successful `execute()`, whatever it read at the start.
+  There is no real "administrator deliberately wants this report to stay in
+  background mode" case for either balance report to protect: every ticket
+  on this flag (MI1-I119, MI1-I131, MI1-I135 three times now) has been a
+  client complaint about it getting stuck, never a request to keep it that
+  way. Re-verified live: flag forced to 1, then a normal `execute()` call
+  (mirroring what a Rebuild-triggered background worker does) cleared it
+  back to 0. The original report's own `keep_inline` carries this identical
+  closed-loop gate too — not touched here for the same reason as above, but
+  it has the same bug and would need the same fix if it is ever seen stuck
+  with no scheduler running to clear it.
 - `REPORTS_TO_KEEP_INLINE` (`mhr.utilis`, MI1-I131's hourly job, renamed
   from `CORE_REPORTS_TO_KEEP_INLINE`) now also covers both mhr-owned
   balance reports, as a second-line backstop behind the `keep_inline` fix

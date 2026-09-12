@@ -69,52 +69,51 @@ REPORT_NAME = "STOCK SHEET (BALANCE REPORT) v2"
 
 def execute(filters=None):
     filters = filters or {}
-    started_inline = _runs_inline()
     from mhr.utilis import enforce_role_scoped_transaction_type
     filters = enforce_role_scoped_transaction_type(filters)
     columns = get_columns(filters)
     data = get_data(filters)
-    keep_inline(started_inline)
+    keep_inline()
     return columns, data
 
 
-def _runs_inline():
-    try:
-        return not frappe.db.get_value("Report", REPORT_NAME, "prepared_report")
-    except Exception:
-        return False
+def keep_inline():
+    """Unconditionally undo any `prepared_report=1` flip once this function
+    has actually produced real data — regardless of what the flag read as
+    when this call started.
 
+    MI1-I135 (2026-09-12, "still the report is not fixed", round 2): the
+    first version of this safety valve only reset the flag when THIS same
+    call had itself observed the flag as 0 at the start (`started_inline`).
+    That gate created a closed loop with no way out: frappe's own dispatcher
+    (`frappe.desk.query_report.run`) only calls this module's `execute()`
+    directly when `Report.prepared_report` is already 0 at the moment a
+    request starts — the instant it reads 1, every subsequent open (and even
+    the "Rebuild" button, which just enqueues `frappe.core.doctype.
+    prepared_report.prepared_report.generate_report` as a background job)
+    is routed around `execute()` entirely, or into a worker invocation of
+    `execute()` that *also* sees the flag already at 1 and so, under the old
+    gate, *also* declined to reset it. A live stress test confirmed the
+    trap directly: after one slow run flipped the flag, a follow-up request
+    inline in the SAME process (bypassing frappe's own dispatcher, so it did
+    reach `execute()`) still saw `prepared_report=1` afterward — proving the
+    gate, not just the scheduler being off, was the reason nothing ever
+    unstuck it. There is no real "administrator deliberately wants this
+    report to stay in background mode" use case for either balance report —
+    every ticket on this flag (MI1-I119, MI1-I131, MI1-I135 twice) has been
+    a client complaint about it getting stuck, never a request to keep it
+    that way — so resetting unconditionally on every successful run, however
+    it was reached, is the correct behaviour, not a workaround.
 
-def keep_inline(started_inline):
-    """Same safety valve as the original report's own keep_inline (MI1-I119)
-    — a separate Report record, so a separate flag frappe's 15s watcher can
-    flip independently.
-
-    MI1-I135 (2026-09-12, "still the report is not fixed"): a live
-    stress test caught this exact self-heal silently failing to self-heal.
-    frappe's watcher runs in a background thread on its OWN connection and
-    commits `prepared_report=1` the moment 15s elapses — but a plain SELECT
-    (frappe.db.get_value) inside THIS request's already-open REPEATABLE READ
-    transaction reads that transaction's snapshot, taken before this run
-    even started, so it can still see the pre-flip 0 and no-op even though
-    the flip already landed in the database (no Error Log entry either way
-    — nothing raised, it just silently did nothing). The flip then survives
-    until the next request happens to run in a fresh transaction, or until
-    the hourly `keep_core_reports_inline` job fires — which does not exist
-    at all if the scheduler is disabled (confirmed on this bench:
-    `bench scheduler status`), or is up to an hour late otherwise.
-
-    A conditional UPDATE does not have this gap: InnoDB always evaluates a
-    DML statement's WHERE clause against the LATEST COMMITTED row ("current
-    read"), never a transaction's older consistent-read snapshot — the same
-    property that lets one transaction's UPDATE see a row another
-    transaction inserted after this one began. So this single statement
-    correctly finds and undoes a same-run flip regardless of when this
-    request's transaction was opened, with no separate read step to go
-    stale.
+    Still an atomic conditional UPDATE, not a read-then-write: frappe's 15s
+    watcher (`report.py :: enable_prepared_report`) runs in a background
+    thread on its own connection and commits `prepared_report=1` mid-run: a
+    plain SELECT inside this request's own REPEATABLE READ transaction can
+    still see the pre-flip 0 even after that commit landed, but a DML
+    statement's WHERE clause always evaluates against the latest committed
+    row ("current read"), so this single UPDATE reliably finds and undoes
+    the flip no matter when this transaction started.
     """
-    if not started_inline:
-        return
     try:
         frappe.db.sql(
             "UPDATE `tabReport` SET prepared_report=0 WHERE name=%s AND prepared_report=1",

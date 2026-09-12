@@ -640,7 +640,7 @@ class TestKeepInlineSurvivesTheRepeatableReadRace(FrappeTestCase):
             "test setup invalid: this transaction's snapshot already sees the external commit",
         )
 
-        m.keep_inline(started_inline=True)
+        m.keep_inline()
 
         frappe.db.commit()
         committed = frappe.db.sql(
@@ -648,18 +648,67 @@ class TestKeepInlineSurvivesTheRepeatableReadRace(FrappeTestCase):
         )[0][0]
         self.assertEqual(committed, 0, "keep_inline must undo a flip even when its own read sees stale data")
 
-    def test_does_nothing_when_the_run_did_not_start_inline(self):
+    def test_resets_even_when_the_flag_was_already_set_before_this_call(self):
+        """MI1-I135 round 2 (2026-09-12): the first fix only reset the flag
+        when THIS call had itself observed it as 0 at the start
+        (`started_inline`). That gate was the actual closed-loop bug — once
+        `prepared_report` reads 1 at the start of a request, frappe's own
+        dispatcher (frappe.desk.query_report.run) routes around this
+        module's execute() entirely (or, for "Rebuild", into a worker
+        execute() call that ALSO sees the flag already at 1) — so no
+        execute() call downstream of the flip could ever see
+        started_inline=True again, and the flag stayed stuck forever short
+        of the hourly job. keep_inline() must reset unconditionally: there
+        is no legitimate "administrator wants this report to stay in
+        background mode" case for either balance report — every ticket on
+        this flag has been a client complaint about it getting stuck."""
         m = _get_module()
         frappe.db.set_value("Report", self.REPORT, "prepared_report", 1, update_modified=False)
         frappe.db.commit()
-        m.keep_inline(started_inline=False)
-        self.assertEqual(frappe.db.get_value("Report", self.REPORT, "prepared_report"), 1)
+        m.keep_inline()
+        self.assertEqual(frappe.db.get_value("Report", self.REPORT, "prepared_report"), 0)
 
     def test_is_a_no_op_when_never_flipped(self):
         m = _get_module()
         modified_before = frappe.db.get_value("Report", self.REPORT, "modified")
-        m.keep_inline(started_inline=True)
+        m.keep_inline()
         self.assertEqual(frappe.db.get_value("Report", self.REPORT, "modified"), modified_before)
+
+
+class TestExecuteRecoversFromAnAlreadyStuckFlag(FrappeTestCase):
+    """MI1-I135 round 2, end-to-end reproduction of the exact closed loop a
+    live stress test hit: frappe.desk.query_report.run() only calls this
+    module's execute() while prepared_report reads 0 at the request's own
+    start; once it reads 1, every normal open (and "Rebuild", which just
+    enqueues a background worker call to the SAME execute()) is routed
+    around a fresh inline call — so under the old started_inline gate, no
+    call downstream of the flip could ever reset it. This proves execute()
+    itself — not just keep_inline() in isolation — clears the flag even
+    when called while prepared_report is already 1, which is exactly what
+    a background-job (Rebuild) invocation of execute() looks like."""
+
+    REPORT = "STOCK SHEET (BALANCE REPORT) v2"
+
+    def setUp(self):
+        self._original = frappe.db.get_value("Report", self.REPORT, "prepared_report")
+
+    def tearDown(self):
+        frappe.db.set_value("Report", self.REPORT, "prepared_report", self._original, update_modified=False)
+        frappe.db.commit()
+
+    def test_execute_clears_a_flag_that_was_already_set_before_the_call(self):
+        m = _get_module()
+        frappe.db.set_value("Report", self.REPORT, "prepared_report", 1, update_modified=False)
+        frappe.db.commit()
+
+        m.execute(filters={})
+
+        self.assertEqual(
+            frappe.db.get_value("Report", self.REPORT, "prepared_report"), 0,
+            "execute() must clear prepared_report even when it read 1 at its own "
+            "start — this is exactly the state a Rebuild-triggered background "
+            "worker call to execute() sees, and the old gate left it stuck forever.",
+        )
 
 
 class TestKeepReportsInlineCoversBothBalanceReports(FrappeTestCase):
