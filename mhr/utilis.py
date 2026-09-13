@@ -2943,6 +2943,30 @@ def ensure_total_qty(doc, method=None):
         doc.total_qty = sum(flt(item.qty) for item in doc.items)
 
 
+def ensure_conversion_factor(doc, method=None):
+    """Fill UOM Conversion Factor on any row that arrives without one.
+
+    MI1-I139 follow-up (Raj 2026-09-13, "not able to submit... UOM
+    Conversion Factor is required in every row", flagged priority): the
+    "Fetch Batches" Client Script builds rows with `frm.add_child("items",
+    {..., uom: data.stock_uom})` — no `conversion_factor` — and, per the
+    same `frm.add_child()` gotcha `ensure_total_qty` above already works
+    around, that skips ERPNext's own client-side fetch entirely, so the row
+    reaches save with conversion_factor unset and frappe's own mandatory
+    check (`conversion_factor` is `reqd` on Delivery Note Item) blocks the
+    whole document. Reuses ERPNext's own `get_conversion_factor` — 1.0 when
+    the row's UOM is the item's stock UOM (the common case here), else the
+    Item's own UOM Conversion Detail. Guarded on falsy so a value already
+    settled (by the form, or a deliberate non-default factor) is untouched.
+    """
+    from erpnext.stock.get_item_details import get_conversion_factor
+
+    for item in doc.items:
+        if flt(item.conversion_factor) or not item.item_code:
+            continue
+        item.conversion_factor = flt(get_conversion_factor(item.item_code, item.uom).get("conversion_factor")) or 1.0
+
+
 def calculate_delivery_note_totals(doc, method=None):
     total_cone = 0
     for item in doc.items:
@@ -2950,6 +2974,7 @@ def calculate_delivery_note_totals(doc, method=None):
     doc.custom_total_cone = total_cone
     doc.custom_item_length = len(doc.items)
 
+    ensure_conversion_factor(doc)
     ensure_total_qty(doc)
 
     set_header_container_info_from_items(doc)
