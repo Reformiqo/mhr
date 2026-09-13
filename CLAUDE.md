@@ -351,6 +351,25 @@ against `mhr/fixtures/client_script.json` first; the server-side
 `ensure_conversion_factor` fallback still catches it on save regardless,
 but the grid itself will show a blank Conversion Factor column until then.
 
+**Same bug, two more entry points, same day**: the "Delivery Note V2"
+Client Script's Supplier Batch No (`fetch_and_append_batch`, wired to the
+`custom_supplier_batch_no` field) and barcode-scan (`custom_scan_batch_no`)
+handlers each have their own `frm.add_child()` call — same shape (`uom` set
+from the server response, `conversion_factor` never set), same fix
+(`conversion_factor: 1`, correct because `mhr.utilis.get_delivery_note_
+batch` / `get_item_batch` — the server calls these two handlers make —
+both return `item.stock_uom`, locked in by `TestServerEndpointsReturnStock
+Uom`). Reported as "works via Fetch Batches (Count) but not via Supplier
+Batch No" — the give-away that this is a per-entry-point client-side gap
+rather than the server-side fallback failing: the fallback runs on every
+`validate()` regardless of which script added the row, so if it were live
+on the reporting site both paths would already work; it wasn't yet
+deployed there (see the note above about the hand-reverted script) when
+this was reported. **`mhr/note.fetch_batches` (the whitelisted endpoint
+the "Fetch Batches" script itself calls) is a fourth, separate function**
+from these two — check it too if a fourth entry point ever surfaces the
+same complaint.
+
 ### Delivery Note ↔ Sales Order quantity cap (MI1-I120)
 
 Two header fields on Delivery Note: `custom_sales_order` (Link → Sales

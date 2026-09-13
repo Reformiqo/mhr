@@ -20,6 +20,16 @@ for `total_qty`:
     builds rows the same way (a mapper, bulk import, a future script),
     reusing ERPNext's own `get_conversion_factor` rather than a hardcoded 1
     so a genuinely different sales UOM still resolves correctly.
+
+Same-day follow-up: the identical bug was reported for the "Supplier Batch
+No" and barcode-scan entry points too (`fetch_and_append_batch` /
+`custom_scan_batch_no` in the "Delivery Note V2" Client Script) — two more
+`frm.add_child()` calls with no `conversion_factor`, fixed the same way.
+`TestServerEndpointsReturnStockUom` locks in the assumption the hardcoded
+`conversion_factor: 1` in both scripts depends on: `get_delivery_note_batch`
+and `get_item_batch` (the server calls those two entry points make) must
+keep returning the item's own stock UOM, not some other UOM, or that `1`
+would silently become wrong.
 """
 from unittest.mock import MagicMock
 
@@ -160,3 +170,45 @@ class TestRealDocumentFetchBatchesShapedRow(FrappeTestCase):
         self.dn.insert(ignore_permissions=True)
         self.dn.submit()  # must not raise MandatoryError on conversion_factor
         self.assertEqual(self.dn.docstatus, 1)
+
+
+class TestServerEndpointsReturnStockUom(FrappeTestCase):
+    """The "Supplier Batch No" and barcode-scan Client Script handlers
+    (Delivery Note V2) hardcode `conversion_factor: 1` alongside
+    `uom: <server response>.uom` — correct only as long as these two
+    server endpoints keep returning the batch's own stock UOM. If either
+    ever starts returning a different UOM (a sales UOM, say), the
+    hardcoded `1` would silently become wrong."""
+
+    def _supplier_batch_backed_batch(self):
+        rows = frappe.db.sql("""
+            SELECT name, item FROM `tabBatch`
+            WHERE custom_supplier_batch_no IS NOT NULL AND custom_supplier_batch_no != ''
+              AND custom_transaction_type = 'VFY' AND disabled = 0 LIMIT 1""")
+        return rows[0] if rows else (None, None)
+
+    def test_get_delivery_note_batch_returns_stock_uom(self):
+        from mhr.utilis import get_delivery_note_batch
+
+        batch_name, item_code = self._supplier_batch_backed_batch()
+        if not batch_name:
+            self.skipTest("Bench has no VFY Batch with a Supplier Batch No set.")
+        supplier_batch_no, container_no, lot_no = frappe.db.get_value(
+            "Batch", batch_name, ["custom_supplier_batch_no", "custom_container_no", "custom_lot_no"]
+        )
+        result = get_delivery_note_batch(
+            lot_no=lot_no, container_no=container_no, supplier_batch_no=supplier_batch_no
+        )
+        self.assertIsNotNone(result)
+        stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+        self.assertEqual(result["uom"], stock_uom)
+
+    def test_get_item_batch_returns_stock_uom(self):
+        from mhr.utilis import get_item_batch
+
+        batch_name, item_code = self._supplier_batch_backed_batch()
+        if not batch_name:
+            self.skipTest("Bench has no VFY Batch with a Supplier Batch No set.")
+        result = get_item_batch(batch_name)
+        stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+        self.assertEqual(result["uom"], stock_uom)
