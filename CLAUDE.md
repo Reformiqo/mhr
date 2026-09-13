@@ -121,7 +121,8 @@ Three changes, same figures (verified cell-for-cell against the old code):
 
 - `Delivery Note.on_submit` → `mhr.utilis.update_item_batch`
 - `Delivery Note.on_cancel` → `mhr.utilis.reverse_item_batch`
-- `Delivery Note.validate` → `set_delivery_note_user`, `set_return_cone_from_original`, `calculate_delivery_note_totals`, `fetch_notes_from_container` (MI1-I83), `validate_so_delivery_qty` (MI1-I120)
+- `Delivery Note.validate` → `set_delivery_note_user`, `set_return_cone_from_original`, `calculate_delivery_note_totals` (which also fills `conversion_factor` and `total_qty` on any row missing them), `fetch_notes_from_container` (MI1-I83), `validate_so_delivery_qty` (MI1-I120)
+- `Delivery Note.before_submit` → `mhr.utilis.validate_delivery_challan_batch_mandatory` (MI1-I139, VFY only)
 - `Batch.validate` → `mhr.batch_qr_code.set_si_qrcode`
 - `Stock Entry.validate` → `mhr.utilis.update_stock_entry`, `mhr.utilis.validate_hty_stock_entry`, `mhr.utilis.validate_subcontract_receipt` (MI1-I50 P3), `mhr.utilis.calculate_received_totals` (MI1-I133 follow-up)
 - `Stock Entry.before_submit` → `mhr.utilis.create_receive_batches` (MI1-I50)
@@ -308,6 +309,47 @@ the "HTY & VFY" Select Batch popup, which the fetch_from write of Container No
 opens (qty = bundle balance, cone as the batch says). The Supplier Batch No
 path (`get_delivery_note_batch`) falls back to the bundle balance in the
 resolved warehouse when the master `batch_qty` is 0.
+
+### Delivery Challan header Batch is mandatory on submit — VFY only (MI1-I139)
+
+`custom_batch` (Link -> Batch, header field, label "Batch") was a live
+Custom Field with no `module` set — created directly via Desk UI, like
+MI1-I138's "Send Mail" Client Script — so `bench export-fixtures` never
+captured it; fixed alongside this ticket (module set to `Mhr`, spliced
+into `custom_field.json`). `mhr.utilis.validate_delivery_challan_batch_
+mandatory` (`Delivery Note.before_submit`) blocks submission when it is
+blank, with the message the ticket asked for verbatim. **VFY only**: real
+data on this bench showed 5811/5818 submitted VFY notes already carry it
+(the handful of blanks predate this rule), while HTY notes rarely do (4 of
+6 blank) — HTY tracks batches per row (`items.batch_no`) instead of
+through this header field, so the same rule there would newly block a
+working flow rather than close a real gap; confirmed with Momodou before
+implementing. `before_submit`, not `validate`: a draft can still be saved
+incrementally without a Batch while the rest of the note is filled in —
+only the final Submit is blocked, matching "mandatory before submission"
+rather than "on every save".
+
+**Follow-up, same day, flagged priority — "UOM Conversion Factor is
+required in every row" blocked a real live submit.** Root cause unrelated
+to the Batch-mandatory change above: the "Fetch Batches" Client Script
+builds Delivery Note Item rows with `frm.add_child("items", {..., uom:
+data.stock_uom})` — no `conversion_factor` — and `frm.add_child()` fires
+no grid event (the same gotcha `ensure_total_qty` already works around for
+`total_qty`), so ERPNext's own UOM-change fetch never runs and the row
+reached save with `conversion_factor` unset, a `reqd` field on Delivery
+Note Item. Fixed client-side (`conversion_factor: 1` added directly to
+that same `frm.add_child()` call — always correct there since `uom` is
+always the item's own stock_uom in that call) and server-side
+(`mhr.utilis.ensure_conversion_factor`, wired into `calculate_delivery_
+note_totals` on `validate`, reuses ERPNext's own `get_conversion_factor`
+as a backstop for any other path that builds rows the same way). **A
+production deploy of the Client Script fix was reverted by hand** (someone
+saw the `conversion_factor: 1` line, didn't recognize it as the fix just
+shipped for this exact ticket, and removed it) — the bug immediately came
+back. If this resurfaces, check the live Client Script's script body
+against `mhr/fixtures/client_script.json` first; the server-side
+`ensure_conversion_factor` fallback still catches it on save regardless,
+but the grid itself will show a blank Conversion Factor column until then.
 
 ### Delivery Note ↔ Sales Order quantity cap (MI1-I120)
 

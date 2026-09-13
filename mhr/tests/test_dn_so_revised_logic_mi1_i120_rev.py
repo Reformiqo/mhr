@@ -97,6 +97,10 @@ def _make_dn(so_name, qtys, **header):
     dn.update({"customer": CUSTOMER, "company": COMPANY, "transaction_type": "VFY",
                "posting_date": today(), "set_posting_time": 1, "set_warehouse": WH,
                "custom_sales_person": "Jayendrabhai", "custom_sales_order": so_name,
+               # MI1-I139 (2026-09-13): a VFY note's header Batch is now
+               # mandatory before submit — default to the first row's own
+               # batch, same as this note actually ships.
+               "custom_batch": qtys[0][1] if qtys and isinstance(qtys[0], tuple) else SHIPPED,
                "selling_price_list": "Standard Selling", "currency": "INR"})
     dn.update(header)
     for spec in qtys:

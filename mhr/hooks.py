@@ -155,6 +155,12 @@ doc_events = {
             # validates the references and, on submit, updates delivered_qty.
             "mhr.utilis.allocate_delivery_note_to_sales_order",
         ],
+        "before_submit": [
+            # MI1-I139 (Raj 2026-09-12): a VFY Delivery Challan cannot submit
+            # without its header Batch. HTY tracks batches per row instead
+            # and is exempt (see the function's own docstring).
+            "mhr.utilis.validate_delivery_challan_batch_mandatory",
+        ],
         "on_submit": [
             # MI1-I119: any stock movement queues a rebuild of the Stock Sheet whole-site balance map (deduplicated job).
             "mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).enqueue_balance_cache_warmup",

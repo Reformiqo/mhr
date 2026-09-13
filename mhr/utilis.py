@@ -2740,6 +2740,28 @@ def require_vfy_sales_order(doc, method=None):
         frappe.throw(_("Sales Order {0} is {1}.").format(frappe.bold(so), frappe.bold(head.status)), title=_("Sales Order not open"))
 
 
+def validate_delivery_challan_batch_mandatory(doc, method=None):
+    """MI1-I139 (Raj 2026-09-12): "the document is currently getting
+    submitted even when the Batch field is blank" — block it instead.
+
+    VFY only. Real data on this bench: 5811/5818 submitted VFY notes already
+    carry `custom_batch` (the 7 blank ones predate this rule and are legacy),
+    while HTY notes rarely do (4 of 6 blank) — HTY tracks batches per row
+    (`items.batch_no`) instead of through this single header field, so
+    applying the same rule there would newly block a working flow rather
+    than fix a real gap. `before_submit` (not `validate`) so a draft can
+    still be saved without a Batch while the rest of the note is filled in
+    — only the final Submit is blocked, matching "Batch must be mandatory
+    before submission" rather than "on every save"."""
+    if _is_hty_doc(doc):
+        return
+    if not doc.get("custom_batch"):
+        frappe.throw(
+            _("Batch is mandatory. Please select a Batch before submitting the Delivery Challan."),
+            title=_("Batch required"),
+        )
+
+
 def allocate_delivery_note_to_sales_order(doc, method=None):
     """MI1-I120 revision (Raj 2026-09-05), before_validate, VFY only.
 
