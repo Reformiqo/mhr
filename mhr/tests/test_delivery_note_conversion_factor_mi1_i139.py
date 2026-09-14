@@ -212,3 +212,71 @@ class TestServerEndpointsReturnStockUom(FrappeTestCase):
         result = get_item_batch(batch_name)
         stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
         self.assertEqual(result["uom"], stock_uom)
+
+
+class TestHtyEntryPointsAlsoFixed(FrappeTestCase):
+    """MI1-I139, reported again 2026-09-14 ("this error has been fixed for
+    VFY... but the same issue is still occurring in HTY"): the "HTY & VFY"
+    Client Script's batch-selection popup (the primary way an HTY Delivery
+    Note picks batches) has its OWN frm.add_child() call with the identical
+    shape — uom set, conversion_factor never set — entirely independent of
+    the three VFY entry points already fixed. Same fix, same reasoning.
+
+    A second, related gap surfaced while auditing every add_child() call on
+    Delivery Note for this class of bug: "Pick Containers by Lot" (the
+    4-step HTY picker, `MI1-I39 — Delivery Note HTY Mode`) never set `uom`
+    at all, because its server endpoint (`get_hty_batches_for_containers`)
+    never returned it — a stricter version of the same bug (uom is ALSO
+    `reqd` on Delivery Note Item, so this would have blocked submit with a
+    different-but-equally-broken error). Fixed by having the endpoint
+    return `stock_uom` and the script consume it for both uom and
+    conversion_factor."""
+
+    HTY_BATCH = "MIJAM-07-.-1025"
+    HTY_ITEM = "N6 J4001M"
+    HTY_WH = "Finished Goods - MI"
+    CUSTOMER = "Aarna Threads Llp"
+    COMPANY = "Meher International"
+
+    def setUp(self):
+        if not (frappe.db.exists("Batch", self.HTY_BATCH) and frappe.db.exists("Customer", self.CUSTOMER)):
+            self.skipTest("Bench lacks the HTY masters this suite is built on.")
+        self.dn = None
+
+    def tearDown(self):
+        if self.dn and self.dn.name and frappe.db.exists("Delivery Note", self.dn.name):
+            doc = frappe.get_doc("Delivery Note", self.dn.name)
+            if doc.docstatus == 1:
+                doc.cancel()
+            frappe.delete_doc("Delivery Note", self.dn.name, force=1, ignore_permissions=True)
+
+    def test_submit_succeeds_with_an_hty_vfy_popup_shaped_row(self):
+        """Mirrors the "HTY & VFY" script's frm.add_child() call exactly:
+        uom set, conversion_factor absent -- the shape that blocked submit
+        for HTY the same way it did for VFY."""
+        self.dn = frappe.new_doc("Delivery Note")
+        self.dn.update({
+            "customer": self.CUSTOMER, "company": self.COMPANY, "transaction_type": "HTY",
+            "posting_date": frappe.utils.today(), "set_posting_time": 1, "set_warehouse": self.HTY_WH,
+            "custom_sales_person": "Jayendrabhai",
+            "selling_price_list": "Standard Selling", "currency": "INR",
+        })
+        self.dn.append("items", {
+            "item_code": self.HTY_ITEM, "qty": 1, "batch_no": self.HTY_BATCH, "uom": "Kg",
+            "rate": 100, "warehouse": self.HTY_WH, "use_serial_batch_fields": 1,
+        })
+        self.dn.insert(ignore_permissions=True)
+        self.dn.submit()  # must not raise MandatoryError on conversion_factor
+        self.assertEqual(self.dn.docstatus, 1)
+
+    def test_get_hty_batches_for_containers_returns_stock_uom(self):
+        from mhr.utilis import get_hty_batches_for_containers
+
+        container = frappe.db.get_value("Batch Items", {"batch_id": self.HTY_BATCH}, "parent")
+        if not container:
+            self.skipTest("Bench has no Container carrying this Batch in Batch Items.")
+        rows = get_hty_batches_for_containers([container])
+        self.assertTrue(rows)
+        item_code = rows[0]["item_code"]
+        stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+        self.assertEqual(rows[0]["stock_uom"], stock_uom)

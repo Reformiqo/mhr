@@ -4014,9 +4014,11 @@ def get_hty_batches_for_containers(container_names):
             c.item AS item_code, c.set_warehouse,
             bi.batch_id, bi.qty AS net_weight, bi.cone,
             bi.supplier_batch_no, bi.idx,
-            bi.custom_gross_weight, bi.custom_sr_no
+            bi.custom_gross_weight, bi.custom_sr_no,
+            i.stock_uom
         FROM `tabContainer` c
         INNER JOIN `tabBatch Items` bi ON bi.parent = c.name AND bi.parenttype = 'Container'
+        LEFT JOIN `tabItem` i ON i.name = c.item
         WHERE c.name IN ({placeholders}) AND c.docstatus = 1
         ORDER BY c.name, bi.idx
         """,
@@ -4037,6 +4039,12 @@ def get_hty_batches_for_containers(container_names):
                 "custom_sr_no": r.custom_sr_no or "",
                 "custom_gross_weight": flt(r.custom_gross_weight),
                 "custom_supplier_batch_no": r.supplier_batch_no or "",
+                # MI1-I139 (Raj 2026-09-13/14): the DN-form side appends this
+                # row via frm.add_child(), which fires no grid event, so
+                # ERPNext's own UOM-change fetch never runs — uom and
+                # conversion_factor (both `reqd` on Delivery Note Item)
+                # reached save unset otherwise, blocking submit.
+                "stock_uom": r.stock_uom,
             }
         )
     return payload

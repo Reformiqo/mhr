@@ -365,10 +365,30 @@ rather than the server-side fallback failing: the fallback runs on every
 `validate()` regardless of which script added the row, so if it were live
 on the reporting site both paths would already work; it wasn't yet
 deployed there (see the note above about the hand-reverted script) when
-this was reported. **`mhr/note.fetch_batches` (the whitelisted endpoint
-the "Fetch Batches" script itself calls) is a fourth, separate function**
-from these two — check it too if a fourth entry point ever surfaces the
-same complaint.
+this was reported.
+
+**Reported again the next day for HTY** ("fixed for VFY... same issue
+still occurring in HTY") — two MORE independent entry points, both
+HTY-only, neither touched by the VFY-side fixes above:
+  * The "HTY & VFY" Client Script's batch-selection popup
+    (`show_hty_batch_dialog`'s Select handler) — the primary way an HTY
+    Delivery Note picks batches at all — has its own `frm.add_child()` with
+    the identical shape (`uom: data.stock_uom`, no `conversion_factor`).
+    Same fix.
+  * "Pick Containers by Lot" (`MI1-I39 — Delivery Note HTY Mode`, the
+    4-step HTY picker) was a STRICTER version of the same bug: its server
+    endpoint, `mhr.utilis.get_hty_batches_for_containers`, never returned a
+    UOM at all, so the script's `frm.add_child()` never set `uom` either —
+    and `uom` is ALSO `reqd` on Delivery Note Item, so this would have
+    blocked submit with a different-but-equally-broken error the moment
+    someone used this specific picker. Fixed by having the endpoint join to
+    `Item` and return `stock_uom`, and the script consume it for both `uom`
+    and `conversion_factor: 1`.
+
+**`mhr/note.fetch_batches` (the whitelisted endpoint the VFY "Fetch
+Batches" script itself calls) is a separate function from all of the
+above** — check it too (and any other `frm.add_child("items", ...)` call
+on Delivery Note) if this exact complaint ever surfaces a sixth time.
 
 ### Delivery Note ↔ Sales Order quantity cap (MI1-I120)
 
