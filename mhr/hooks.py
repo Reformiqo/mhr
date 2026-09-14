@@ -83,7 +83,6 @@ doctype_js = {
 jinja = {
     "methods": [
         "mhr.utilis.hty_qr_data_url",
-        "mhr.utilis.hty_parse_filament_count",
         "mhr.utilis.strip_prefix",
     ],
 }

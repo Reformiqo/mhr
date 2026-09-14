@@ -900,6 +900,34 @@ implementation and the spec line by line before touching anything):
   already correct per the spec (row-level `Delivery Note Item.qty`,
   filtered `docstatus=1` and `is_return`) and needed no change either.
 
+### HTY Batch Label print (MI1-I62 / MI1-I142)
+
+One per-label HTML template (`mhr.utilis.HTY_LABEL_HTML`) is shared,
+byte-for-byte, by two render paths: the standalone "HTY Batch Label" Desk
+Print Format (`mhr/mhr/print_format/hty_batch_label/hty_batch_label.json`,
+single-batch preview) and `mhr.utilis.render_hty_6up_pdf` (Print Batch's
+bulk PDF, 6 labels per A4 sheet) — kept centralised specifically so the
+two paths can't drift, per MI1-I62's own header comment.
+
+**MI1-I142 (2026-09-14, live review of a real printed sheet with Raj):
+Pallet No. and Cone were backwards from day one.** The original MI1-I62
+spec (Raj's own reference PDF at the time) had Pallet No. = `Batch.
+custom_cone` and Cone = a filament count parsed out of the item code
+(`hty_parse_filament_count`, e.g. `'58D/24F'` → `'24'`). On a real printed
+label reviewed live, that read backwards: `custom_cone` (e.g. 20) is
+genuinely the Cone value everywhere else in the app (Delivery Note rows,
+Sales Order booking, MI1-I85's zero-cone gate, etc.), and the real
+per-label Pallet No. is the batch's own serial
+(`custom_supplier_batch_no`, falling back to `doc.name`) — the SAME value
+already rendered top-right next to the QR code, just never wired into the
+Pallet No. row itself. Fixed by pointing each row at its correct source
+(Pallet No. → `{{ serial }}`, Cone → `{{ doc.custom_cone }}`) in both
+templates; `hty_parse_filament_count` had no other caller and was deleted
+along with its `jinja.methods` registration and dedicated tests.
+**If a future FRD ever asks for a genuine "Filament" column, that parser's
+logic (split on `/`, take leading digits) will need re-adding — it is
+gone, not hidden.**
+
 ### Client-side JS hooks
 
 - `doctype_js = { "Sales Order": "public/js/sales_order_hty.js", "Stock Entry": "public/js/stock_entry.js" }`

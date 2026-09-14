@@ -24,6 +24,16 @@ def hty_qr_data_url(text):
 # MI1-I62: per-label HTML used by both the single-batch print format
 # (preview) and the 6-up A4 bulk PDF (Print Batch). Centralised here so
 # the layout doesn't drift between the two paths.
+#
+# MI1-I142 correction (2026-09-14, live review of a real printed sheet with
+# Raj): the original spec had Pallet No. = Batch.custom_cone and Cone =
+# a filament count parsed out of the item code. On a real printed label
+# that was backwards -- custom_cone (e.g. 20) IS the real Cone value, and
+# the real per-label Pallet No. (e.g. 1) is the batch's own serial
+# (custom_supplier_batch_no, falling back to doc.name) -- the same value
+# already shown top-right next to the QR code. Both rows now read from
+# that single correct source each; the filament-count parser has no
+# remaining caller and was removed.
 HTY_LABEL_HTML = """
 <div class="hty-label">
   <table class="outer"><tbody>
@@ -31,9 +41,9 @@ HTY_LABEL_HTML = """
       <td class="fields-col">
         <table class="fields"><tbody>
           <tr class="b"><td class="k">Container No.</td><td class="v">{{ doc.custom_container_no or "" }}</td></tr>
-          <tr><td class="k">Pallet No.</td><td class="v">{{ doc.custom_cone or "" }}</td></tr>
+          <tr><td class="k">Pallet No.</td><td class="v">{{ serial }}</td></tr>
           <tr class="b"><td class="k">Den/Fil</td><td class="v">{{ item_code }}</td></tr>
-          <tr><td class="k">Cone</td><td class="v">{{ cone_val }}</td></tr>
+          <tr><td class="k">Cone</td><td class="v">{{ doc.custom_cone or "" }}</td></tr>
           <tr class="b"><td class="k">Net Wt</td><td class="v">{{ net_wt_str }}</td></tr>
           <tr><td class="k">Gross Wt</td><td class="v">{{ gross_wt_str }}</td></tr>
           <tr><td class="k">Grade</td><td class="v">{{ grade_val }}</td></tr>
@@ -155,7 +165,6 @@ def render_hty_6up_pdf(batch_names):
         ctx = {
             "doc": doc,
             "item_code": doc.item or "",
-            "cone_val": hty_parse_filament_count(doc.item or ""),
             "net_wt_str": ("%.3f" % float(doc.batch_qty)) if doc.batch_qty is not None else "",
             "gross_wt_str": ("%.3f" % float(doc.get("custom_gross_weight")))
                 if doc.get("custom_gross_weight") else "",
@@ -1078,32 +1087,6 @@ def apply_hty_spec_values(batch_doc, container):
     batch_doc.custom_product = resolve_spec_value(container.get("product"))
     batch_doc.custom_type = resolve_spec_value(container.get("type"))
     batch_doc.custom_grade = resolve_spec_value(container.get("grade"))
-
-
-def hty_parse_filament_count(item_code):
-    """MI1-I62: extract the filament-count digits from a Den/Fil item code.
-
-    Examples:
-        '210/72 7.2 GPD'  -> '72'
-        '58D/24F'         -> '24'
-        '120D/48 F LOW MX' -> '48'
-        '58D/24f'         -> '24'   (case-tolerant)
-        'NO-SLASH-CODE'   -> ''
-
-    Strategy: split on '/', take leading digits of the next token, stop
-    at the first non-digit. This handles both space-separated ('72 ')
-    and letter-suffixed ('24F') forms.
-    """
-    if not item_code or "/" not in item_code:
-        return ""
-    after = item_code.split("/", 1)[1].lstrip()
-    digits = []
-    for ch in after:
-        if ch.isdigit():
-            digits.append(ch)
-        else:
-            break
-    return "".join(digits)
 
 
 @frappe.whitelist()

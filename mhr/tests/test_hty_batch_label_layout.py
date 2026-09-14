@@ -1,11 +1,21 @@
 """MI1-I62 — HTY Batch Label redesign tests.
 
 Raj's PDF reference (`HTY BARCODE.pdf` on the ticket) sets the per-label
-layout the system must print: Container No., Pallet No. (=Batch.custom_cone),
-Den/Fil (=Batch.item), Cone (filament count parsed from item code), Net Wt
-(=Batch.batch_qty), Gross Wt, Grade, Luster, Type (hardcoded "PALLET"),
-Lot No. — plus a big serial top-right, QR code on the right, and a
-caption underneath of the form "{cone}_{container}_{lot}".
+layout the system must print: Container No., Pallet No., Den/Fil
+(=Batch.item), Cone, Net Wt (=Batch.batch_qty), Gross Wt, Grade, Luster,
+Type (hardcoded "PALLET"), Lot No. — plus a big serial top-right, QR code
+on the right, and a caption underneath of the form "{cone}_{container}_{lot}".
+
+MI1-I142 correction (2026-09-14, live review of a real printed sheet with
+Raj): the ORIGINAL spec here had Pallet No. = Batch.custom_cone and Cone =
+a filament count parsed out of the item code. On a real printed label
+that was backwards — custom_cone is genuinely the Cone value, and the
+real per-label Pallet No. is the batch's own serial
+(custom_supplier_batch_no, falling back to doc.name) — the same value
+already shown top-right next to the QR code. Both rows now read from that
+single correct source each; the filament-count parser (`hty_parse_
+filament_count`) has no remaining caller and was removed along with its
+tests and `jinja.methods` registration.
 
 Tests pin:
   - `mhr.utilis.hty_qr_data_url` exists, handles falsy input, and
@@ -47,28 +57,6 @@ class TestHtyQrDataUrlHelper(FrappeTestCase):
             "Base64 payload looks too short to be a valid QR PNG.")
 
 
-class TestParseFilamentCount(FrappeTestCase):
-    """The Cone field on the label is the leading digits after '/' in the
-    item code (so '210/72 7.2 GPD' -> '72' and '58D/24F' -> '24')."""
-
-    def test_helper_exists(self):
-        from mhr import utilis
-        self.assertTrue(callable(getattr(utilis, "hty_parse_filament_count", None)))
-
-    def test_examples(self):
-        from mhr.utilis import hty_parse_filament_count as f
-        self.assertEqual(f("210/72 7.2 GPD"), "72")
-        self.assertEqual(f("58D/24F"), "24",
-            "'24F' must parse to '24' (leading digits only).")
-        self.assertEqual(f("120D/48 F LOW MX"), "48")
-        self.assertEqual(f("NOSLASH"), "",
-            "No '/' in code -> '' (don't guess).")
-        self.assertEqual(f(""), "")
-        self.assertEqual(f(None), "")
-        self.assertEqual(f("210/"), "",
-            "Trailing slash with nothing after -> ''.")
-
-
 class TestStripPrefix(FrappeTestCase):
     """Grade / Luster fields are stored prefixed in mhr ('Grade-AA',
     'Lusture-Bright'). strip_prefix() returns just the tail so labels
@@ -103,7 +91,6 @@ class TestJinjaRegistration(FrappeTestCase):
             methods = [methods]
         for required in (
             "mhr.utilis.hty_qr_data_url",
-            "mhr.utilis.hty_parse_filament_count",
             "mhr.utilis.strip_prefix",
         ):
             self.assertIn(required, methods,
@@ -143,10 +130,13 @@ class TestHtyBatchLabelFormat(FrappeTestCase):
         self.assertRegex(self.html, r"Type</td>\s*<td class=\"v\">PALLET")
 
     def test_field_sources_match_spec(self):
-        """Pin the mappings — Pallet No.=custom_cone, Den/Fil=item, etc."""
+        """Pin the mappings — Den/Fil=item, Cone=custom_cone, etc.
+
+        Pallet No. is pinned separately below (it reads the `serial`
+        Jinja variable, not a bare `doc.<field>`)."""
         expectations = {
             "Container No.": "custom_container_no",
-            "Pallet No.": "custom_cone",
+            "Cone": "custom_cone",
             "Net Wt": "batch_qty",
             "Grade": "custom_grade",
             "Luster": "custom_lusture",
@@ -217,12 +207,30 @@ class TestHtyBatchLabelFormat(FrappeTestCase):
             "doc.name as a fallback.",
         )
 
-    def test_cone_value_uses_parse_helper(self):
-        """The label's 'Cone' field uses hty_parse_filament_count(item)
-        so '24F' parses to '24' (leading digits only), not just split-take.
-        Pin that the template invokes the helper."""
-        self.assertIn("hty_parse_filament_count", self.html,
-            "Template must call hty_parse_filament_count(item_code) for Cone.")
+    def test_pallet_no_uses_serial_not_cone(self):
+        """MI1-I142 correction: Pallet No. reads `serial`
+        (custom_supplier_batch_no, falling back to doc.name) — the SAME
+        value already shown top-right next to the QR code — not
+        custom_cone. Guards against the old (backwards) mapping
+        reappearing. Matched on the SPECIFIC row's own value cell (not a
+        lookahead window) so the neighbouring, now-correct Cone row's own
+        `doc.custom_cone` doesn't produce a false failure here."""
+        row = re.search(
+            r'<td class="k">Pallet No\.</td><td class="v">(.*?)</td>', self.html,
+        )
+        self.assertIsNotNone(row, "Pallet No. row not found in template.")
+        self.assertIn("serial", row.group(1),
+            "Pallet No. row must render {{ serial }}.")
+        self.assertNotIn("custom_cone", row.group(1),
+            "Pallet No. must not read doc.custom_cone (that's the Cone field).")
+
+    def test_filament_count_helper_removed(self):
+        """hty_parse_filament_count had exactly one caller (the old,
+        backwards 'Cone' binding) and was removed along with it — pin
+        that it doesn't sneak back into the template or the helper set."""
+        self.assertNotIn("hty_parse_filament_count", self.html)
+        from mhr import utilis
+        self.assertIsNone(getattr(utilis, "hty_parse_filament_count", None))
 
     def test_page_size_set_via_css_field(self):
         """The doc's `css` field (NOT inline <style>) is where Frappe injects

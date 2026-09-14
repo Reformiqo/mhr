@@ -111,10 +111,33 @@ class TestSixUpLayout(FrappeTestCase):
         doesn't appear in the rendered HTML."""
         from mhr.utilis import HTY_LABEL_HTML
         for token in ("doc.custom_container_no", "doc.custom_cone",
-                      "item_code", "cone_val", "net_wt_str", "gross_wt_str",
+                      "item_code", "net_wt_str", "gross_wt_str",
                       "grade_val", "luster_val", "serial", "qr_url"):
             self.assertIn(token, HTY_LABEL_HTML,
                 f"Template must use {token!r} (context key set by the renderer).")
+
+    def test_pallet_no_and_cone_are_not_swapped(self):
+        """MI1-I142 (2026-09-14, live review of a real printed sheet with
+        Raj): Pallet No. must render {{ serial }} (custom_supplier_batch_no,
+        falling back to doc.name), and Cone must render doc.custom_cone
+        directly — the original spec had these backwards."""
+        from mhr.utilis import HTY_LABEL_HTML as html
+        pallet_row = re.search(
+            r'<td class="k">Pallet No\.</td><td class="v">(.*?)</td>', html,
+        )
+        self.assertIsNotNone(pallet_row, "Pallet No. row not found in template.")
+        self.assertIn("serial", pallet_row.group(1),
+            "Pallet No. row must render {{ serial }}.")
+        self.assertNotIn("custom_cone", pallet_row.group(1),
+            "Pallet No. must not read doc.custom_cone (that's the Cone field).")
+
+        cone_row = re.search(
+            r'<td class="k">Cone</td><td class="v">(.*?)</td>', html,
+        )
+        self.assertIsNotNone(cone_row, "Cone row not found in template.")
+        self.assertIn("doc.custom_cone", cone_row.group(1),
+            "Cone row must render doc.custom_cone directly.")
+        self.assertNotIn("hty_parse_filament_count", html)
 
     def test_bottom_caption_removed(self):
         """Raj's reference PDF has no bottom caption (the
