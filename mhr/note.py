@@ -201,6 +201,37 @@ SCAN_MULTIPLIER = 5
 MAX_SCAN = 2000
 
 
+def _filter_condition(field, value):
+    """One `filters` dict entry -> (SQL condition, {param_name: param_value}).
+
+    MI1-I141 (prod TEST-3333, 2026-09-14): `_scan()`'s hand-rolled WHERE
+    clause did a blind `field = %(field)s` for every filters entry — correct
+    for a plain scalar, but `mhr.utilis.grade_filter_value` (MI1-I107, "a
+    Batch.custom_grade filter that matches both storage forms") can instead
+    return frappe's own `["in", [variant1, variant2]]` filter-value
+    convention, which `frappe.get_all`'s own filters= used to understand
+    natively. Comparing a varchar column to that whole list with a plain
+    `=` sent MySQL a value shaped like a row constructor, not a scalar —
+    "Illegal parameter data types varchar and row for operation '='". Any
+    Delivery Note whose header Grade needed the two-form IN clause (an HTY-
+    style plain grade also matching a VFY prefixed docname) hit this on
+    every Fetch Batches / Count. Handles frappe's [operator, value] filter
+    shape generally, not just this one caller, so a future filters entry
+    using the same convention doesn't repeat the bug."""
+    if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], str):
+        op, operand = value[0].strip().lower(), value[1]
+        if op in ("in", "not in"):
+            operand = list(operand) if isinstance(operand, (list, tuple, set)) else [operand]
+            keys = [f"{field}__{i}" for i in range(len(operand))]
+            params = dict(zip(keys, operand))
+            placeholders = ", ".join(f"%({k})s" for k in keys)
+            sql_op = "IN" if op == "in" else "NOT IN"
+            return f"`{field}` {sql_op} ({placeholders})", params
+        sql_op = {"like": "LIKE", "not like": "NOT LIKE"}.get(op, op)
+        return f"`{field}` {sql_op} %({field})s", {field: operand}
+    return f"`{field}` = %({field})s", {field: value}
+
+
 @frappe.whitelist()
 def fetch_batches(
     limit,
@@ -299,8 +330,9 @@ def fetch_batches(
             "custom_fsc", "custom_lusture", "custom_grade", "custom_cone", "item_name",
         ):
             if key in filters:
-                conditions.append(f"`{key}` = %({key})s")
-                params[key] = filters[key]
+                cond, extra_params = _filter_condition(key, filters[key])
+                conditions.append(cond)
+                params.update(extra_params)
 
         if or_filters:
             or_parts = []

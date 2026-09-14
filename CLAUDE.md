@@ -1050,6 +1050,38 @@ from something other than a literal field name anywhere else in this app
 needs the same audit** — this was the only one found so far, but it was
 only found because someone actually clicked the button on a v16 site.
 
+**Confirmed, fixed (MI1-I141, 2026-09-14, same day, same function): the
+MI1-I140 fix itself introduced a second v16-only crash.** `_scan()`'s new
+hand-rolled WHERE clause did a blind `` `field` = %(field)s `` for every
+entry in `filters` — correct for a plain scalar, but `mhr.utilis.
+grade_filter_value` (MI1-I107, "matches both storage forms") can return
+frappe's own `["in", [variant1, variant2]]` filter-value convention instead
+of a plain string, whenever a Batch's grade could be stored either as the
+bare HTY form or the prefixed VFY Item Specification docname —
+`frappe.get_all`'s own `filters=` understood that shape natively; the new
+raw-SQL loop did not. Comparing a varchar column to that whole list with a
+plain `=` sent MySQL a value shaped like a row constructor:
+`MySQLdb.OperationalError: (4078, "Illegal parameter data types varchar and
+row for operation '='")` — confirmed live on `meher.frappe.cloud` (frappe
+16.33.1, erpnext 16.34.2) via a real request with `grade: "Grade-AA
+UNEVEN"`, and reproduced locally: `grade_filter_value("Grade-AA UNEVEN")` →
+`["in", ["Grade-AA UNEVEN", "AA UNEVEN"]]` on this exact bench's data.
+Fixed by a new `mhr.note._filter_condition(field, value)` helper (called
+from `_scan()`'s WHERE-clause loop in place of the blind `= %(field)s`)
+that handles frappe's `[operator, value]` filter-value convention
+generally — `in` / `not in` expand into a real `IN (...)` clause across
+one named parameter per element, other two-element shapes (e.g. `[">",
+0]`, `["like", ...]`) pass the operator through — falling back to plain
+`=` for an ordinary scalar. Handled generally, not just for this one
+caller, so a future `filters` entry using the same convention doesn't
+repeat the bug. The `or_filters` loop was not touched — its values are
+hardcoded literals, never derived from a function that could return this
+shape. **Lesson for any future `frappe.get_all(filters=...)` →
+`frappe.db.sql()` conversion done for v16 compatibility**: `filters` dict
+values are not always plain scalars — audit every caller (or the
+convention generally, as done here) before assuming `field = %(x)s` is
+safe.
+
 **Flagged, not yet confirmed either way** — call out explicitly if seen:
 - `override_whitelisted_methods` (`mhr.sales_order_to_delivery_note`) and
   `override_doctype_dashboards` (`mhr.overrides.stock_entry_dashboard`)
