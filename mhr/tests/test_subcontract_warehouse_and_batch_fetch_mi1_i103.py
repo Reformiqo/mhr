@@ -130,11 +130,17 @@ class TestSupplierBatchOrdering(FrappeTestCase):
 		self.assertEqual(len(rows), 5)
 
 	def test_the_query_orders_too(self):
-		"""The SQL order decides which rows survive the scan limit."""
+		"""The SQL order decides which rows survive the scan limit.
+
+		MI1-I140 (2026-09-14): moved from frappe.get_all's order_by= kwarg to
+		a raw frappe.db.sql ORDER BY clause — v16 added strict order_by
+		validation (absent from v15) that rejects a raw CAST expression
+		there, throwing "Invalid field format in Order By" the moment
+		Fetch Batches ran. The CAST-first, raw-value-tiebreak ordering
+		itself (MI1-I124) is unchanged."""
 		source = inspect.getsource(note.fetch_batches)
-		# MI1-I124: the window is numeric now — CAST first, the raw value as tiebreak.
 		self.assertIn(
-			'order_by="CAST(custom_supplier_batch_no AS UNSIGNED) asc, custom_supplier_batch_no asc, name asc"',
+			"ORDER BY CAST(custom_supplier_batch_no AS UNSIGNED) ASC, custom_supplier_batch_no ASC, name ASC",
 			source,
 		)
 
@@ -154,7 +160,10 @@ class TestFetchBatchesScanAndTrim(FrappeTestCase):
 
 	def test_returns_the_lowest_n_ascending(self):
 		rows = self._rows(REPORTED_ORDER + ["6881"])
-		with patch.object(frappe, "get_all", return_value=rows), patch.object(
+		# MI1-I140 (2026-09-14): _scan() moved from frappe.get_all to
+		# frappe.db.sql (v16 compatibility -- see fetch_batches's own
+		# docstring), so these mock db.sql instead.
+		with patch.object(frappe.db, "sql", return_value=rows), patch.object(
 			note, "_clamp_batch_qty_to_available", lambda *a, **k: None
 		):
 			out = note.fetch_batches(limit=5, container_no="MCJC-2222")
@@ -163,16 +172,16 @@ class TestFetchBatchesScanAndTrim(FrappeTestCase):
 		)
 
 	def test_it_over_scans_so_consumed_rows_do_not_reduce_the_count(self):
-		with patch.object(frappe, "get_all", return_value=[]) as get_all:
+		with patch.object(frappe.db, "sql", return_value=[]) as db_sql:
 			note.fetch_batches(limit=5, container_no="MCJC-2222")
 		self.assertEqual(
-			get_all.call_args.kwargs["limit"], 5 * note.SCAN_MULTIPLIER
+			db_sql.call_args.args[1]["scan_limit"], 5 * note.SCAN_MULTIPLIER
 		)
 
 	def test_the_scan_is_bounded_when_no_limit_is_given(self):
-		with patch.object(frappe, "get_all", return_value=[]) as get_all:
+		with patch.object(frappe.db, "sql", return_value=[]) as db_sql:
 			note.fetch_batches(limit=0, container_no="MCJC-2222")
-		self.assertEqual(get_all.call_args.kwargs["limit"], note.MAX_SCAN)
+		self.assertEqual(db_sql.call_args.args[1]["scan_limit"], note.MAX_SCAN)
 
 
 class TestAvailabilityIsWarehouseScoped(FrappeTestCase):
@@ -313,9 +322,13 @@ class TestSupplierBatchNoIsVisibleBeforeSave(FrappeTestCase):
 		)
 
 	def test_the_server_returns_the_field(self):
-		"""The client can only set what fetch_batches hands back."""
+		"""The client can only set what fetch_batches hands back.
+
+		MI1-I140 (2026-09-14): the SELECT list moved from frappe.get_all's
+		fields=[...] (quoted strings) to a raw frappe.db.sql SELECT clause
+		(bare column names) -- see fetch_batches's own docstring."""
 		source = inspect.getsource(note.fetch_batches)
-		self.assertIn('"custom_supplier_batch_no"', source)
+		self.assertIn("custom_supplier_batch_no", source)
 
 	def test_fetch_from_is_left_in_place(self):
 		"""Both read the same source, so pre-filling cannot disagree with what
@@ -390,16 +403,18 @@ class TestDisabledBatchesAreNeverOffered(FrappeTestCase):
 	deliberately took that batch out of circulation."""
 
 	def test_the_filter_is_applied(self):
-		with patch.object(frappe, "get_all", return_value=[]) as get_all:
+		with patch.object(frappe.db, "sql", return_value=[]) as db_sql:
 			note.fetch_batches(limit=5, container_no="MCJC-2222")
-		self.assertEqual(get_all.call_args.kwargs["filters"]["disabled"], 0)
+		query, params = db_sql.call_args.args[0], db_sql.call_args.args[1]
+		self.assertIn("disabled = %(disabled)s", query)
+		self.assertEqual(params["disabled"], 0)
 
 	def test_a_caller_passing_nothing_still_gets_nothing(self):
 		"""The filter is added after the empty check, so it cannot turn a
 		no-argument call into a scan of every batch on the site."""
-		with patch.object(frappe, "get_all") as get_all:
+		with patch.object(frappe.db, "sql") as db_sql:
 			self.assertEqual(note.fetch_batches(limit=5, is_return=True), [])
-		get_all.assert_not_called()
+		db_sql.assert_not_called()
 
 
 class TestLocationNoteHeal(FrappeTestCase):

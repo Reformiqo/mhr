@@ -191,28 +191,42 @@ class TestFetchBatchesChipsExemption(FrappeTestCase):
         """Prod MCGPPC-117-1: the first string-ordered window ('1','10','100',
         ...) was mostly delivered bags, so fetch_batches(2) returned 1. The
         scan must widen (x5, up to MAX_SCAN) while the window is full and
-        fewer than requested survive."""
+        fewer than requested survive.
+
+        MI1-I140 (2026-09-14): _scan()'s query moved from frappe.get_all to
+        frappe.db.sql (v16 compatibility — see fetch_batches's own
+        docstring), so this mocks db.sql instead; the limit it must inspect
+        moved from the get_all kwarg to the query's own %(scan_limit)s
+        parameter."""
         def rows(n, start=0):
             return [{"name": f"B-{i}", "custom_supplier_batch_no": str(i), "batch_qty": 25.0} for i in range(start, start + n)]
-        def fake_get_all(*a, **k):
-            return rows(k["limit"])
+        def fake_sql(*a, **k):
+            params = a[1] if len(a) > 1 else k.get("values") or {}
+            return rows(params["scan_limit"])
         def fake_clamp(batches, is_return, warehouse=None):
             for b in batches:          # only every 30th bag still holds stock
                 b["batch_qty"] = 25.0 if int(b["name"].split("-")[1]) % 30 == 0 else 0.0
-        with patch.object(frappe, "get_all", side_effect=fake_get_all) as get_all, \
+        with patch.object(frappe.db, "sql", side_effect=fake_sql) as db_sql, \
              patch.object(note, "_clamp_batch_qty_to_available", side_effect=fake_clamp):
             out = note.fetch_batches(2, container_no="X")
         self.assertEqual(len(out), 2, "Two survivors were reachable within the ceiling.")
-        limits = [c.kwargs["limit"] for c in get_all.call_args_list]
+        limits = [
+            (c.args[1] if len(c.args) > 1 else c.kwargs.get("values"))["scan_limit"]
+            for c in db_sql.call_args_list
+        ]
         self.assertEqual(limits[0], 2 * note.SCAN_MULTIPLIER, "First window unchanged (MI1-I103).")
         self.assertGreater(len(limits), 1, "The window was widened.")
         self.assertTrue(all(l <= note.MAX_SCAN for l in limits))
 
     def test_explicit_cone_still_filters_exactly(self):
+        """MI1-I140 (2026-09-14): or_filters is no longer passed as a
+        frappe.get_all kwarg -- _scan() builds the same OR condition by hand
+        into the raw SQL WHERE clause (see fetch_batches's own docstring).
+        The or_filters LIST itself, and what feeds it, are unchanged."""
         src = inspect.getsource(note.fetch_batches)
         self.assertIn('if is_return is False and not filters.get("custom_cone"):', src)
         self.assertIn('["custom_glue", "like", "%-chips"]', src)
-        self.assertIn('or_filters=or_filters,', src)
+        self.assertIn('if or_filters:', src)
 
 
 class TestClientScript(FrappeTestCase):

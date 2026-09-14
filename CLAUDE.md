@@ -1020,6 +1020,53 @@ Site uses Indian fiscal years (Apr–Mar) which conflict with the standard Frapp
 - 100K+ Batch rows in prod — any code that loops over batches without using the custom indexes (`idx_custom_container_no`, `idx_custom_lot_no`, `idx_custom_cone`, `idx_manufacturing_date`) WILL time out under gunicorn. For long-running stock operations, use the `Submit in Background` pattern on Stock Entry instead of synchronous submit.
 - `prepared_report: 1` already gives you Redis-backed result caching for reports — do NOT add a second manual cache layer (we removed one from `meher_creation.py`).
 
+## v16 migration notes (in progress, 2026-09)
+
+Meher is being evaluated for a v15 → v16 move (Meher only — the shared
+`frappe-bench` this app's own dev/test copy lives on hosts ~130 other
+unrelated clients' apps and is never itself upgraded; the real production
+site is Frappe Cloud-hosted and would move to its own dedicated v16 bench
+group). `/home/frappe/v16` is an existing, proven v16 bench (Frappe
+v16.17.5, ERPNext v16.6.1) several other clients already run on — that's
+where compatibility testing happens, never the shared v15 bench.
+
+**Confirmed, fixed (MI1-I140, 2026-09-14): `frappe.get_all`/`get_list`'s
+`order_by=` no longer accepts a raw SQL expression in v16.** v16 added
+strict validation (`frappe.database.query.py :: SIMPLE_FIELD_PATTERN`,
+confirmed absent from v15 by grepping the exact error string — zero hits
+under this bench's own `apps/frappe`) that only accepts a bare field name
+or a dotted `link_field.field` / `child_table.field` reference; anything
+else throws `"Invalid field format in Order By: ...  Use 'field',
+'link_field.field', or 'child_table.field'."` immediately. `mhr.note.
+fetch_batches` (the "Count"-driven Fetch Batches flow) used exactly this —
+`order_by="CAST(custom_supplier_batch_no AS UNSIGNED) asc, ..."` (MI1-I124,
+keeping the scan window numeric since the column is Data) — and broke the
+moment Count + Fetch Batches was tried on a v16 site. Fixed by moving that
+one query from `frappe.get_all` to `frappe.db.sql`, which was never
+subject to this ORM-level validation on either version — same filters,
+same `or_filters`, same CAST-based ordering, hand-built as parameterized
+raw SQL instead of `get_all` kwargs. **Any other `order_by=` string built
+from something other than a literal field name anywhere else in this app
+needs the same audit** — this was the only one found so far, but it was
+only found because someone actually clicked the button on a v16 site.
+
+**Flagged, not yet confirmed either way** — call out explicitly if seen:
+- `override_whitelisted_methods` (`mhr.sales_order_to_delivery_note`) and
+  `override_doctype_dashboards` (`mhr.overrides.stock_entry_dashboard`)
+  both depend on calling specific ERPNext core functions by exact,
+  positional signature (MI1-I108 already documents one signature-mismatch
+  incident on v15 itself). If ERPNext v16 renamed or reordered either
+  function's arguments, these overrides fail with a `TypeError` — or worse,
+  silently do the wrong thing — the first time that specific button is
+  clicked, not on install or migrate.
+- The `prepared_report` 15-second-watcher internals `keep_inline()` reverse-
+  engineered this session (`frappe.core.doctype.report.report ::
+  enable_prepared_report`, the REPEATABLE READ race fixed via a conditional
+  `UPDATE`) are undocumented Frappe internals observed on v15. If v16
+  changed that mechanism's timing or locking at all, this could either
+  become unnecessary (fine) or start failing in a new, harder-to-notice way
+  (a report gets stuck again, silently).
+
 ## Common bench commands
 
 Run from the bench root (`/home/frappe/frappe-bench`), NOT from the app directory.

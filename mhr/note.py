@@ -283,22 +283,59 @@ def fetch_batches(
     scan_limit = min(requested * SCAN_MULTIPLIER, MAX_SCAN) if requested else MAX_SCAN
 
     def _scan(scan_limit):
-        rows = frappe.get_all(
-            "Batch",
-            filters=filters,
-            or_filters=or_filters,
-            fields=["name", "item", "item_name", "batch_qty", "stock_uom", "custom_supplier_batch_no", "custom_cone", "custom_lusture", "custom_grade", "custom_glue", "custom_pulp", "custom_fsc", "custom_lot_no", "custom_container_no", "custom_notes"],
-            # MI1-I103: there was no order_by at all — MAT-GD-2026-00008 landed
-            # 6876, 6870, 6872, 6879, 6874. This decides which rows survive the
-            # scan limit; the numeric sort below decides how they are presented.
-            # MI1-I124 (2026-09-05): the window itself must be numeric. The
-            # column is Data, so "custom_supplier_batch_no asc" put '1', '10',
-            # '100', '101' ... first and "Count 10" on MCIR-03 came back as
-            # 1, 10, 11, 12, 13, 14, 100, 101, 102, 103 — the string-smallest
-            # ten, re-sorted — instead of 1 to 10. CAST orders the digits as a
-            # number; the raw value breaks ties and orders non-numeric values.
-            order_by="CAST(custom_supplier_batch_no AS UNSIGNED) asc, custom_supplier_batch_no asc, name asc",
-            limit=scan_limit,
+        # MI1-I140 (v16 compatibility, 2026-09-14): frappe.get_all's
+        # order_by used to accept a raw SQL expression like this CAST — v16
+        # added strict order_by validation (frappe.database.query.py ::
+        # SIMPLE_FIELD_PATTERN, absent from v15) that rejects anything but
+        # a bare field name or dotted link/child-table reference, throwing
+        # "Invalid field format in Order By" the moment this ran. Moved to
+        # frappe.db.sql, which was never subject to that ORM-level
+        # validation on either version — same filters, same CAST-based
+        # ordering, same behaviour on v15 and v16 alike.
+        conditions = ["disabled = %(disabled)s"]
+        params = {"disabled": filters["disabled"]}
+        for key in (
+            "custom_lot_no", "custom_container_no", "custom_glue", "custom_pulp",
+            "custom_fsc", "custom_lusture", "custom_grade", "custom_cone", "item_name",
+        ):
+            if key in filters:
+                conditions.append(f"`{key}` = %({key})s")
+                params[key] = filters[key]
+
+        if or_filters:
+            or_parts = []
+            for field, op, value in or_filters:
+                if op == "like":
+                    pkey = f"{field}_like"
+                    or_parts.append(f"`{field}` LIKE %({pkey})s")
+                else:
+                    pkey = f"{field}_gt"
+                    or_parts.append(f"`{field}` {op} %({pkey})s")
+                params[pkey] = value
+            conditions.append("(" + " OR ".join(or_parts) + ")")
+
+        rows = frappe.db.sql(
+            f"""
+            SELECT name, item, item_name, batch_qty, stock_uom, custom_supplier_batch_no,
+                   custom_cone, custom_lusture, custom_grade, custom_glue, custom_pulp,
+                   custom_fsc, custom_lot_no, custom_container_no, custom_notes
+            FROM `tabBatch`
+            WHERE {" AND ".join(conditions)}
+            -- MI1-I103: there was no order_by at all — MAT-GD-2026-00008 landed
+            -- 6876, 6870, 6872, 6879, 6874. This decides which rows survive the
+            -- scan limit; the numeric sort below decides how they are presented.
+            -- MI1-I124 (2026-09-05): the window itself must be numeric. The
+            -- column is Data, so plain custom_supplier_batch_no order put '1',
+            -- '10', '100', '101' ... first and "Count 10" on MCIR-03 came back
+            -- as 1, 10, 11, 12, 13, 14, 100, 101, 102, 103 — the string-
+            -- smallest ten, re-sorted — instead of 1 to 10. CAST orders the
+            -- digits as a number; the raw value breaks ties and orders
+            -- non-numeric values.
+            ORDER BY CAST(custom_supplier_batch_no AS UNSIGNED) ASC, custom_supplier_batch_no ASC, name ASC
+            LIMIT %(scan_limit)s
+            """,
+            {**params, "scan_limit": scan_limit},
+            as_dict=True,
         )
         # MI1-I71 (Raj 2026-07-15): the client uses `batch_qty` to
         # populate the new DN row's qty. Historically that was the
