@@ -828,6 +828,78 @@ trusted, live-balance-sourced figure; this is a second, separate view.
   via Awesomebar search or the Report List) until this ticket's own
   stability follow-up caught it.
 
+**MI1-I136 (Change Request spreadsheet, 2026-09-13, "For implementation")
+re-specified the exact source/formula for all nine of the report's
+quantity columns** — a formal, client-approved document re-litigating
+column-by-column semantics after real usage. Three of the nine implied a
+real change; the other six matched what MI1-I135 had already built and
+needed no code change (confirmed by reading both the current
+implementation and the spec line by line before touching anything):
+
+- **In Qty is now a direct read of `Container.total_net_weight`** — never
+  derived from Batch Items or the movement ledger. This closes a real bug:
+  the MI1-I135 formula folded Job Work Received "produce" rows into In
+  Qty alongside Container Inward, so a LATER transaction (material coming
+  back from a subcontractor) could inflate a figure the spec requires to
+  stay fixed at the original inward amount forever. Job Work Received no
+  longer contributes to In Qty at all as a result — an explicit narrowing
+  of scope from MI1-I135's original design, not an oversight.
+  `_compute_movement_totals`'s own Container-Inward and Job-Work-Received
+  queries are UNCHANGED (still feed Balance Box's row-count, still
+  independently tested) — only `get_data()` stopped reading their `in_qty`
+  value.
+  **`(container_no, lot_no)` is not a unique key on `Container`** — real
+  data on this bench (e.g. `MCJC-1038` / `14042025`) has 50+ separate
+  Container documents sharing the identical container_no+lot_no text, each
+  its own small inward event with its own `total_net_weight`. The original
+  report's `container_info` lookup already has a "last one wins" ambiguity
+  at this same key for cross_section/notes/location/production_date/
+  accepted_warehouse (pre-existing, untouched, out of scope) — but
+  `total_net_weight` is new to this report and is the figure the whole
+  change request is built around, so it is **summed across every Container
+  document sharing the key** rather than silently keeping only the last
+  one read (caught by the same real-data check that found the bug above;
+  a synthetic two-Container fixture pins it as a regression test).
+- **Booked / Delivered / Pending Qty now read the RAW, un-reduced Sales
+  Order figures** (`mhr.utilis.sales_order_booking_state`'s own
+  `ordered_qty` / `delivered_qty` / `pending_qty`, which are SO-level and
+  already computed un-reduced internally — no new query needed) instead of
+  the original report's "effective/released" booking (MI1-I120: ordered
+  minus delivered, floored at zero, released down the order's rows as it
+  ships). The spec's own acceptance example is explicit: "Sales Order
+  1,000, Delivery Note 700, Return 100 → Booked Qty stays 1,000." This is
+  a **display choice for this column in this report only** — `get_booked_
+  quantities` (the effective-booking helper) is no longer imported here at
+  all, but the shared booking logic itself (Sales Order form, both lot
+  pickers, `validate_so_available_qty`, the ORIGINAL Stock Sheet (Balance
+  Report), which is never touched) is completely unaffected; nothing about
+  how much of a batch is actually available to book changes anywhere else
+  in the app.
+- **The row grain collapsed from one row per (Container, Item, Lot, Cone)
+  to one row per (Container, Lot).** In Qty is now a single per-container-
+  lot number that cannot be meaningfully split back across items or cones,
+  so the batch-level columns — Item, Cone, Pulp, Lusture, Glue, Grade,
+  Merge No — show the group's DISTINCT values, comma-joined, on that one
+  row instead of being broken out across separate rows. The old per-Lot
+  "Total:" subtotal row is gone as a direct consequence (one row per lot
+  already IS that subtotal — a separate copy would just duplicate it); the
+  per-Container "Grand Total:" row (spanning multiple lots on the same
+  container) stays, unconditionally rendered only when a container
+  actually has more than one lot. The VFY cone>0 filter (skip a group with
+  no real cone) now checks whether ANY of a group's distinct cones is
+  positive, not a single value; the report Total row's own "Cone" figure
+  is dropped (blank) rather than numerically summing what are now text
+  labels.
+- **Job Work Send Qty deliberately stayed on the row-level
+  `Stock Entry Detail.qty` sum**, not the spec's literally-named source
+  field `Stock Entry.custom_total_qty` — real data showed that header
+  field doesn't match the precise row sum (one entry: `custom_total_qty`
+  360 vs. rows summing to 363), an approximate/manually-adjusted figure
+  that would make Balance Qty drift from the real stock movement.
+  Confirmed with the user before implementing; Out Qty / GR Received were
+  already correct per the spec (row-level `Delivery Note Item.qty`,
+  filtered `docstatus=1` and `is_return`) and needed no change either.
+
 ### Client-side JS hooks
 
 - `doctype_js = { "Sales Order": "public/js/sales_order_hty.js", "Stock Entry": "public/js/stock_entry.js" }`

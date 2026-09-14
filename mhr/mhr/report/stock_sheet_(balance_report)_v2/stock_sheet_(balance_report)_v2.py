@@ -5,37 +5,53 @@
 # Report) ... as a new report without modifying the existing report", with
 # the changes in MHR_Stock_Sheet_Book2_Reviewed_v3.0.xlsx (the "Book2" FRD,
 # reviewed and corrected to v3.0 by Reformiqo's own analyst before this was
-# built). Four new columns — In Qty, Out Qty, GR Received, Job work Send Qty
-# — are inserted immediately after Glue and before Balance Qty, and Balance
-# Qty itself changes from "live Serial and Batch Bundle balance" to a
-# movement-ledger formula: In Qty - Out Qty + GR Received - Job work Send Qty
-# (the FRD's sheet 1 marks this formula "accepted as given"). Nothing else
-# moves — Booked Qty, Available Qty (now Balance Qty minus Booked, using the
-# new Balance), Delivered/Pending, Accepted Warehouse, HTY/VFY column swaps,
-# per-Sales-Order row expansion, lot/container/grand totals, all behave
-# exactly as the original.
+# built). Four new columns — In Qty, Out Qty, GR Received, Job work Send Qty.
 #
-# The generic balance/warehouse/booking primitives (whole-site balance map,
-# Redis caching, FORCE INDEX hint, live warehouse resolution, Sales Order
-# booking state) are IMPORTED from the original report rather than
-# duplicated — they are unrelated to what Book2 asks to change, and any
-# future fix to them (index maintenance, a new warehouse rule) should not
-# need to be applied twice. Only the parts Book2 actually touches —
-# get_columns, and the group-assembly / totals inside get_data — are
-# rewritten here.
+# MI1-I136 (Change Request, 2026-09-13, "For implementation"): re-specified
+# the exact source/formula for all nine of the report's quantity columns.
+# Three real changes came out of it (see get_data's own docstring for the
+# full reasoning): (1) In Qty is now a direct read of Container.
+# total_net_weight, never derived from movement rows — the previous
+# movement-ledger sum quietly let a LATER transaction (Job Work Received)
+# change what should be a fixed Container Inward figure; (2) Booked /
+# Delivered / Pending Qty now show the RAW, un-reduced Sales Order figures
+# instead of the original report's "effective/released" booking — a
+# display choice for this column in this report only, the shared booking
+# logic elsewhere in the app is untouched; (3) the row grain itself
+# collapsed from one row per (Container, Item, Lot, Cone) to one row per
+# (Container, Lot) — In Qty is a single per-container-lot number that
+# cannot be meaningfully split across items/cones, so the batch-level
+# columns (Item, Cone, Pulp, Lusture, Glue, Grade, Merge No) now show the
+# group's distinct values, comma-joined, on that one row instead of being
+# broken out across separate rows. The old per-Lot "Total:" subtotal row is
+# gone as a result (it would just duplicate the single container+lot row);
+# the per-Container "Grand Total:" row (spanning multiple lots) stays.
+# (container_no, lot_no) is NOT a unique key on Container -- real data has
+# 50+ separate Container documents sharing the same text (e.g. MCJC-1038 /
+# 14042025), each its own inward event -- so total_net_weight is SUMMED
+# across every document sharing the key, not read from just one.
+#
+# The generic balance/warehouse primitives (whole-site balance map, Redis
+# caching, FORCE INDEX hint, live warehouse resolution) are IMPORTED from
+# the original report rather than duplicated — they are unrelated to what
+# either change request touches, and any future fix to them (index
+# maintenance, a new warehouse rule) should not need to be applied twice.
 #
 # Known limitation, carried over verbatim from the FRD's own "Issues to
 # Settle" sheet (Issue 7): Balance Qty here covers only four movement types
-# (Container Inward, Job Work Received, Delivery, Sales Return, Send to
-# Subcontractor). It does not cover Purchase Receipt, Material Issue, Stock
-# Reconciliation, transfers between the company's own warehouses, or scrap.
-# If any of those occur against VFY/HTY stock, THIS report's Balance Qty can
-# disagree with the original Stock Sheet (Balance Report) and with Stock
-# Ledger for the same row — that is why the original is left untouched
-# rather than modified in place, and why "Accepted Warehouse" (still sourced
-# from the live Serial and Batch Bundle balance, unchanged) can show a
-# location even on a row whose movement-ledger Balance Qty is very small,
-# zero, or disagrees with what is actually in that warehouse.
+# (Container Inward is now Container.total_net_weight directly rather than a
+# movement source, but Job Work Received "produce" rows are consequently no
+# longer counted anywhere in this report at all — In Qty's source doctype is
+# Container by requirement). Out Qty / GR Received / Job Work Send Qty still
+# don't cover Purchase Receipt, Material Issue, Stock Reconciliation,
+# transfers between the company's own warehouses, or scrap. If any of those
+# occur against VFY/HTY stock, THIS report's Balance Qty can disagree with
+# the original Stock Sheet (Balance Report) and with Stock Ledger for the
+# same row — that is why the original is left untouched rather than
+# modified in place, and why "Accepted Warehouse" (still sourced from the
+# live Serial and Batch Bundle balance, unchanged) can show a location even
+# on a row whose movement-ledger Balance Qty is very small, zero, or
+# disagrees with what is actually in that warehouse.
 
 import importlib
 
@@ -59,7 +75,6 @@ get_all_warehouse_balances = _original.get_all_warehouse_balances
 live_warehouses_by_batch = _original.live_warehouses_by_batch
 live_warehouses = _original.live_warehouses
 get_batch_rows = _original.get_batch_rows
-get_booked_quantities = _original.get_booked_quantities
 strip_prefix = _original.strip_prefix
 WHOLE_SITE_FROM = _original.WHOLE_SITE_FROM
 _original_get_columns = _original.get_columns
@@ -393,19 +408,36 @@ def _compute_movement_totals(container=None, lot_no=None, cone=None):
 
 
 def get_data(filters=None):
-    """Byte-for-byte the original's get_data (see that file for the full
-    Step-by-step commentary — Batch query, whole-site vs narrow balance
-    path, Sales Order booking, HTY cone exemption, per-SO row expansion, lot
-    / container / grand totals), with exactly two differences:
+    """MI1-I136 (Change Request, 2026-09-13): one row per (Container, Lot)
+    instead of per (Container, Item, Lot, Cone) — the batch/item/cone
+    breakdown is consolidated onto that single row (distinct values,
+    comma-joined) rather than shown as separate rows. Reworks four of the
+    nine columns the change request specifies; everything else (whole-site
+    vs narrow batch path, Accepted Warehouse resolution, HTY/VFY column
+    swap, filters) is unchanged from the original get_data this was forked
+    from.
 
-      1. Each stock group's Balance / Balance Box come from
-         get_movement_totals() (In - Out + GR - JW Send) instead of the
-         live Serial and Batch Bundle balance, and the four movement figures
-         ride along on every row (Step 8) and every total (Step 5/6/7b) the
-         same way Balance / Balance Box already did.
-      2. Live SBB data is still used for exactly what it always was —
-         deciding which batches are "stocked" for Accepted Warehouse — never
-         for Balance Qty itself any more.
+      1. In Qty is now `Container.total_net_weight` — read once, directly,
+         never derived from movement rows, so a later Delivery Note / Sales
+         Return / Stock Entry / Sales Order can never change it (the
+         change request's core complaint: "later transactions must never
+         change In Qty" — the previous movement-ledger sum quietly folded
+         in Job Work Received "produce" rows, a later transaction, on top
+         of the original Container Inward figure).
+      2. Out Qty / GR Received / Job Work Send Qty stay sourced from the
+         movement ledger (get_movement_totals), same queries as before,
+         now aggregated across every item/cone sharing a (Container, Lot)
+         rather than kept separate per item/cone.
+      3. Booked / Delivered / Pending Qty read the RAW, un-reduced Sales
+         Order figures (sales_order_booking_state's own ordered_qty /
+         delivered_qty / pending_qty) instead of the "effective" released
+         booking the original report's own booking machinery computes for
+         live availability decisions. This is a display-only choice for
+         THIS column in THIS report — the shared booking logic itself
+         (Sales Order form, lot pickers, the original balance report) is
+         untouched.
+      4. Balance Qty / Available Qty formulas are unchanged (In - Out + GR
+         - JW Send; Balance - Booked) — only what feeds them changed.
     """
     if not filters:
         filters = {}
@@ -418,11 +450,8 @@ def get_data(filters=None):
     company = filters.get("company")
     transaction_type = filters.get("transaction_type")
 
-    # Narrowed by whichever of container / lot_no / cone the user gave —
-    # exactly the fields the movement row key itself uses, so this is always
-    # safe, unlike narrowing by date (a delivery or send can land well
-    # outside the batch's own creation-date window).
     movement_totals = get_movement_totals(container=container, lot_no=lot_no, cone=cone)
+    movement_by_lot = _aggregate_movements_by_lot(movement_totals)
 
     Batch = frappe.qb.DocType("Batch")
     conditions = []
@@ -479,32 +508,11 @@ def get_data(filters=None):
         batch_ids = query.run(pluck="batch_id")
         if not batch_ids:
             return []
-        # MI1-I135: unlike the original, "is this batch shown" is no longer
-        # decided by the live Serial and Batch Bundle balance — it is
-        # decided by the movement ledger (Step 4). Gating attribute-loading
-        # on a live balance here (the original's own optimization, valid
-        # only because ITS visibility rule IS the live balance) would drop a
-        # batch whose movement-ledger balance is positive but whose live SBB
-        # balance happens to be zero — the exact batches Job Work Received
-        # test data exposed, and a real possibility whenever a stock event
-        # outside the five tracked movement types touches a lot (Issue 7).
-        # warehouse_balances / balance_map are still built, for Accepted
-        # Warehouse only (Step 3).
         warehouse_balances = get_batch_warehouse_balances(batch_ids)
         balance_map = get_batch_balances(batch_ids, warehouse_balances)
         batches = get_batch_rows(batch_ids)
         stocked_ids = batch_ids
     else:
-        # Whole-site (no Container / Lot / Cone filter): the cached map is
-        # scoped to batches with a live SBB balance, by design (see
-        # get_all_warehouse_balances) — the same known-limitation trade-off
-        # as above applies here too, and there is no whole-site index of
-        # "batches with any of the five tracked movements" to name the full
-        # candidate set without a 500K-row Batch scan. A Container / Lot
-        # filter always gets the correct, ungated answer above; an
-        # unfiltered run of this report can under-report a lot whose stock
-        # left the live-balance set through a movement this report does not
-        # track.
         warehouse_balances = get_all_warehouse_balances()
         balance_map = get_batch_balances(list(warehouse_balances), warehouse_balances)
         stocked_all = [b for b, q in balance_map.items() if flt(q) > 0]
@@ -529,8 +537,6 @@ def get_data(filters=None):
         return []
     batches.sort(key=lambda b: b.batch_id)
 
-    booked_map = get_booked_quantities(stocked_ids)
-
     container_keys = set()
     for b in batches:
         container_keys.add((b.container_no or "", b.lot_no or ""))
@@ -549,65 +555,83 @@ def get_data(filters=None):
                     Container.warehouse,
                     Container.production_date,
                     Container.set_warehouse,
+                    Container.total_net_weight,
                 )
                 .where(Container.docstatus == 1)
                 .where(Container.container_no.isin(cont_nos))
             ).run(as_dict=True)
             for cr in cont_rows:
                 ck = (cr.container_no or "", cr.lot_no or "")
-                if ck in container_keys:
-                    container_info[ck] = {
-                        "cross_section": cr.cross_section or "",
-                        "notes": cr.notes or "",
-                        "location": cr.warehouse or "",
-                        "production_date": str(cr.production_date) if cr.production_date else "",
-                        "accepted_warehouse": cr.set_warehouse or "",
-                    }
+                if ck not in container_keys:
+                    continue
+                # (container_no, lot_no) is NOT a unique key on Container —
+                # real data on this bench has dozens of separate Container
+                # documents sharing the same container_no+lot_no text (e.g.
+                # MCJC-1038 / 14042025, one small inward event per document).
+                # The original report's own container_info lookup already
+                # has this same "last one wins" ambiguity for cross_section
+                # / notes / location / production_date / accepted_warehouse
+                # (pre-existing, untouched, out of scope here) -- but
+                # total_net_weight is new to THIS report and is the one
+                # figure this whole change request is built around, so
+                # "last one wins" would silently drop every other inward
+                # event's weight. Summed across every Container document
+                # sharing the key instead, consistent with "one consolidated
+                # row per (Container, Lot)" covering everything that fed it.
+                existing = container_info.get(ck, {})
+                container_info[ck] = {
+                    "cross_section": cr.cross_section or existing.get("cross_section", ""),
+                    "notes": cr.notes or existing.get("notes", ""),
+                    "location": cr.warehouse or existing.get("location", ""),
+                    "production_date": str(cr.production_date) if cr.production_date else existing.get("production_date", ""),
+                    "accepted_warehouse": cr.set_warehouse or existing.get("accepted_warehouse", ""),
+                    # Requirement 1: In Qty is a direct read of this field,
+                    # never derived from Batch Items / SLE -- summed here
+                    # because the key isn't unique (see above).
+                    "total_net_weight": flt(cr.total_net_weight) + flt(existing.get("total_net_weight", 0)),
+                }
+
+    # Requirement 3: raw (un-reduced) Sales Order figures per batch,
+    # independent of the original report's own "effective booking"
+    # release logic.
+    from mhr.utilis import sales_order_booking_state
+
+    so_state = {}
+    batch_to_sos = defaultdict(set)
+    CHUNK = 2000
+    for i in range(0, len(stocked_ids), CHUNK):
+        so_state.update(sales_order_booking_state(batch_names=stocked_ids[i : i + CHUNK]))
+    for so, st in so_state.items():
+        for r in st["rows"]:
+            bid = r.get("batch")
+            if bid:
+                batch_to_sos[bid].add(so)
 
     groups = {}
     for b in batches:
         batch_date = getdate(b.creation)
-        key = (
-            batch_date,
-            b.container_no or "",
-            b.lot_no or "",
-            b.cone or "",
-            b.item or "",
-            b.pulp or "",
-            b.lusture or "",
-            b.glue or "",
-            b.grade or "",
-        )
+        key = (b.container_no or "", b.lot_no or "")
 
         if key not in groups:
-            ci = container_info.get((b.container_no or "", b.lot_no or ""), {})
-            mv = movement_totals.get(
-                _movement_key(b.container_no, b.item, b.lot_no, b.cone),
-                {"in_qty": 0.0, "out_qty": 0.0, "gr_qty": 0.0, "jw_qty": 0.0,
-                 "in_box": 0, "out_box": 0, "gr_box": 0, "jw_box": 0},
-            )
+            ci = container_info.get(key, {})
+            lot_mv = movement_by_lot.get(key, {
+                "out_qty": 0.0, "gr_qty": 0.0, "jw_qty": 0.0,
+                "in_box": 0, "out_box": 0, "gr_box": 0, "jw_box": 0,
+            })
+            in_qty = round(ci.get("total_net_weight", 0.0), 2)
+            out_qty = round(lot_mv["out_qty"], 2)
+            gr_qty = round(lot_mv["gr_qty"], 2)
+            jw_qty = round(lot_mv["jw_qty"], 2)
             groups[key] = {
                 "batch_date": batch_date,
-                "container_no": b.container_no or "",
-                "item": b.item or "",
-                "pulp": b.pulp or "",
-                "lusture": b.lusture or "",
-                "glue": b.glue or "",
-                "grade": b.grade or "",
-                "lot_no": b.lot_no or "",
-                "cone": b.cone or "",
-                # MI1-I135: movement-ledger balance, not the live SBB balance.
-                # Rounded here, like balance on the next line — SUM() over
-                # many decimal qty rows leaves float noise (3044.0000000000027)
-                # that round() only removes once, at the source, not every
-                # place downstream that reads in_qty/out_qty/gr_qty/jw_qty.
-                "in_qty": round(mv["in_qty"], 2), "out_qty": round(mv["out_qty"], 2),
-                "gr_qty": round(mv["gr_qty"], 2), "jw_qty": round(mv["jw_qty"], 2),
-                "balance": round(mv["in_qty"] - mv["out_qty"] + mv["gr_qty"] - mv["jw_qty"], 2),
-                "balance_box": mv["in_box"] - mv["out_box"] + mv["gr_box"] - mv["jw_box"],
-                "booked_qty": 0.0,
-                "bookings": [],
-                "merge_no": b.merge_no or "",
+                "container_no": key[0],
+                "lot_no": key[1],
+                "items": set(), "cones": set(), "pulps": set(),
+                "lustures": set(), "glues": set(), "grades": set(), "merge_nos": set(),
+                "in_qty": in_qty, "out_qty": out_qty, "gr_qty": gr_qty, "jw_qty": jw_qty,
+                "balance": round(in_qty - out_qty + gr_qty - jw_qty, 2),
+                "balance_box": lot_mv["in_box"] - lot_mv["out_box"] + lot_mv["gr_box"] - lot_mv["jw_box"],
+                "sales_orders": set(),
                 "cross_section": ci.get("cross_section", ""),
                 "production_date": ci.get("production_date", ""),
                 "notes": ci.get("notes", ""),
@@ -615,93 +639,86 @@ def get_data(filters=None):
                 "accepted_warehouse": ci.get("accepted_warehouse", ""),
                 "stocked_batches": [],
             }
+        else:
+            batch_date = min(batch_date, groups[key]["batch_date"])
+            groups[key]["batch_date"] = batch_date
 
-        # Still live-SBB-based, same as the original: which batches are
-        # actually stocked, for the Accepted Warehouse column only.
+        g = groups[key]
+        if b.item:
+            g["items"].add(b.item)
+        if b.cone not in (None, ""):
+            g["cones"].add(cint(b.cone))
+        if b.pulp:
+            g["pulps"].add(strip_prefix(b.pulp))
+        if b.lusture:
+            g["lustures"].add(strip_prefix(b.lusture))
+        if b.glue:
+            g["glues"].add(strip_prefix(b.glue))
+        if b.grade:
+            g["grades"].add(strip_prefix(b.grade))
+        if b.merge_no:
+            g["merge_nos"].add(b.merge_no)
+
         if flt(balance_map.get(b.batch_id, 0)) > 0:
-            groups[key]["stocked_batches"].append(b.batch_id)
+            g["stocked_batches"].append(b.batch_id)
 
-        bk_list = booked_map.get(b.batch_id)
-        if bk_list:
-            for bk in bk_list:
-                groups[key]["booked_qty"] += bk["booked_qty"]
-                so_id = bk.get("sales_order", "")
-                existing = None
-                for eb in groups[key]["bookings"]:
-                    if eb.get("sales_order") == so_id and so_id:
-                        existing = eb
-                        break
-                if existing:
-                    existing["booked_qty"] += bk["booked_qty"]
-                else:
-                    groups[key]["bookings"].append(dict(bk))
+        g["sales_orders"] |= batch_to_sos.get(b.batch_id, set())
 
     from mhr.utilis import get_container_nos_by_transaction_type
 
     hty_containers = get_container_nos_by_transaction_type("HTY") or set()
 
+    def _joined(values):
+        return ", ".join(sorted(str(v) for v in values if v not in (None, "")))
+
     main_rows = []
     for g in groups.values():
-        try:
-            cone_num = int(g["cone"]) if g["cone"] else 0
-        except (ValueError, TypeError):
-            cone_num = 0
-
         is_hty_row = (g["container_no"] or "") in hty_containers
-        if not is_hty_row and cone_num <= 0:
+        has_positive_cone = any(c > 0 for c in g["cones"])
+        if not is_hty_row and not has_positive_cone:
             continue
 
-        # MI1-I135: a group only makes the sheet while it is net "in" on the
-        # movement ledger (Balance > 0), matching the original's stocked-only
-        # rule but sourced from the ledger instead of the live SBB balance.
+        # Same stocked-only gate as the original / round-1 v2: a group
+        # only makes the sheet while it is net "in" on the movement ledger.
         if g["balance_box"] > 0 and flt(g["balance"]) > 0:
             g["sort_order"] = 0
             g["report_date"] = g["batch_date"].strftime("%d/%m/%Y")
             g["accepted_warehouse"] = (
                 live_warehouses(g["stocked_batches"], stocked_by_batch) or g["accepted_warehouse"]
             )
-            g["available_qty"] = round(flt(g["balance"]) - flt(g["booked_qty"]), 2)
+            bookings = []
+            total_booked = 0.0
+            for so in sorted(g["sales_orders"]):
+                st = so_state.get(so)
+                if not st:
+                    continue
+                ordered = flt(st["ordered_qty"])
+                if ordered <= 0:
+                    continue
+                bookings.append({
+                    "sales_order": so,
+                    "booked_qty": round(ordered, 2),
+                    "buyer": st.get("customer_name") or "",
+                    "sales_person": "",
+                    "lifting_terms": st.get("lifting_terms") or "",
+                    "delivered_qty": round(flt(st.get("delivered_qty")), 2),
+                    "delivered_weight": round(flt(st.get("delivered_weight")), 2),
+                    "pending_qty": round(flt(st.get("pending_qty")), 2),
+                    "pending_weight": round(flt(st.get("pending_weight")), 2),
+                })
+                total_booked += ordered
+            g["bookings"] = bookings
+            g["booked_qty"] = round(total_booked, 2)
+            g["available_qty"] = round(flt(g["balance"]) - total_booked, 2)
             g["group_key"] = len(main_rows)
             main_rows.append(g)
 
     if not main_rows:
         return []
 
-    lot_groups = defaultdict(list)
-    for row in main_rows:
-        lot_key = (row["report_date"], row["container_no"], row["lot_no"])
-        lot_groups[lot_key].append(row)
-
-    lot_totals = []
-    for (report_date, container_no, lot), rows in lot_groups.items():
-        lot_totals.append(
-            {
-                "batch_date": rows[0]["batch_date"],
-                "report_date": report_date,
-                "container_no": container_no,
-                "item": str(len(rows)),
-                "pulp": "", "lusture": "", "glue": "Total:", "grade": "",
-                "in_qty": round(sum(r["in_qty"] for r in rows), 2),
-                "out_qty": round(sum(r["out_qty"] for r in rows), 2),
-                "gr_qty": round(sum(r["gr_qty"] for r in rows), 2),
-                "jw_qty": round(sum(r["jw_qty"] for r in rows), 2),
-                "balance": round(sum(r["balance"] for r in rows), 2),
-                "lot_no": lot,
-                "balance_box": sum(r["balance_box"] for r in rows),
-                "cone": "",
-                "sort_order": 1,
-                "booked_qty": round(sum(r["booked_qty"] for r in rows), 2),
-                "available_qty": round(sum(r["available_qty"] for r in rows), 2),
-                "bookings": [],
-                "merge_no": "", "cross_section": "", "production_date": "",
-                "notes": "", "location": "", "accepted_warehouse": "",
-            }
-        )
-
     container_groups = defaultdict(list)
     for row in main_rows:
-        ck = row["container_no"]
-        container_groups[ck].append(row)
+        container_groups[row["container_no"]].append(row)
 
     container_totals = []
     for container_no, rows in container_groups.items():
@@ -731,14 +748,13 @@ def get_data(filters=None):
                 }
             )
 
-    all_rows = main_rows + lot_totals + container_totals
+    all_rows = main_rows + container_totals
     all_rows.sort(
         key=lambda r: (
             -r["batch_date"].toordinal(),
             r["container_no"],
             r["lot_no"] if r["lot_no"] else "\xff",
             r["sort_order"],
-            cint(r["cone"]),
         )
     )
 
@@ -751,7 +767,6 @@ def get_data(filters=None):
         "balance_box": sum(r["balance_box"] for r in main_rows),
         "booked_qty": round(sum(r["booked_qty"] for r in main_rows), 2),
         "available_qty": round(sum(r["available_qty"] for r in main_rows), 2),
-        "cone": sum(int(r["cone"]) if r["cone"] else 0 for r in main_rows),
     }
 
     today_date = getdate(today())
@@ -767,14 +782,31 @@ def get_data(filters=None):
         so = row["sort_order"]
         bookings = row.get("bookings", [])
 
+        if so == 0:
+            item_str = _joined(row["items"])
+            cone_str = _joined(sorted(row["cones"]))
+            pulp_str = _joined(row["pulps"])
+            lusture_str = _joined(row["lustures"])
+            glue_str = _joined(row["glues"])
+            grade_str = _joined(row["grades"])
+            merge_no_str = _joined(row["merge_nos"])
+        else:
+            item_str = row["item"]
+            cone_str = row["cone"]
+            pulp_str = row["pulp"]
+            lusture_str = row["lusture"]
+            glue_str = row["glue"]
+            grade_str = row["grade"]
+            merge_no_str = row.get("merge_no", "")
+
         base = {
             "Date": "" if so >= 1 else row["report_date"],
             "Container Number": "" if so >= 1 else row["container_no"],
-            "Item": row["item"],
-            "Pulp": strip_prefix(row["pulp"]) if so == 0 else row["pulp"],
-            "Lusture": strip_prefix(row["lusture"]) if so == 0 else row["lusture"],
-            "Glue": strip_prefix(row["glue"]) if so == 0 else row["glue"],
-            "Grade": strip_prefix(row["grade"]) if so == 0 else row["grade"],
+            "Item": item_str,
+            "Pulp": pulp_str,
+            "Lusture": lusture_str,
+            "Glue": glue_str,
+            "Grade": grade_str,
             "In Qty": row["in_qty"],
             "Out Qty": row["out_qty"],
             "GR Received": row["gr_qty"],
@@ -782,10 +814,10 @@ def get_data(filters=None):
             "Balance": round(flt(row["balance"]), 2),
             "Lot Number": row["lot_no"],
             "Balance Box": row["balance_box"],
-            "Cone": row["cone"],
+            "Cone": cone_str,
             "Booked Qty": round(flt(row["booked_qty"]), 2),
             "Available Qty": round(flt(row.get("available_qty", 0)), 2),
-            "Merge No": row.get("merge_no", "") if so == 0 else "",
+            "Merge No": merge_no_str,
             "Cross Section": row.get("cross_section", "") if so == 0 else "",
             "Production Date": row.get("production_date", "") if so == 0 else "",
             "Notes": row.get("notes", "") if so == 0 else "",
@@ -834,7 +866,7 @@ def get_data(filters=None):
         "Balance": report_total["balance"],
         "Lot Number": "",
         "Balance Box": report_total["balance_box"],
-        "Cone": report_total["cone"],
+        "Cone": "",
         "Booked Qty": report_total["booked_qty"],
         "Available Qty": report_total["available_qty"],
         "Sales Order": "", "Buyers": "", "Sales Person": "",
@@ -847,3 +879,26 @@ def get_data(filters=None):
     })
 
     return result
+
+
+def _aggregate_movements_by_lot(movement_totals):
+    """Collapse the (container, item, lot, cone)-keyed movement map down to
+    (container, lot), summing Out / GR / Job Work Send (and their box
+    counts) across every item/cone sharing that container+lot. In Qty is
+    NOT summed here — Requirement 1 reads it directly from
+    Container.total_net_weight instead, independent of this map."""
+    by_lot = {}
+    for (container_no, item_code, lot_no, cone), mv in movement_totals.items():
+        key = (container_no, lot_no)
+        t = by_lot.setdefault(
+            key, {"out_qty": 0.0, "gr_qty": 0.0, "jw_qty": 0.0,
+                  "in_box": 0, "out_box": 0, "gr_box": 0, "jw_box": 0}
+        )
+        t["out_qty"] += mv["out_qty"]
+        t["gr_qty"] += mv["gr_qty"]
+        t["jw_qty"] += mv["jw_qty"]
+        t["in_box"] += mv["in_box"]
+        t["out_box"] += mv["out_box"]
+        t["gr_box"] += mv["gr_box"]
+        t["jw_box"] += mv["jw_box"]
+    return by_lot

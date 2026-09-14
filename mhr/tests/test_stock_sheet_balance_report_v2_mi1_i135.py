@@ -139,21 +139,41 @@ class TestMovementTotalsAndEndToEnd(FrappeTestCase):
 
     IN_INWARD = 100.0     # Container Inward, batch A
     IN_INWARD_B = 50.0    # Container Inward, batch B
-    IN_JWR = 20.0         # Job Work Received produce row
+    IN_JWR = 20.0         # Job Work Received produce row -- MUST have NO
+                           # effect on In Qty under MI1-I136 (a later
+                           # transaction; see EXPECTED_IN's own comment).
     OUT_QTY = 40.0        # non-return delivery
     RETURN_QTY = 10.0     # return delivery (stored negative on the row)
     SEND_QTY = 30.0       # Send to Subcontractor issue row
+    TOTAL_NET_WEIGHT = 500.0  # Container.total_net_weight -- deliberately
+                               # NOT equal to IN_INWARD + IN_INWARD_B (150)
+                               # or to the old movement-ledger figure (170),
+                               # so a test that passed only because In Qty
+                               # happened to equal a derived sum can't hide
+                               # a regression back to deriving it.
 
-    # In Qty = 100 + 50 + 20 = 170; Out Qty = 40; GR Received = 10 (ABS);
-    # Job work Send Qty = 30. Balance = 170 - 40 + 10 - 30 = 110.
-    # In Box = 3 (2 inward batches + 1 JWR row); Out Box = 1; GR Box = 1;
-    # JW Box = 1. Balance Box = 3 - 1 + 1 - 1 = 2.
-    EXPECTED_IN = 170.0
+    # MI1-I136: In Qty is read directly from Container.total_net_weight,
+    # never derived from Batch Items or the movement ledger -- neither the
+    # two Container Inward batches (150) nor the Job Work Received produce
+    # row (20) feed it any more. Out Qty = 40; GR Received = 10 (ABS);
+    # Job work Send Qty = 30. Balance = 500 - 40 + 10 - 30 = 440.
+    # In Box = 3 (2 inward batches + 1 JWR row, unchanged -- Balance Box
+    # stays a parallel row-count independent of the In Qty source change);
+    # Out Box = 1; GR Box = 1; JW Box = 1. Balance Box = 3 - 1 + 1 - 1 = 2.
+    EXPECTED_IN = TOTAL_NET_WEIGHT
     EXPECTED_OUT = 40.0
     EXPECTED_GR = 10.0
     EXPECTED_JW = 30.0
-    EXPECTED_BALANCE = 110.0
+    EXPECTED_BALANCE = TOTAL_NET_WEIGHT - 40.0 + 10.0 - 30.0
     EXPECTED_BALANCE_BOX = 2
+
+    # get_movement_totals() itself is untouched by MI1-I136 -- it still
+    # computes an "in_qty" from Container Inward + Job Work Received
+    # produce rows exactly as before (100 + 50 + 20 = 170); get_data()
+    # simply no longer reads that field for the rendered In Qty column.
+    # Kept and still tested so the underlying map's own documented
+    # behaviour doesn't silently drift.
+    EXPECTED_MOVEMENT_IN = 170.0
 
     @classmethod
     def _cleanup_stale(cls):
@@ -233,6 +253,7 @@ class TestMovementTotalsAndEndToEnd(FrappeTestCase):
         c.item = ITEM
         c.transaction_type = "VFY"
         c.posting_date = frappe.utils.nowdate()
+        c.total_net_weight = cls.TOTAL_NET_WEIGHT
         c.append("batches", {"batch_id": "MI1I135-TEST-A", "item": ITEM, "qty": cls.IN_INWARD, "cone": CONE})
         c.append("batches", {"batch_id": "MI1I135-TEST-B", "item": ITEM, "qty": cls.IN_INWARD_B, "cone": CONE})
         c.flags.ignore_validate = True
@@ -325,7 +346,7 @@ class TestMovementTotalsAndEndToEnd(FrappeTestCase):
         key = m._movement_key(CONTAINER_NO, ITEM, LOT_NO, CONE)
         self.assertIn(key, mv)
         t = mv[key]
-        self.assertAlmostEqual(t["in_qty"], self.EXPECTED_IN, places=3)
+        self.assertAlmostEqual(t["in_qty"], self.EXPECTED_MOVEMENT_IN, places=3)
         self.assertAlmostEqual(t["out_qty"], self.EXPECTED_OUT, places=3)
         self.assertAlmostEqual(t["gr_qty"], self.EXPECTED_GR, places=3,
                                msg="return qty is stored negative; must be ABS()'d")
@@ -365,6 +386,19 @@ class TestMovementTotalsAndEndToEnd(FrappeTestCase):
         self.assertAlmostEqual(row["Available Qty"], self.EXPECTED_BALANCE, places=2,
                                msg="no bookings on this container, so Available Qty = Balance")
 
+    def test_in_qty_is_unaffected_by_job_work_received(self):
+        """MI1-I136's core complaint: a LATER transaction (here, a Job Work
+        Received produce row of 20) must never change In Qty. The old
+        movement-ledger formula folded JWR produce rows into In Qty
+        directly -- this fixture's se_jwr exists specifically to prove
+        that no longer happens: In Qty must read exactly
+        Container.total_net_weight (500), not 500 + 20."""
+        m = _get_module()
+        rows = m.get_data({"container": CONTAINER_NO, "lot_no": LOT_NO})
+        detail = [r for r in rows if r["sort_order"] == 0]
+        self.assertEqual(len(detail), 1)
+        self.assertEqual(detail[0]["In Qty"], self.TOTAL_NET_WEIGHT)
+
     def test_movement_columns_render_clean_not_float_noise(self):
         """Real walkthrough bug (MI1-I135): SUM() over many decimal-weight
         Batch Items rows returns values like 3044.0000000000027 — In Qty /
@@ -388,8 +422,15 @@ class TestMovementTotalsAndEndToEnd(FrappeTestCase):
     def test_passthrough_fields_match_a_pure_inward_container_exactly(self):
         """A second, simpler container with ONLY Container Inward movement —
         Balance under the new formula equals Balance under the live SBB
-        balance (nothing has ever left), so every field but the four new
-        movement columns must be byte-identical to the original report."""
+        balance (nothing has ever left), so the DETAIL row's fields (other
+        than the four movement columns) must be byte-identical to the
+        original report's own detail row for the same batch.
+
+        MI1-I136 (2026-09-13): v2 no longer emits the original's per-lot
+        "Total:" subtotal row at all (one row per Container+Lot already IS
+        that subtotal — a separate copy of it would just duplicate the
+        single detail row), so row COUNT is no longer expected to match;
+        only the one real detail row's shared fields are compared."""
         if frappe.db.exists("Batch", "MI1I135-PLAIN-A"):
             frappe.db.sql("DELETE FROM `tabBatch` WHERE name=%s", ("MI1I135-PLAIN-A",))
         for stale in frappe.get_all("Container", filters={"container_no": "MI1I135-PLAIN"}, pluck="name"):
@@ -407,6 +448,11 @@ class TestMovementTotalsAndEndToEnd(FrappeTestCase):
         c.item = plain_item
         c.transaction_type = "VFY"
         c.posting_date = frappe.utils.nowdate()
+        # MI1-I136: In Qty now reads this field directly rather than being
+        # derived from the batches below -- set to the same figure (77) so
+        # this test's own "nothing but the movement columns differs from
+        # the original report" premise still holds.
+        c.total_net_weight = 77.0
         c.append("batches", {"batch_id": "MI1I135-PLAIN-A", "item": plain_item, "qty": 77.0, "cone": 9})
         c.flags.ignore_validate = True
         c.flags.ignore_mandatory = True
@@ -444,13 +490,20 @@ class TestMovementTotalsAndEndToEnd(FrappeTestCase):
             filt = {"container": "MI1I135-PLAIN", "lot_no": "PLOT"}
             v2_rows = m.get_data(filt)
             orig_rows = orig.get_data(filt)
-            self.assertEqual(len(v2_rows), len(orig_rows))
+            v2_detail = next(r for r in v2_rows if r["sort_order"] == 0)
+            orig_detail = next(r for r in orig_rows if r["sort_order"] == 0)
             movement_cols = {"In Qty", "Out Qty", "GR Received", "Job work Send Qty"}
-            for a, b in zip(v2_rows, orig_rows):
-                for k in b:
-                    if k in movement_cols:
-                        continue
-                    self.assertEqual(a.get(k), b.get(k), f"field {k!r} diverged from the original")
+            # Cone is a deliberate representation change: v2 always joins
+            # the group's distinct cones into a text string (matching its
+            # Data fieldtype and the multi-cone case), even when there is
+            # only one value, so "9" (v2) vs the original's raw int 9 is
+            # expected here, not a regression -- same value, display-
+            # equivalent (the column is Data, not Int, on both reports).
+            for k in orig_detail:
+                if k in movement_cols or k == "Cone":
+                    continue
+                self.assertEqual(v2_detail.get(k), orig_detail.get(k), f"field {k!r} diverged from the original")
+            self.assertEqual(str(v2_detail.get("Cone")), str(orig_detail.get("Cone")))
         finally:
             receipt.reload()
             if receipt.docstatus == 1:
@@ -495,6 +548,313 @@ class TestRealDataRegression(FrappeTestCase):
                 continue
             self.assertEqual(r["In Qty"], round(r["In Qty"], 2),
                              f"In Qty carries float noise: {r['In Qty']!r}")
+
+
+class TestRowCollapseAndRawBooking(FrappeTestCase):
+    """MI1-I136 (Change Request, 2026-09-13): the three behaviours specific
+    to this rework that TestMovementTotalsAndEndToEnd's single-item fixture
+    can't exercise —
+
+      1. a lot holding batches of two different items/cones/specs
+         collapses onto ONE row, with those columns comma-joining the
+         distinct values rather than being shown across separate rows;
+      2. a container spanning two lots gets a Grand Total row but NEITHER
+         lot gets its own now-redundant per-lot "Total:" row (one row per
+         lot already IS that subtotal);
+      3. Booked / Delivered / Pending Qty show the Sales Order's RAW,
+         un-reduced figures — a delivery against the order must not shrink
+         Booked Qty the way the original report's "effective/released"
+         booking would.
+    """
+
+    CONTAINER_NO = "MI1I136-TEST"
+    LOT_A = "L-A"
+    LOT_B = "L-B"
+    ITEM_1 = "MI1I136-ITEM-1"
+    ITEM_2 = "MI1I136-ITEM-2"
+    CONE_1 = 6
+    CONE_2 = 8
+    TOTAL_NET_WEIGHT_A = 300.0
+    TOTAL_NET_WEIGHT_B = 150.0
+    SO_ORDERED_QTY = 100.0
+    DN_DELIVERED_QTY = 60.0
+
+    @classmethod
+    def _wipe(cls):
+        for r in frappe.db.sql(
+            "SELECT DISTINCT dn.name FROM `tabDelivery Note` dn "
+            "JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name "
+            "WHERE dni.custom_container_no = %s", (cls.CONTAINER_NO,), as_dict=True,
+        ):
+            frappe.db.sql("DELETE FROM `tabDelivery Note Item` WHERE parent=%s", (r.name,))
+            frappe.db.sql("DELETE FROM `tabDelivery Note` WHERE name=%s", (r.name,))
+        for r in frappe.get_all("Sales Order", filters={"name": ["like", "SO-MI1I136%"]}, pluck="name"):
+            frappe.db.sql("DELETE FROM `tabSales Order Item` WHERE parent=%s", (r,))
+            frappe.db.sql("DELETE FROM `tabSales Order` WHERE name=%s", (r,))
+        for r in frappe.get_all("Container", filters={"container_no": cls.CONTAINER_NO}, pluck="name"):
+            frappe.db.sql("DELETE FROM `tabBatch Items` WHERE parent=%s", (r,))
+            frappe.db.sql("DELETE FROM `tabContainer` WHERE name=%s", (r,))
+        frappe.db.sql("DELETE FROM `tabBatch` WHERE custom_container_no=%s", (cls.CONTAINER_NO,))
+        frappe.db.commit()
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._wipe()
+        for item in (cls.ITEM_1, cls.ITEM_2):
+            if not frappe.db.exists("Item", item):
+                frappe.get_doc({
+                    "doctype": "Item", "item_code": item, "item_name": item, "item_group": "Products",
+                    "stock_uom": "Nos", "is_stock_item": 1, "has_batch_no": 1, "create_new_batch": 0,
+                }).insert(ignore_permissions=True)
+
+        # Lot A: two items, two cones, two batches -> must collapse to ONE row.
+        cls.container_a = cls._make_container(cls.LOT_A, cls.TOTAL_NET_WEIGHT_A, [
+            ("MI1I136-A-1", cls.ITEM_1, cls.CONE_1, "Pulp-White", "Lusture-Bright", "Glue-PVA", "Grade-AA"),
+            ("MI1I136-A-2", cls.ITEM_2, cls.CONE_2, "Pulp-Black", "Lusture-Matte", "Glue-EVA", "Grade-BB"),
+        ])
+        # Lot B: one item, one batch -> a second lot on the SAME container,
+        # so a Grand Total row is expected; this lot must NOT get its own
+        # per-lot Total row either.
+        cls.container_b = cls._make_container(cls.LOT_B, cls.TOTAL_NET_WEIGHT_B, [
+            ("MI1I136-B-1", cls.ITEM_1, cls.CONE_1, "Pulp-White", "Lusture-Bright", "Glue-PVA", "Grade-AA"),
+        ])
+
+        cls.so = cls._make_sales_order()
+        cls.dn = cls._make_delivery_against_so()
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        if frappe.db.exists("Delivery Note", getattr(cls, "dn", None) or ""):
+            frappe.db.sql("DELETE FROM `tabDelivery Note Item` WHERE parent=%s", (cls.dn,))
+            frappe.db.sql("DELETE FROM `tabDelivery Note` WHERE name=%s", (cls.dn,))
+        if frappe.db.exists("Sales Order", getattr(cls, "so", None) or ""):
+            frappe.db.sql("DELETE FROM `tabSales Order Item` WHERE parent=%s", (cls.so,))
+            frappe.db.sql("DELETE FROM `tabSales Order` WHERE name=%s", (cls.so,))
+        frappe.db.sql("DELETE FROM `tabBatch Items` WHERE parent IN (%s, %s)", (cls.container_a, cls.container_b))
+        frappe.db.sql("DELETE FROM `tabContainer` WHERE name IN (%s, %s)", (cls.container_a, cls.container_b))
+        frappe.db.sql("DELETE FROM `tabBatch` WHERE custom_container_no=%s", (cls.CONTAINER_NO,))
+        frappe.db.commit()
+        super().tearDownClass()
+
+    @classmethod
+    def _make_container(cls, lot_no, total_net_weight, batch_specs):
+        c = frappe.new_doc("Container")
+        c.container_no = cls.CONTAINER_NO
+        c.lot_no = lot_no
+        c.item = batch_specs[0][1]
+        c.transaction_type = "VFY"
+        c.posting_date = frappe.utils.nowdate()
+        c.total_net_weight = total_net_weight
+        for batch_id, item, cone, *_ in batch_specs:
+            c.append("batches", {"batch_id": batch_id, "item": item, "qty": 10, "cone": cone})
+        c.flags.ignore_validate = True
+        c.flags.ignore_mandatory = True
+        c.insert(ignore_permissions=True)
+        frappe.db.set_value("Container", c.name, "docstatus", 1, update_modified=False)
+        for batch_id, item, cone, pulp, lusture, glue, grade in batch_specs:
+            if frappe.db.exists("Batch", batch_id):
+                frappe.db.sql("DELETE FROM `tabBatch` WHERE name=%s", (batch_id,))
+            b = frappe.new_doc("Batch")
+            b.batch_id = batch_id
+            b.item = item
+            b.custom_container_no = cls.CONTAINER_NO
+            b.custom_lot_no = lot_no
+            b.custom_cone = cone
+            b.custom_pulp = pulp
+            b.custom_lusture = lusture
+            b.custom_glue = glue
+            b.custom_grade = grade
+            b.custom_transaction_type = "VFY"
+            b.flags.ignore_mandatory = True
+            b.insert(ignore_permissions=True)
+        return c.name
+
+    @classmethod
+    def _make_sales_order(cls):
+        customer = frappe.db.get_value("Customer", {}, "name")
+        so = frappe.new_doc("Sales Order")
+        so.naming_series = "SO-MI1I136-.####"
+        so.customer = customer
+        so.company = COMPANY
+        so.transaction_type = "VFY"
+        so.transaction_date = frappe.utils.nowdate()
+        so.delivery_date = frappe.utils.add_days(frappe.utils.nowdate(), 7)
+        so.append("items", {
+            "item_code": cls.ITEM_1, "qty": cls.SO_ORDERED_QTY, "rate": 10,
+            "delivery_date": frappe.utils.add_days(frappe.utils.nowdate(), 7),
+            "custom_batch_no": "MI1I136-A-1",
+        })
+        so.flags.ignore_validate = True
+        so.flags.ignore_mandatory = True
+        so.insert(ignore_permissions=True)
+        frappe.db.set_value("Sales Order", so.name, "docstatus", 1, update_modified=False)
+        # Forcing docstatus this way (matching this file's established
+        # shortcut for Container/Batch/Stock Entry) skips ERPNext's own
+        # on_submit status computation -- status would stay "Draft"
+        # otherwise, and sales_order_booking_state only picks up orders
+        # whose status is in SO_OPEN_STATUSES.
+        frappe.db.set_value("Sales Order", so.name, "status", "To Deliver and Bill", update_modified=False)
+        return so.name
+
+    @classmethod
+    def _make_delivery_against_so(cls):
+        dn = frappe.new_doc("Delivery Note")
+        dn.customer = frappe.db.get_value("Customer", {}, "name")
+        dn.company = COMPANY
+        dn.is_return = 0
+        dn.posting_date = frappe.utils.nowdate()
+        dn.set_posting_time = 1
+        dn.append("items", {
+            "item_code": cls.ITEM_1, "qty": cls.DN_DELIVERED_QTY, "rate": 10,
+            "against_sales_order": cls.so, "so_detail": frappe.db.get_value(
+                "Sales Order Item", {"parent": cls.so}, "name"),
+            "custom_container_no": cls.CONTAINER_NO, "custom_lot_no": cls.LOT_A, "custom_cone": cls.CONE_1,
+        })
+        dn.flags.ignore_validate = True
+        dn.flags.ignore_mandatory = True
+        dn.insert(ignore_permissions=True)
+        frappe.db.set_value("Delivery Note", dn.name, "docstatus", 1, update_modified=False)
+        return dn.name
+
+    def test_two_items_and_cones_collapse_to_one_row_comma_joined(self):
+        m = _get_module()
+        rows = m.get_data({"container": self.CONTAINER_NO, "lot_no": self.LOT_A})
+        detail = [r for r in rows if r["sort_order"] == 0]
+        self.assertEqual(len(detail), 1, "two batches in one lot must collapse to a single row")
+        row = detail[0]
+        self.assertEqual(row["Item"], ", ".join(sorted([self.ITEM_1, self.ITEM_2])))
+        self.assertEqual(row["Cone"], f"{self.CONE_1}, {self.CONE_2}")
+        self.assertEqual(row["Pulp"], "Black, White")
+        self.assertEqual(row["Lusture"], "Bright, Matte")
+        self.assertEqual(row["Glue"], "EVA, PVA")
+        self.assertEqual(row["Grade"], "AA, BB")
+        self.assertEqual(row["In Qty"], self.TOTAL_NET_WEIGHT_A)
+
+    def test_no_per_lot_total_row_but_grand_total_present(self):
+        m = _get_module()
+        rows = m.get_data({"container": self.CONTAINER_NO})
+        sort_orders = sorted(set(r["sort_order"] for r in rows))
+        self.assertNotIn(1, sort_orders, "per-lot Total: row must be gone -- one row per lot already is that subtotal")
+        self.assertIn(2, sort_orders, "container spans two lots -- Grand Total: row must still exist")
+        detail_rows = [r for r in rows if r["sort_order"] == 0]
+        self.assertEqual(len(detail_rows), 2, "one row for lot A, one for lot B")
+        grand_total = next(r for r in rows if r["sort_order"] == 2)
+        self.assertAlmostEqual(
+            grand_total["In Qty"], self.TOTAL_NET_WEIGHT_A + self.TOTAL_NET_WEIGHT_B, places=2
+        )
+
+    def test_booked_qty_is_the_raw_ordered_amount_not_reduced_by_delivery(self):
+        """The Sales Order ordered 100; a Delivery Note against it has
+        already shipped 60. The original report's own "effective/released"
+        booking would show 40 (100 - 60) here -- MI1-I136 requires the
+        RAW 100 instead, unaffected by the delivery.
+
+        There is exactly one booking on this group, so it renders as a
+        single SO-expanded row with sort_order == 0 (not a separate
+        no-booking summary row) -- "bookings" itself is only an internal
+        key on the group-building dict, never a field on the final
+        rendered rows get_data() returns, so the per-SO figures are read
+        directly off that one row instead."""
+        m = _get_module()
+        rows = m.get_data({"container": self.CONTAINER_NO, "lot_no": self.LOT_A})
+        detail = [r for r in rows if r["sort_order"] == 0]
+        self.assertEqual(len(detail), 1)
+        row = detail[0]
+        self.assertEqual(row["Sales Order"], self.so)
+        self.assertEqual(row["Booked Qty"], self.SO_ORDERED_QTY, "must be the raw ordered qty, not ordered-minus-delivered")
+        self.assertEqual(row["Delivered Qty"], self.DN_DELIVERED_QTY)
+        self.assertEqual(row["Pending Qty"], self.SO_ORDERED_QTY - self.DN_DELIVERED_QTY)
+
+    def test_available_qty_on_the_so_row_is_balance_minus_raw_booked(self):
+        m = _get_module()
+        rows = m.get_data({"container": self.CONTAINER_NO, "lot_no": self.LOT_A})
+        so_row = next(r for r in rows if r.get("Sales Order") == self.so)
+        # The Delivery Note built for the booking above (qty 60, is_return=0,
+        # tagged with this container/lot/cone) is ALSO a real submitted
+        # delivery against this group -- correctly counted as Out Qty by
+        # the report's own movement ledger regardless of its Sales Order
+        # link, so Balance is 300 - 60 = 240, not the full 300.
+        expected_balance = self.TOTAL_NET_WEIGHT_A - self.DN_DELIVERED_QTY
+        self.assertEqual(so_row["Available Qty"], round(expected_balance - self.SO_ORDERED_QTY, 2))
+
+
+class TestInQtySumsAcrossDuplicateContainerLotKeys(FrappeTestCase):
+    """(container_no, lot_no) is NOT a unique key on Container -- real data
+    on this bench (e.g. MCJC-1038 / 14042025) has dozens of separate
+    Container documents sharing the identical container_no+lot_no text,
+    each its own small inward event with its own total_net_weight. The
+    original report's container_info lookup already has a "last one wins"
+    ambiguity for cross_section/notes/location/etc at this same key (pre-
+    existing, untouched, out of scope) -- but total_net_weight is new to
+    this report and is the figure the whole change request is built
+    around, so it must SUM across every Container document sharing the
+    key rather than silently keeping only the last one read."""
+
+    CONTAINER_NO = "MI1I136DUP-TEST"
+    LOT_NO = "L1"
+    ITEM = "MI1I136DUP-ITEM"
+    WEIGHT_1 = 200.0
+    WEIGHT_2 = 150.0
+
+    @classmethod
+    def _wipe(cls):
+        for r in frappe.get_all("Container", filters={"container_no": cls.CONTAINER_NO}, pluck="name"):
+            frappe.db.sql("DELETE FROM `tabBatch Items` WHERE parent=%s", (r,))
+            frappe.db.sql("DELETE FROM `tabContainer` WHERE name=%s", (r,))
+        frappe.db.sql("DELETE FROM `tabBatch` WHERE custom_container_no=%s", (cls.CONTAINER_NO,))
+        frappe.db.commit()
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._wipe()
+        if not frappe.db.exists("Item", cls.ITEM):
+            frappe.get_doc({
+                "doctype": "Item", "item_code": cls.ITEM, "item_name": cls.ITEM, "item_group": "Products",
+                "stock_uom": "Nos", "is_stock_item": 1, "has_batch_no": 1, "create_new_batch": 0,
+            }).insert(ignore_permissions=True)
+        cls.container_1 = cls._make_container("MI1I136DUP-A", cls.WEIGHT_1)
+        cls.container_2 = cls._make_container("MI1I136DUP-B", cls.WEIGHT_2)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._wipe()
+        super().tearDownClass()
+
+    @classmethod
+    def _make_container(cls, batch_id, total_net_weight):
+        c = frappe.new_doc("Container")
+        c.container_no = cls.CONTAINER_NO
+        c.lot_no = cls.LOT_NO
+        c.item = cls.ITEM
+        c.transaction_type = "VFY"
+        c.posting_date = frappe.utils.nowdate()
+        c.total_net_weight = total_net_weight
+        c.append("batches", {"batch_id": batch_id, "item": cls.ITEM, "qty": 10, "cone": 6})
+        c.flags.ignore_validate = True
+        c.flags.ignore_mandatory = True
+        c.insert(ignore_permissions=True)
+        frappe.db.set_value("Container", c.name, "docstatus", 1, update_modified=False)
+        b = frappe.new_doc("Batch")
+        b.batch_id = batch_id
+        b.item = cls.ITEM
+        b.custom_container_no = cls.CONTAINER_NO
+        b.custom_lot_no = cls.LOT_NO
+        b.custom_cone = 6
+        b.custom_transaction_type = "VFY"
+        b.flags.ignore_mandatory = True
+        b.insert(ignore_permissions=True)
+        return c.name
+
+    def test_two_containers_sharing_container_no_and_lot_no_sum_in_qty(self):
+        self.assertNotEqual(self.container_1, self.container_2, "must be two distinct Container documents")
+        m = _get_module()
+        rows = m.get_data({"container": self.CONTAINER_NO, "lot_no": self.LOT_NO})
+        detail = [r for r in rows if r["sort_order"] == 0]
+        self.assertEqual(len(detail), 1, "still one collapsed row for the (container_no, lot_no) pair")
+        self.assertEqual(detail[0]["In Qty"], self.WEIGHT_1 + self.WEIGHT_2)
 
 
 class TestMovementMapCaching(FrappeTestCase):
