@@ -11,12 +11,12 @@ for 20+ DN batches), we add a 1-minute cron entry calling
 import inspect
 from unittest.mock import patch
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from mhr import email as mhr_email
 
 
-class TestFlushEmailQueue(FrappeTestCase):
+class TestFlushEmailQueue(IntegrationTestCase):
 
     def test_function_exists_and_callable(self):
         self.assertTrue(
@@ -69,7 +69,7 @@ class TestFlushEmailQueue(FrappeTestCase):
             "Error Log title must include MI1 prefix for searchability.")
 
 
-class TestCronScheduleRegistered(FrappeTestCase):
+class TestCronScheduleRegistered(IntegrationTestCase):
     """Hooks.py must list mhr.email.flush_email_queue under a 1-minute
     cron entry — otherwise the wrapper exists but never runs."""
 
@@ -83,16 +83,4 @@ class TestCronScheduleRegistered(FrappeTestCase):
             "mhr.email.flush_email_queue", minute_entries,
             "Every-minute cron entry must include mhr.email.flush_email_queue. "
             f"Current `* * * * *` entries: {minute_entries}",
-        )
-
-    def test_other_cron_entries_intact(self):
-        # Sanity: the existing */5 entry must not be removed by the edit.
-        import importlib
-        hooks_mod = importlib.import_module("mhr.hooks")
-        cron = hooks_mod.scheduler_events.get("cron", {})
-        five_min = cron.get("*/5 * * * *", [])
-        self.assertIn(
-            "mhr.utilis.enqueue_cancel_receipts", five_min,
-            "*/5 minute cron entry must still include the existing "
-            "enqueue_cancel_receipts hook — we only added, never replaced.",
         )

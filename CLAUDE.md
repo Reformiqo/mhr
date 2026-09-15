@@ -1268,6 +1268,32 @@ queueing ahead of and stalling the in-flight job's own next UPDATE. Any
 DDL against a table under active heavy write load needs a quiet moment,
 not "the algorithm says it's non-blocking."
 
+**Confirmed, fixed (2026-09-15): site-wide Delivery Note "Request Timed
+Out" / `(1205) Lock wait timeout` after the v16 move — Meher-only because
+of mhr's own jobs plus Meher's size.** Two causes, verified on prod:
+- `mhr.batch.recalculate_batch_qty` ran **hourly** over every Batch
+  (513K) in one transaction. Frappe caps a transaction at 200,000 writes,
+  so it died with `TooManyWritesError` and rolled back every hour (363
+  Error Log entries, never once succeeded) — while holding up to 200K
+  Batch row locks that every DN submit/cancel needs. Removed together with
+  its whitelisted `enqueue_recalculate_batch_qty`. **Never schedule a
+  whole-table per-row loop here**; `recalculate_selected_batches` (bounded)
+  stays.
+- ERPNext's cancel path (`serial_batch_bundle.py ::
+  delink_serial_and_batch_bundle`) runs `UPDATE tabSerial and Batch Bundle
+  … WHERE voucher_no=, voucher_type=` once per row; ERPNext never indexes
+  `voucher_no`, so it read ~315K Delivery Note bundles (2.5 s each) and,
+  under REPEATABLE-READ, locked every row it read. v16 adds the same UPDATE
+  on Serial and Batch Entry (MI1-I146's index). Fixed by
+  `mhr.patches.v1_0.add_serial_batch_bundle_voucher_index`
+  (`idx_sbb_voucher (voucher_no, voucher_type)`): 2.5 s → 0.3 ms, 17 rows.
+  Same quiet-moment caveat as MI1-I146 for applying it.
+- Also removed the dead `*/5` cron `enqueue_cancel_receipts` (a one-off
+  "cancel every Purchase Receipt created before 2025-05-21" cleanup, still
+  whitelisted and scheduled; 0 matches on prod).
+Removing a job from `hooks.py` is enough: `bench migrate` → `sync_jobs` →
+`clear_events` deletes its Scheduled Job Type.
+
 **Flagged, not yet confirmed either way** — call out explicitly if seen:
 - `override_whitelisted_methods` (`mhr.sales_order_to_delivery_note`) and
   `override_doctype_dashboards` (`mhr.overrides.stock_entry_dashboard`)

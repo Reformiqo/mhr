@@ -3338,25 +3338,6 @@ def enqueue_submit_docs(doctype):
 
 
 @frappe.whitelist()
-def cancel_receipts():
-    # cancel receipts create on or before 21-05-2025 18:58:43
-    docs = frappe.get_all(
-        "Purchase Receipt", {"docstatus": 1, "creation": ("<", "2025-05-21 18:58:43")}
-    )
-    for doc in docs:
-        d = frappe.get_doc("Purchase Receipt", doc.name)
-        d.cancel()
-        frappe.db.commit()
-    return "receipts cancelled successfully"
-
-
-@frappe.whitelist()
-def enqueue_cancel_receipts():
-    frappe.enqueue("mhr.utilis.cancel_receipts", queue="long")
-    return "receipts cancelled successfully"
-
-
-@frappe.whitelist()
 def validate_so_available_qty(doc, method=None):
     """Prevent overbooking: ensure SO item qty does not exceed available stock for batches."""
     for item in doc.get("items") or []:

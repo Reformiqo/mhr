@@ -358,7 +358,6 @@ scheduler_events = {
     # 		"mhr.tasks.daily"
     # 	],
     	"hourly": [
-    		"mhr.batch.enqueue_recalculate_batch_qty",
     		# MI1-I119: keep the Stock Sheet's whole-site balance map warm.
     		"mhr.mhr.report.stock_sheet_(balance_report).stock_sheet_(balance_report).warm_balance_cache",
     		# MI1-I135: keep the v2 report's own whole-site movement map warm.
@@ -376,9 +375,6 @@ scheduler_events = {
     # 		"mhr.tasks.monthly"
     # 	],
     "cron" :{
-        "*/5 * * * *": [
-            "mhr.utilis.enqueue_cancel_receipts"
-        ],
         # MI1 — drain the Email Queue every minute so bulk-DN emails
         # don't pile up "Not Sent" while waiting for Frappe's default
         # flush cadence. Wrapper logs SMTP errors as

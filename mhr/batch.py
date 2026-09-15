@@ -1,23 +1,5 @@
 import frappe
 
-@frappe.whitelist()
-def recalculate_batch_qty():
-    batches = frappe.db.sql("""
-        SELECT name FROM `tabBatch`
-    """, as_dict=True)
-
-    for batch in batches:
-        actual_qty = get_batch_qty(batch.name)
-
-        frappe.db.sql("""
-            UPDATE `tabBatch`
-            SET batch_qty = %s
-            WHERE name = %s
-        """, (actual_qty, batch.name))
-
-    frappe.db.commit()
-    return f"Recalculated {len(batches)} batches"
-
 
 def get_batch_qty(batch_name):
     """
@@ -63,11 +45,6 @@ def debug_batch_qty(batch_name):
     """, (batch_name,), as_dict=True)
 
     return entries
-
-@frappe.whitelist()
-def enqueue_recalculate_batch_qty():
-    frappe.enqueue(recalculate_batch_qty, queue="long")
-
 
 @frappe.whitelist()
 def recalculate_selected_batches(batch_names):
