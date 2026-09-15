@@ -28,7 +28,7 @@ import json
 import re
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 SCRIPT_NAME = "MI1 — Delivery Note Cancel in Background"
 
@@ -64,7 +64,7 @@ def _live_code(source):
 	)
 
 
-class TestTheEndpointIsReachableFromTheDesk(FrappeTestCase):
+class TestTheEndpointIsReachableFromTheDesk(IntegrationTestCase):
 	def test_it_is_whitelisted(self):
 		"""frappe.whitelist() registers the function in frappe.whitelisted rather
 		than tagging it, so that list is what the check has to look at."""
@@ -81,7 +81,7 @@ class TestTheEndpointIsReachableFromTheDesk(FrappeTestCase):
 		self.assertNotIn(worker, frappe.whitelisted)
 
 
-class TestTheEndpointGuardsBeforeEnqueueing(FrappeTestCase):
+class TestTheEndpointGuardsBeforeEnqueueing(IntegrationTestCase):
 	def setUp(self):
 		self.source = _endpoint_source()
 
@@ -115,7 +115,7 @@ class TestTheEndpointGuardsBeforeEnqueueing(FrappeTestCase):
 		self.assertNotIn("doc.cancel()", self.source)
 
 
-class TestTheWorkerReportsBothOutcomes(FrappeTestCase):
+class TestTheWorkerReportsBothOutcomes(IntegrationTestCase):
 	def setUp(self):
 		self.source = _worker_source()
 
@@ -142,7 +142,7 @@ class TestTheWorkerReportsBothOutcomes(FrappeTestCase):
 		self.assertEqual(indent(publish), indent(except_at))
 
 
-class TestTheFormOffersItAndBlocksTheSlowPath(FrappeTestCase):
+class TestTheFormOffersItAndBlocksTheSlowPath(IntegrationTestCase):
 	def setUp(self):
 		self.code = _live_code(_client_script())
 
@@ -158,6 +158,12 @@ class TestTheFormOffersItAndBlocksTheSlowPath(FrappeTestCase):
 		"""Existing behaviour: below the threshold nothing is intercepted."""
 		body = self.code.split("before_cancel(frm) {", 1)[1].split("\n    },", 1)[0]
 		self.assertIn("if (n <= MI1_DNCANCEL_LARGE_ROWS) return;", body)
+
+	def test_threshold_stays_inside_the_request_timeout(self):
+		"""A 217-row normal cancel measured 55 s (~0.25 s/row); 300 rows keeps it under the 120 s request limit."""
+		match = re.search(r"var MI1_DNCANCEL_LARGE_ROWS = (\d+);", self.code)
+		self.assertIsNotNone(match)
+		self.assertEqual(int(match.group(1)), 300)
 
 	def test_the_button_calls_the_endpoint(self):
 		self.assertIn("mhr.utilis.cancel_delivery_note_in_background", self.code)
@@ -188,7 +194,7 @@ class TestTheFormOffersItAndBlocksTheSlowPath(FrappeTestCase):
 		self.assertIn("button above", self.code)
 
 
-class TestItDoesNotDisturbTheOtherDeliveryNoteScripts(FrappeTestCase):
+class TestItDoesNotDisturbTheOtherDeliveryNoteScripts(IntegrationTestCase):
 	"""Frappe concatenates every enabled Form Client Script for a DocType into
 	one blob and evaluates it together (frappe/desk/form/meta.py ::
 	add_custom_script), so a name declared twice breaks all of them."""
@@ -222,7 +228,7 @@ class TestItDoesNotDisturbTheOtherDeliveryNoteScripts(FrappeTestCase):
 			self.assertRegex(name, r"^(MI1_DNCANCEL_|mi1_dncancel_)")
 
 
-class TestTheFixtureWillActuallySync(FrappeTestCase):
+class TestTheFixtureWillActuallySync(IntegrationTestCase):
 	"""import_file_by_path skips a record whose DB `modified` is not older than
 	the JSON's, so an edit without a bump never reaches a migrated site."""
 
