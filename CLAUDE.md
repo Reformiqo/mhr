@@ -900,6 +900,75 @@ implementation and the spec line by line before touching anything):
   already correct per the spec (row-level `Delivery Note Item.qty`,
   filtered `docstatus=1` and `is_return`) and needed no change either.
 
+**MI1-I143 (2026-09-15, live review with Raj, two passes) reverted two of
+MI1-I136's three changes and pinned down every column's real source.**
+
+- **Pass 1 — row grain reverted.** "Item and Cone values are currently
+  getting combined ... reflected separately for each individual
+  stock/batch record, exactly like the original." Back to one row per
+  `(Container, Item, Lot, Cone, Pulp, Lusture, Glue, Grade)` — the original
+  report's own grouping key — instead of MI1-I136's one collapsed row per
+  `(Container, Lot)`. No more comma-joined columns; the per-lot "Total:"
+  subtotal row is back (multiple rows per lot again, no longer redundant
+  with a single collapsed row).
+- **Pass 2 — Raj then walked through the exact source of every column live**
+  (a second call, same day), which replaced MI1-I136's In Qty source and
+  confirmed everything else:
+  - **In Qty and Out Qty are computed exactly like the existing "Container
+    Report"** (`mhr/mhr/report/container_report`) — summed straight from
+    the real Serial and Batch Bundle ledger (`Serial and Batch Entry` rows
+    joined to `Serial and Batch Bundle` on `type_of_transaction` = Inward /
+    Outward), per batch, via the new `get_ledger_in_out()`. This replaces
+    BOTH MI1-I135's original raw-child-table reads (Batch Items / Delivery
+    Note Item / Stock Entry Detail) AND MI1-I136's `Container.
+    total_net_weight` — neither survives.
+  - **Double-counting fix, confirmed live before implementing:** ERPNext
+    tags a stock movement "Inward" purely from the posting Stock Ledger
+    Entry's `actual_qty` sign — there is no separate "return" classification
+    in `erpnext/stock/serial_batch_bundle.py`. A return Delivery Note
+    therefore posts an Inward-tagged bundle on the SAME batch it shipped
+    from (confirmed on real data: `MAT-DN-RET-2026-00014`'s bundle reads
+    `type_of_transaction=Inward`, same `batch_no` as the original shipment).
+    A naive "In Qty = every Inward bundle" would already include every
+    return, and GR Received (below) would then double it in the Balance
+    formula. Per Raj's explicit choice ("we exclude returns"),
+    `get_ledger_in_out()` excludes any Inward bundle whose `voucher_type`
+    is `'Delivery Note'` — the only source of a return-driven Inward bundle
+    in this domain (real Container Inward posts through Purchase Receipt,
+    Job Work Received through Stock Entry), so nothing real is excluded.
+  - **GR Received / Job work Send Qty are unchanged since MI1-I135** — any
+    return against the container (`Delivery Note Item`, `is_return=1`) and
+    any Send to Subcontractor issue row, respectively, both still read
+    straight off the raw child tables via `_compute_movement_totals`
+    (now trimmed to just these two — In/Out moved out to the ledger).
+  - **Balance Qty (and Balance Box) is `In Qty − Out Qty + GR Received −
+    Job work Send Qty`** — the ORIGINAL MI1-I135/I136 formula, confirmed
+    again explicitly by Raj (NOT the non-v2 original report's live-balance
+    approach, which was tried and reverted-from in an earlier pass of this
+    same ticket before Raj's second call settled it). Live Serial-and-
+    Batch-Bundle balance is still read in `get_data()`, but for exactly one
+    thing — which of a group's batches currently hold stock, to resolve
+    Accepted Warehouse — it does not feed Balance Qty.
+  - **Booked / Available / Delivered / Pending Qty needed no change** —
+    already matched Raj's description exactly (Booked = that Sales Order's
+    own raw total qty; Available = Balance − Booked; Delivered = the
+    Sales Order's own summed Delivery Note qty; Pending = Booked −
+    Delivered — all already `sales_order_booking_state`'s job since
+    MI1-I136).
+- **Test fixture note:** because In Qty / Out Qty are ledger-based again, a
+  test row that needs to render or carry a specific In/Out Qty MUST post a
+  REAL, properly submitted document (`.insert()` + `.submit()`), not the
+  force-docstatus shortcut this file otherwise uses freely for GR
+  Received / Job work Send Qty fixtures (those still read raw child-table
+  rows directly, unaffected by whether the stock ledger side actually
+  posted). A real fixture's batch name is a fixed string reused on every
+  test run, so a crashed prior run can leave a real Stock Entry / Delivery
+  Note sitting active against it — `_purge_batch_ledger()` force-cancels
+  (`docstatus=2` directly, never a real `.cancel()`, which can itself throw
+  on other stale cross-references) any voucher still touching a given
+  batch_no before that fixture builds again, and every real-document
+  fixture class in this test module calls it defensively in its own wipe.
+
 ### HTY Batch Label print (MI1-I62 / MI1-I142)
 
 One per-label HTML template (`mhr.utilis.HTY_LABEL_HTML`) is shared,

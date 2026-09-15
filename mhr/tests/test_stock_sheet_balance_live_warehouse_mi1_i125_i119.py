@@ -207,8 +207,15 @@ class TestFetchBatchesNumericWindow(FrappeTestCase):
     CONTAINER = "MIJAM-07"
 
     def test_scan_orders_numerically(self):
+        """MI1-I140 (2026-09-14): fetch_batches moved this ORDER BY from a
+        frappe.get_all order_by= kwarg (rejected by v16's strict order_by
+        validation) to a raw frappe.db.sql call — same CAST-based numeric
+        ordering, just built as parameterized SQL."""
         src = inspect.getsource(note.fetch_batches)
-        self.assertIn('order_by="CAST(custom_supplier_batch_no AS UNSIGNED) asc, custom_supplier_batch_no asc, name asc"', src)
+        self.assertIn(
+            "ORDER BY CAST(custom_supplier_batch_no AS UNSIGNED) ASC, custom_supplier_batch_no ASC, name ASC",
+            src,
+        )
 
     def test_window_is_the_numerically_smallest(self):
         if not frappe.db.exists("Batch", {"custom_container_no": self.CONTAINER}):
