@@ -176,6 +176,17 @@ class TestTheFormOffersItAndBlocksTheSlowPath(FrappeTestCase):
 		self.assertIn("frappe.realtime.on('mhr_delivery_note_cancelled'", self.code)
 		self.assertIn('event="mhr_delivery_note_cancelled"', _worker_source())
 
+	def test_the_dialog_points_at_the_button_not_a_menu(self):
+		"""MI1-I145 (2026-09-15, live user report — "there is no cancel in
+		background here", looking inside the ... menu as the dialog told
+		them to): frm.add_custom_button() with no group argument always
+		renders as a direct top-level toolbar button (frappe/public/js/
+		frappe/ui/page.js :: add_inner_button()), on v15 and v16 alike —
+		never nested in "...". The dialog and dashboard comment must not
+		claim otherwise again."""
+		self.assertNotIn("... menu", self.code)
+		self.assertIn("button above", self.code)
+
 
 class TestItDoesNotDisturbTheOtherDeliveryNoteScripts(FrappeTestCase):
 	"""Frappe concatenates every enabled Form Client Script for a DocType into

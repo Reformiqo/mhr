@@ -1235,6 +1235,39 @@ values are not always plain scalars — audit every caller (or the
 convention generally, as done here) before assuming `field = %(x)s` is
 safe.
 
+**Confirmed, fixed (MI1-I146, 2026-09-15): `Serial and Batch Entry`'s own
+schema differs between v15 and v16 — v16 adds `voucher_type` / `voucher_no`
+/ `is_cancelled` columns that v15 does not have at all.** A real `DESCRIBE`
+on this app's own v15 bench found neither column (only `is_outward`, with
+the voucher reference tracked solely on the parent Serial and Batch
+Bundle) — Frappe v16 denormalised the voucher reference onto every entry
+row. Surfaced live: a "Cancel in Background" run (MI1's own Delivery Note
+feature, sibling of MI1-I26) on a real 217-row note was caught mid-flight
+on the v16 bench — 6+ minutes in, 0 of 217 Serial and Batch Bundles
+cancelled — via `information_schema.processlist` showing the live query
+`UPDATE tabSerial and Batch Entry SET is_cancelled=1 WHERE voucher_no=...
+AND voucher_type=...` (part of ERPNext's own core cancel flow, not
+anything mhr's hooks do), and `EXPLAIN` confirming a full scan of the
+whole ~1.19M-row table — neither column was ever indexed. This UPDATE
+runs once per row being cancelled, so a 217-row note pays that scan 217
+times over. **Not the Scheduler**: confirmed still "Inactive" throughout
+while other on-demand background jobs on the same "long" queue worker ran
+and completed normally in the same window — the scheduler governs
+periodic/cron jobs only, never an on-demand `frappe.enqueue()` job's own
+work. Fixed by `mhr.patches.v1_0.add_serial_batch_entry_voucher_index`
+(same shape as MI1-I119's own index patch on the sibling table), guarded
+by a `columns_exist()` check so it is a clean no-op on a v15 site (the one
+pinned in `pyproject.toml` today, with `patches.txt` shared across every
+site regardless of version) rather than crashing `bench migrate` on a
+column that doesn't exist there. **A live attempt to add this index WHILE
+the cancel job was still running (`ALGORITHM=INPLACE, LOCK=NONE`) sat
+"Waiting for table metadata lock" for 8+ minutes and had to be killed** —
+a continuous stream of quick writes against the same table starves even a
+non-blocking ALTER's brief metadata-lock acquisition; it also risks
+queueing ahead of and stalling the in-flight job's own next UPDATE. Any
+DDL against a table under active heavy write load needs a quiet moment,
+not "the algorithm says it's non-blocking."
+
 **Flagged, not yet confirmed either way** — call out explicitly if seen:
 - `override_whitelisted_methods` (`mhr.sales_order_to_delivery_note`) and
   `override_doctype_dashboards` (`mhr.overrides.stock_entry_dashboard`)
