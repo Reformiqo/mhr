@@ -1562,39 +1562,84 @@ def calculate_received_totals(doc, method=None):
     doc.custom_received_total_cone = cone
 
 
-@frappe.whitelist()
-def update_item_batch(doc, method=None):
+def _submit_direction_cone_deltas(doc):
+    """One {batch_no: net signed cone delta} dict for update_item_batch's
+    own direction (return: +cone_value; non-return: -cone_value) — rows
+    sharing the same batch_no (a partial shipment split across two rows,
+    e.g.) net into a single delta instead of two sequential UPDATEs.
+
+    Batches the one DB read a return row needs (the original DN Item's own
+    custom_cone — the authoritative source) into a single frappe.get_all
+    call across every return row up front, instead of one frappe.db.
+    get_value per row. `ignore_permissions=True` matches frappe.db.
+    get_value's own no-permission-check behaviour exactly — a doc_events
+    hook has no reason to filter this internal lookup by the submitting
+    user's own read permissions.
+    """
+    return_dn_details = [
+        item.dn_detail for item in doc.items
+        if item.batch_no and doc.is_return and item.dn_detail
+    ]
+    original_cones = {}
+    if return_dn_details:
+        original_cones = {
+            r.name: cint(r.custom_cone)
+            for r in frappe.get_all(
+                "Delivery Note Item",
+                filters={"name": ["in", return_dn_details]},
+                fields=["name", "custom_cone"],
+                ignore_permissions=True,
+            )
+        }
+
+    deltas = {}
     for item in doc.items:
         if not item.batch_no:
             continue
         if doc.is_return:
-            # Always use cone from the original DN item (authoritative source)
-            cone_value = 0
-            if item.dn_detail:
-                cone_value = cint(
-                    frappe.db.get_value(
-                        "Delivery Note Item", item.dn_detail, "custom_cone"
-                    )
-                )
+            cone_value = original_cones.get(item.dn_detail, 0) if item.dn_detail else 0
             if not cone_value:
                 cone_value = cint(item.custom_cone)
-            frappe.db.sql(
-                """
-                UPDATE `tabBatch`
-                SET custom_cone = custom_cone + %s
-                WHERE name = %s
-            """,
-                (cone_value, item.batch_no),
-            )
+            delta = cone_value
         else:
-            frappe.db.sql(
-                """
-                UPDATE `tabBatch`
-                SET custom_cone = custom_cone - %s
-                WHERE name = %s
-            """,
-                (cint(item.custom_cone), item.batch_no),
-            )
+            delta = -cint(item.custom_cone)
+        deltas[item.batch_no] = deltas.get(item.batch_no, 0) + delta
+    return deltas
+
+
+def _apply_batch_cone_deltas(deltas):
+    """One UPDATE for every distinct batch touched, however many Delivery
+    Note rows fed it — a single CASE-based bulk update instead of one
+    UPDATE per row (MI1-I144, 2026-09-15: "50-100+ row Delivery Notes
+    time out on submit/cancel" — up to 200 individual round trips on a
+    100-row note between the UPDATEs themselves and the return rows' own
+    extra SELECT). Net effect on `tabBatch` is identical either way — a
+    batch touched by multiple rows nets to the same total change."""
+    deltas = {b: d for b, d in deltas.items() if d}
+    if not deltas:
+        return
+    batches = list(deltas.keys())
+    case_sql = " ".join(
+        f"WHEN %(b{i})s THEN custom_cone + %(d{i})s" for i in range(len(batches))
+    )
+    params = {}
+    for i, b in enumerate(batches):
+        params[f"b{i}"] = b
+        params[f"d{i}"] = deltas[b]
+    frappe.db.sql(
+        f"""
+        UPDATE `tabBatch`
+        SET custom_cone = CASE name {case_sql} END
+        WHERE name IN %(batches)s
+        """,
+        {**params, "batches": tuple(batches)},
+    )
+
+
+@frappe.whitelist()
+def update_item_batch(doc, method=None):
+    """MI1-I144: batched — see _apply_batch_cone_deltas's own docstring."""
+    _apply_batch_cone_deltas(_submit_direction_cone_deltas(doc))
 
 
 # MI1-I103 — update_batch_warehouse_on_stock_entry and its on_cancel twin were
@@ -1613,36 +1658,10 @@ def update_item_batch(doc, method=None):
 
 @frappe.whitelist()
 def reverse_item_batch(doc, method=None):
-    for item in doc.items:
-        if not item.batch_no:
-            continue
-        if doc.is_return:
-            cone_value = 0
-            if item.dn_detail:
-                cone_value = cint(
-                    frappe.db.get_value(
-                        "Delivery Note Item", item.dn_detail, "custom_cone"
-                    )
-                )
-            if not cone_value:
-                cone_value = cint(item.custom_cone)
-            frappe.db.sql(
-                """
-                UPDATE `tabBatch`
-                SET custom_cone = custom_cone - %s
-                WHERE name = %s
-            """,
-                (cone_value, item.batch_no),
-            )
-        else:
-            frappe.db.sql(
-                """
-                UPDATE `tabBatch`
-                SET custom_cone = custom_cone + %s
-                WHERE name = %s
-            """,
-                (cint(item.custom_cone), item.batch_no),
-            )
+    """MI1-I144: the exact reverse of update_item_batch's own delta,
+    batched the same way — see _apply_batch_cone_deltas's own docstring."""
+    deltas = _submit_direction_cone_deltas(doc)
+    _apply_batch_cone_deltas({batch_no: -delta for batch_no, delta in deltas.items()})
 
 
 @frappe.whitelist()
@@ -3774,32 +3793,72 @@ def restore_cones_for_hty_return(doc, method=None):
     if (getattr(doc, "transaction_type", None) or "VFY") != "HTY":
         return
 
+    # MI1-I144 (2026-09-15, "50-100+ row Delivery Notes time out on
+    # submit"): one SELECT + one UPDATE per row (up to 200 round trips on
+    # a 100-row return) replaced by one batched SELECT covering every
+    # (batch_no, container_no) pair up front, then one batched UPDATE.
+    # (container_no, batch_id) is not guaranteed unique across Container
+    # documents (a container_no text can repeat) — the original's own
+    # LIMIT 1 picked one arbitrary matching Batch Items row per pair; this
+    # keeps that exact behaviour (first row this batched query happens to
+    # return per pair, same level of arbitrariness — neither version orders
+    # the candidates), just resolved for every pair in one round trip.
+    cone_by_pair = {}
     for item in doc.items or []:
         cone = cint(getattr(item, "custom_cone", 0))
         batch_no = getattr(item, "batch_no", None)
         container_no = getattr(item, "custom_container_no", None)
         if not (cone and batch_no and container_no):
             continue
-        # Find the Batch Items child row (parent=Container doc, batch_id=batch_no).
-        rows = frappe.db.sql(
-            """
-            SELECT bi.name AS row_name, bi.parent AS container, bi.cone AS cur_cone
-            FROM `tabBatch Items` bi
-            JOIN `tabContainer` c ON c.name = bi.parent
-            WHERE bi.batch_id = %s
-              AND c.container_no = %s
-              AND c.docstatus = 1
-              AND bi.parenttype = 'Container'
-            LIMIT 1
-            """,
-            (batch_no, container_no),
-            as_dict=True,
-        )
-        if not rows:
-            continue
-        row = rows[0]
-        new_cone = cint(row.cur_cone) + cone
-        frappe.db.set_value("Batch Items", row.row_name, "cone", new_cone)
+        pair = (batch_no, container_no)
+        cone_by_pair[pair] = cone_by_pair.get(pair, 0) + cone
+
+    if not cone_by_pair:
+        return
+
+    pairs = list(cone_by_pair.keys())
+    values_sql = ", ".join(["(%s, %s)"] * len(pairs))
+    candidates = frappe.db.sql(
+        f"""
+        SELECT bi.name AS row_name, bi.batch_id AS batch_no, c.container_no AS container_no
+        FROM `tabBatch Items` bi
+        JOIN `tabContainer` c ON c.name = bi.parent
+        WHERE c.docstatus = 1
+          AND bi.parenttype = 'Container'
+          AND (bi.batch_id, c.container_no) IN ({values_sql})
+        """,
+        tuple(v for pair in pairs for v in pair),
+        as_dict=True,
+    )
+
+    row_deltas = {}
+    seen_pairs = set()
+    for c in candidates:
+        pair = (c.batch_no, c.container_no)
+        if pair in seen_pairs:
+            continue  # LIMIT 1 semantics — first candidate per pair only.
+        seen_pairs.add(pair)
+        row_deltas[c.row_name] = cone_by_pair[pair]
+
+    if not row_deltas:
+        return
+
+    row_names = list(row_deltas.keys())
+    case_sql = " ".join(
+        f"WHEN %(n{i})s THEN cone + %(d{i})s" for i in range(len(row_names))
+    )
+    params = {}
+    for i, n in enumerate(row_names):
+        params[f"n{i}"] = n
+        params[f"d{i}"] = row_deltas[n]
+    frappe.db.sql(
+        f"""
+        UPDATE `tabBatch Items`
+        SET cone = CASE name {case_sql} END
+        WHERE name IN %(names)s
+        """,
+        {**params, "names": tuple(row_names)},
+    )
     frappe.db.commit()
 
 

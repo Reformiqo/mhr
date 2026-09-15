@@ -148,15 +148,16 @@ class TestRestoreConesForHTYReturn(FrappeTestCase):
                 f"restore_cones_for_hty_return must read item.{fld}.")
 
     def test_writes_to_batch_items_cone(self):
+        """MI1-I144 (2026-09-15): batched into one UPDATE (a CASE
+        expression keyed on row name) instead of one frappe.db.set_value
+        per row — see mhr.tests.test_batch_cone_tracking_mi1_i144 for the
+        full functional coverage this used to lack entirely. Still an
+        increment (cone + delta) on `tabBatch Items`, never an overwrite."""
         src = inspect.getsource(mhr_utilis.restore_cones_for_hty_return)
+        self.assertIn('UPDATE `tabBatch Items`', src)
         self.assertIn(
-            'frappe.db.set_value("Batch Items"', src,
-            "Must update Batch Items.cone via frappe.db.set_value.",
-        )
-        # Increment, not overwrite — credit back.
-        self.assertIn(
-            "cint(row.cur_cone) + cone", src,
-            "Must add cone to current value, not replace it.",
+            "cone + %(d", src,
+            "Must add the cone delta to the current value, not replace it.",
         )
 
 

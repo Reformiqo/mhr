@@ -131,6 +131,32 @@ Three changes, same figures (verified cell-for-cell against the old code):
 - `Sales Order.validate` → `mhr.utilis.validate_so_available_qty`, `mhr.sales_order_hty.validate_hty_sales_order` (MI1-I90)
 - `Sales Order.before_submit` → `mhr.sales_order.validate_so_source_warehouse` (MI1-I128)
 
+**`update_item_batch` / `reverse_item_batch` / `restore_cones_for_hty_return`
+are batched, not one query per row** (MI1-I144, 2026-09-15, "50-100+ row
+Delivery Notes time out on save/submit ... this was not happening in the
+old server"). All three walk `doc.items` to keep `Batch.custom_cone` (and,
+for HTY returns, the source Container's `Batch Items.cone`) in sync with
+what a Delivery Note ships or returns. Each row used to cost its own
+`UPDATE` (a return row TWO — a `SELECT` for the original DN Item's own
+cone first) — up to 200 round trips on a 100-row note, scaling linearly
+with row count and multiplied straight through by however much higher
+per-query latency is on whatever server the DB now sits on. Fixed by
+netting every row's delta into one `{key: delta}` dict in Python first
+(rows sharing a batch — a partial shipment split across two rows, e.g. —
+net into a single change) and issuing exactly ONE `UPDATE ... SET x = CASE
+key WHEN ... END WHERE key IN (...)` regardless of row count;
+`restore_cones_for_hty_return`'s one unavoidable per-row lookup (which
+Batch Items row a given batch+container pair means) is resolved for every
+row in a single batched `SELECT` up front instead of one per row. Net
+effect on the data is identical either way — a batch or Batch Items row
+touched by several rows nets to the same total change; `_submit_direction_
+cone_deltas` computes `update_item_batch`'s own delta, and
+`reverse_item_batch` just negates it, so the two can never drift apart.
+No real functional test covered this cone math at all before this ticket
+— `mhr/tests/test_batch_cone_tracking_mi1_i144.py` fills that gap and
+pins the O(1) query count directly (mocking `frappe.db.sql` to count real
+calls, not just asserting on the resulting values).
+
 **A stock movement never rewrites a Container's inward attributes** (MI1-I103).
 `update_batch_warehouse_on_stock_entry` and its `on_cancel` twin used to write
 the entry's warehouse into `Container.set_warehouse` — what Container Inward
