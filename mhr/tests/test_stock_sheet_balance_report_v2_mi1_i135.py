@@ -972,8 +972,11 @@ class TestMovementMapCaching(FrappeTestCase):
 
     MI1-I143: this cache now covers only GR Received / Job work Send Qty
     (two queries, not the original five) -- In Qty / Out Qty moved to
-    get_ledger_in_out(), which is not cached (it is already scoped to the
-    exact batch_ids get_data() loads, the same way get_batch_balances is)."""
+    get_ledger_in_out(), which has its OWN separate whole-site cache
+    (get_all_ledger_in_out(), see TestLedgerCaching below) added the same
+    day after a live "why is this report so slow" report -- a narrow,
+    Container/Lot/Cone-filtered call to get_ledger_in_out() itself stays
+    direct and uncached, the same reasoning as get_batch_balances."""
 
     def setUp(self):
         m = _get_module()
@@ -1046,6 +1049,81 @@ class TestMovementMapCaching(FrappeTestCase):
         c.flags.ignore_mandatory = True
         c.insert(ignore_permissions=True)
         return c.name
+
+
+class TestLedgerCaching(FrappeTestCase):
+    """MI1-I143 follow-up (2026-09-15, "why is this report taking so long
+    ... system slow"): get_ledger_in_out() is a real per-batch DB query
+    with no memoisation of its own -- a whole-site run recomputed it fresh
+    every single time (~5-9 s measured against ~79K stocked batches on this
+    bench), unlike get_movement_totals() right next to it, which has had a
+    whole-site Redis cache since MI1-I135. get_all_ledger_in_out() closes
+    that gap the same way get_all_warehouse_balances caches the balance
+    map -- content-addressed on the ORIGINAL report's own balance_cache_key
+    (same two tables: Serial and Batch Bundle, Stock Ledger Entry)."""
+
+    def setUp(self):
+        m = _get_module()
+        self.key = f"{m.LEDGER_CACHE_KEY}:{m._original.balance_cache_key()}"
+        frappe.cache().delete_value(self.key)
+        frappe.local._mhr_v2_all_ledger_in_out = None
+
+    def tearDown(self):
+        frappe.cache().delete_value(self.key)
+        frappe.local._mhr_v2_all_ledger_in_out = None
+
+    def test_whole_site_call_is_cached(self):
+        m = _get_module()
+        first = m.get_all_ledger_in_out()
+        cached = m._original._read_cached_map(self.key)
+        self.assertIsInstance(cached, dict)
+        self.assertEqual(cached, first)
+
+    def test_second_whole_site_call_skips_the_expensive_query(self):
+        """A warm hit must never re-run the whole-table GROUP BY scan --
+        frappe.local's own per-request memoisation would already skip a
+        SECOND call in the exact same request, so this clears that first to
+        prove the REDIS cache (not just frappe.local) is what is saving it."""
+        m = _get_module()
+        m.get_all_ledger_in_out()  # populates the Redis cache
+        frappe.local._mhr_v2_all_ledger_in_out = None  # clear per-request memo only
+        calls = []
+        original_sql = frappe.db.sql
+
+        def _tracking_sql(*args, **kwargs):
+            calls.append(args[0] if args else "")
+            return original_sql(*args, **kwargs)
+
+        frappe.db.sql = _tracking_sql
+        try:
+            m.get_all_ledger_in_out()
+        finally:
+            frappe.db.sql = original_sql
+        expensive = [c for c in calls if "tabSerial and Batch Entry" in c]
+        self.assertEqual(expensive, [], "a warm cache hit must not re-run the ledger scan")
+
+    def test_narrow_filtered_call_is_never_cached(self):
+        """get_ledger_in_out() itself (the narrow, batch_ids-scoped call
+        get_data() uses for a Container/Lot/Cone-filtered run) must stay a
+        direct, uncached query -- caching every distinct filter combination
+        would grow unbounded, the same reasoning as get_batch_balances /
+        get_movement_totals's own narrow paths."""
+        m = _get_module()
+        m.get_ledger_in_out(["__does_not_exist__"])
+        self.assertIsNone(m._original._read_cached_map(self.key))
+
+    def test_warm_ledger_cache_builds_once_then_reports_warm(self):
+        m = _get_module()
+        self.assertEqual(m.warm_ledger_cache(), "built")
+        self.assertEqual(m.warm_ledger_cache(), "warm")
+
+    def test_cache_key_reuses_the_original_reports_balance_cache_key(self):
+        """Deliberately the SAME content-address function as the balance
+        map (both read Serial and Batch Bundle / Stock Ledger Entry) --
+        pin that this cache invalidates the moment that key does, without
+        duplicating its own MAX(modified) probes."""
+        m = _get_module()
+        self.assertIn(m._original.balance_cache_key(), self.key)
 
 
 class TestKeepInlineSurvivesTheRepeatableReadRace(FrappeTestCase):
@@ -1240,5 +1318,42 @@ class TestWarmupHooksAreWired(FrappeTestCase):
         import mhr.hooks as hooks
         self.assertIn(
             "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.warm_movement_cache",
+            hooks.scheduler_events["hourly"],
+        )
+
+
+class TestLedgerWarmupHooksAreWired(FrappeTestCase):
+    """MI1-I143 follow-up: enqueue_ledger_cache_warmup must be wired onto
+    every doctype that can post a Serial and Batch Bundle in this app --
+    the SAME set the ORIGINAL report's own enqueue_balance_cache_warmup
+    already covers, since both caches read the identical underlying
+    tables."""
+
+    HOOK = "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.enqueue_ledger_cache_warmup"
+
+    def test_registered_on_delivery_note_submit_and_cancel(self):
+        import mhr.hooks as hooks
+        for event in ("on_submit", "on_cancel"):
+            self.assertIn(self.HOOK, hooks.doc_events["Delivery Note"][event])
+
+    def test_registered_on_stock_entry_submit_and_cancel(self):
+        import mhr.hooks as hooks
+        for event in ("on_submit", "on_cancel"):
+            self.assertIn(self.HOOK, hooks.doc_events["Stock Entry"][event])
+
+    def test_registered_on_purchase_receipt_submit_and_cancel(self):
+        import mhr.hooks as hooks
+        for event in ("on_submit", "on_cancel"):
+            self.assertIn(self.HOOK, hooks.doc_events["Purchase Receipt"][event])
+
+    def test_registered_on_stock_reconciliation_submit_and_cancel(self):
+        import mhr.hooks as hooks
+        for event in ("on_submit", "on_cancel"):
+            self.assertIn(self.HOOK, hooks.doc_events["Stock Reconciliation"][event])
+
+    def test_hourly_scheduler_keeps_the_ledger_map_warm(self):
+        import mhr.hooks as hooks
+        self.assertIn(
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.warm_ledger_cache",
             hooks.scheduler_events["hourly"],
         )

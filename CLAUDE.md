@@ -969,6 +969,36 @@ MI1-I136's three changes and pinned down every column's real source.**
   batch_no before that fixture builds again, and every real-document
   fixture class in this test module calls it defensively in its own wipe.
 
+**MI1-I143 follow-up, same day ("why is this report taking so long ...
+system slow"): `get_ledger_in_out()` had no caching at all.** Pass 2
+replaced In Qty / Out Qty's source with a real per-batch query over the
+Serial and Batch Bundle ledger, but — unlike `get_movement_totals()` right
+next to it, which has had a whole-site Redis cache since MI1-I135 — that
+query ran fresh on **every single report open**: ~5-9 s measured against
+the ~79K stocked batches a whole-site run touches, on top of everything
+else that path already does. Repeated opens (or several people opening it)
+compounded into exactly "the report is slow and now the whole system feels
+slow" — sustained DB load from an expensive, uncached query re-run on every
+request, not a hardware or server-move issue. Fixed the same way
+`get_all_warehouse_balances` caches the balance map: `get_all_ledger_
+in_out()` builds one whole-table map (a single `GROUP BY sbe.batch_no`
+pass with no `batch_no IN (...)` filter — the same "narrow chunks vs. one
+full scan" switch `get_batch_warehouse_balances` already makes for its own
+large-set case) and caches it in Redis, content-addressed via the
+**original report's own `balance_cache_key()`** (it already tracks exactly
+the two tables this reads — Serial and Batch Bundle, Stock Ledger Entry —
+so reusing it, under a different namespaced key, means one invalidation
+rule instead of two to keep in sync). Warmed by `enqueue_ledger_cache_
+warmup`, hooked onto the identical doctype/event set as the original
+report's own `enqueue_balance_cache_warmup` (Delivery Note, Stock Entry,
+Purchase Receipt, Stock Reconciliation — submit and cancel), plus hourly
+via `warm_ledger_cache`. Measured: ~36 s cold (a one-time cost absorbed by
+the background warm-up job, never by a user's own request) vs. ~0.6 s
+warm — down from 5-9 s on *every* request. `get_ledger_in_out()` itself is
+untouched and still used directly, uncached, for a Container/Lot/Cone-
+filtered run (the batch set is already small there, same reasoning as
+`get_batch_balances`'s own narrow path).
+
 ### HTY Batch Label print (MI1-I62 / MI1-I142)
 
 One per-label HTML template (`mhr.utilis.HTY_LABEL_HTML`) is shared,

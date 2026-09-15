@@ -422,6 +422,111 @@ def get_ledger_in_out(batch_ids):
     return out
 
 
+LEDGER_CACHE_TTL = 6 * 3600
+LEDGER_CACHE_KEY = "mhr:balance_report_v2:ledger_in_out"
+LEDGER_WARM_JOB_ID = "mhr::warm_ledger_map"
+
+
+def _all_ledger_in_out_uncached():
+    """One whole-table pass, not `batch_no IN (...)` chunked ~190 times over
+    every batch on the site — the same "narrow chunks vs. one full scan"
+    switch `get_batch_warehouse_balances` already makes for its own large-set
+    case (prod: 0.16 s once vs. 0.02 s x 100 chunks there). Same WHERE/CASE
+    logic as get_ledger_in_out(), just without the batch_no filter."""
+    rows = frappe.db.sql(
+        """
+        SELECT
+            sbe.batch_no,
+            SUM(CASE WHEN sbb.type_of_transaction = 'Inward'
+                      AND sbb.voucher_type != 'Delivery Note'
+                 THEN ABS(sbe.qty) ELSE 0 END) AS in_qty,
+            SUM(CASE WHEN sbb.type_of_transaction = 'Inward'
+                      AND sbb.voucher_type != 'Delivery Note'
+                 THEN 1 ELSE 0 END) AS in_box,
+            SUM(CASE WHEN sbb.type_of_transaction = 'Outward'
+                 THEN ABS(sbe.qty) ELSE 0 END) AS out_qty,
+            SUM(CASE WHEN sbb.type_of_transaction = 'Outward'
+                 THEN 1 ELSE 0 END) AS out_box
+        FROM `tabSerial and Batch Entry` sbe
+        INNER JOIN `tabSerial and Batch Bundle` sbb
+            ON sbb.name = sbe.parent AND sbb.docstatus = 1
+        WHERE sbb.type_of_transaction IN ('Inward', 'Outward')
+        GROUP BY sbe.batch_no
+        """,
+        as_dict=True,
+    )
+    return {
+        r.batch_no: {
+            "in_qty": flt(r.in_qty), "out_qty": flt(r.out_qty),
+            "in_box": cint(r.in_box), "out_box": cint(r.out_box),
+        }
+        for r in rows
+    }
+
+
+def get_all_ledger_in_out():
+    """Whole-site In Qty / Out Qty ledger map, cached the same way
+    `get_all_warehouse_balances` caches the balance map (MI1-I143 follow-up,
+    2026-09-15, "why is this report taking so long ... system slow" —
+    get_ledger_in_out() is a real per-batch DB query with no memoisation of
+    its own, so a whole-site run recomputed it fresh every time: ~9 s
+    measured against ~79K stocked batches, on top of everything else the
+    whole-site path already does, with nothing to show for a repeat run
+    within the same stock state — unlike get_movement_totals() right next
+    to it, which has had exactly this kind of whole-site Redis cache since
+    MI1-I135.
+
+    Content-addressed via the ORIGINAL report's own `balance_cache_key()` —
+    it already tracks precisely the two tables this reads (Serial and Batch
+    Bundle, Stock Ledger Entry), so the same invalidation rule is correct
+    here too — under its own namespaced Redis key so it can never collide
+    with the balance map's own cached value under that same content address.
+    """
+    cached = getattr(frappe.local, "_mhr_v2_all_ledger_in_out", None)
+    if cached is not None:
+        return cached
+    key = f"{LEDGER_CACHE_KEY}:{_original.balance_cache_key()}"
+    out = _original._read_cached_map(key)
+    if not isinstance(out, dict):
+        out = _all_ledger_in_out_uncached()
+        frappe.cache().set_value(key, out, expires_in_sec=LEDGER_CACHE_TTL)
+    frappe.local._mhr_v2_all_ledger_in_out = out
+    return out
+
+
+def warm_ledger_cache():
+    """Build the whole-site ledger map if Redis does not hold it yet. Runs
+    in the long queue after any stock movement (enqueue_ledger_cache_warmup)
+    and hourly as a safety net, mirroring warm_balance_cache /
+    warm_movement_cache exactly."""
+    key = f"{LEDGER_CACHE_KEY}:{_original.balance_cache_key()}"
+    if isinstance(_original._read_cached_map(key), dict):
+        return "warm"
+    frappe.local._mhr_v2_all_ledger_in_out = None
+    get_all_ledger_in_out()
+    return "built"
+
+
+def enqueue_ledger_cache_warmup(doc=None, method=None):
+    """doc_events hook: queue one warm-up after the transaction commits.
+    Deduplicated by job id, mirrors enqueue_balance_cache_warmup /
+    enqueue_movement_cache_warmup exactly. Wired onto the same doctypes as
+    the ORIGINAL report's own enqueue_balance_cache_warmup — Delivery Note,
+    Stock Entry, Purchase Receipt, Stock Reconciliation — since both caches
+    read the identical underlying tables (Serial and Batch Bundle / Stock
+    Ledger Entry) and share the same invalidation key."""
+    try:
+        frappe.enqueue(
+            "mhr.mhr.report.stock_sheet_(balance_report)_v2.stock_sheet_(balance_report)_v2.warm_ledger_cache",
+            queue="long",
+            job_id=LEDGER_WARM_JOB_ID,
+            deduplicate=True,
+            enqueue_after_commit=True,
+        )
+    except Exception:
+        frappe.log_error(title="Stock Sheet (Balance Report) v2 ledger cache warm-up not queued")
+
+
 def get_data(filters=None):
     """MI1-I143 (2026-09-15, live review with Raj — two passes on the same
     day). Row grain: one row per (Container, Item, Lot, Cone, Pulp, Lusture,
@@ -531,6 +636,7 @@ def get_data(filters=None):
         balance_map = get_batch_balances(batch_ids, warehouse_balances)
         batches = get_batch_rows(batch_ids)
         stocked_ids = batch_ids
+        is_whole_site = False
     else:
         # Dates, Company and Transaction Type alone: the whole site's
         # (cached) balance map names the ~80K stocked batches; a batch with
@@ -557,6 +663,7 @@ def get_data(filters=None):
             and (allowed_containers is None or (b.container_no or "") in allowed_containers)
         ]
         stocked_ids = [b.batch_id for b in batches]
+        is_whole_site = True
     stocked_by_batch = live_warehouses_by_batch(warehouse_balances)
     if not batches:
         return []
@@ -565,8 +672,16 @@ def get_data(filters=None):
     # keys keep their insertion order.
     batches.sort(key=lambda b: b.batch_id)
 
-    # MI1-I143: In Qty / Out Qty, per batch, from the real ledger.
-    ledger = get_ledger_in_out([b.batch_id for b in batches])
+    # MI1-I143 follow-up ("why is this report so slow", 2026-09-15):
+    # get_ledger_in_out() is a real per-batch DB query with no memoisation
+    # of its own — a whole-site run recomputed it fresh every time (~5-9 s
+    # measured against 79K stocked batches, on top of everything else the
+    # whole-site path already does), unlike get_movement_totals() right
+    # next to it, which has had a whole-site Redis cache since MI1-I135.
+    # The whole-site case now reads the SAME cached map get_all_ledger_
+    # in_out() builds once per stock-state change; a Container/Lot/Cone-
+    # filtered run's batch set is small, so it stays a direct, uncached call.
+    ledger = get_all_ledger_in_out() if is_whole_site else get_ledger_in_out([b.batch_id for b in batches])
 
     container_keys = set()
     for b in batches:
