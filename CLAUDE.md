@@ -1068,7 +1068,7 @@ be executed at import in this module.
 
 ### Whitelisted endpoints
 
-`mhr/print.py`, `mhr/batch.py`, `mhr/container.py`, `mhr/note.py`, `mhr/sales_order.py`, `mhr/sales_order_hty.py`. All HTTP-callable functions must keep `@frappe.whitelist()` and validate permissions explicitly — don't rely on the decorator alone.
+`mhr/print.py`, `mhr/batch.py`, `mhr/container.py`, `mhr/note.py`, `mhr/sales_order.py`, `mhr/sales_order_hty.py`, `mhr/delivery_note_background.py`. All HTTP-callable functions must keep `@frappe.whitelist()` and validate permissions explicitly — don't rely on the decorator alone.
 
 ## After making changes
 
@@ -1293,6 +1293,15 @@ of mhr's own jobs plus Meher's size.** Two causes, verified on prod:
   whitelisted and scheduled; 0 matches on prod).
 Removing a job from `hooks.py` is enough: `bench migrate` → `sync_jobs` →
 `clear_events` deletes its Scheduled Job Type.
+
+**Large Delivery Notes submit and cancel on a background worker (2026-09-15).**
+Client Script `MI1 — Delivery Note Submit in Background` (> 50 rows, saved
+draft only; intercepts the standard Submit) → `mhr.delivery_note_background.
+submit_delivery_note_in_background` → `_submit_delivery_note_worker` (submits
+the same document, so the name never changes). Its sibling `MI1 — Delivery
+Note Cancel in Background` cuts over at > 300 rows (a 217-row normal cancel
+measured 55 s locally with both voucher indexes). On prod a 95-row submit
+measured 274 s, so the standard Submit is not safe much past ~40 rows there.
 
 **Flagged, not yet confirmed either way** — call out explicitly if seen:
 - `override_whitelisted_methods` (`mhr.sales_order_to_delivery_note`) and
